@@ -10,6 +10,7 @@
 #include "src/database/Frame.h"
 #include "src/database/Feature.h"
 #include "src/module/FeatureTracker.h"
+#include "src/util/Config.h"
 
 using namespace lightweight_vio;
 
@@ -76,6 +77,15 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     
+    // Load configuration
+    try {
+        Config::getInstance().load("config/euroc.yaml");
+        std::cout << "Configuration loaded successfully" << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to load configuration: " << e.what() << std::endl;
+        return -1;
+    }
+    
     std::string dataset_path = argv[1];
     std::cout << "Loading EuRoC dataset from: " << dataset_path << std::endl;
     
@@ -88,8 +98,6 @@ int main(int argc, char* argv[]) {
     
     // Initialize feature tracker
     FeatureTracker tracker;
-    tracker.set_max_features(150);
-    tracker.set_min_distance(30.0);
     
     std::shared_ptr<Frame> previous_frame = nullptr;
     int frame_id = 0;

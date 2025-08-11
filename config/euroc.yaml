@@ -1,0 +1,42 @@
+# EuRoC Dataset Configuration for Lightweight VIO
+
+# Feature Detection Parameters
+feature_detection:
+  max_features: 150
+  quality_level: 0.01
+  min_distance: 30.0
+
+# Optical Flow Tracking Parameters
+optical_flow:
+  window_size: 21
+  max_level: 3
+  max_iterations: 30
+  epsilon: 0.01
+  error_threshold: 30.0
+  max_movement: 100.0
+
+# Outlier Rejection Parameters
+outlier_rejection:
+  fundamental_threshold: 1.0
+  max_movement_distance: 50.0
+  max_velocity_change: 20.0
+  min_points_for_ransac: 8
+
+# Stereo Matching Parameters
+stereo_matching:
+  error_threshold: 50.0
+  min_disparity: 0.1
+  max_disparity: 300.0
+  max_y_difference: 20.0
+  epipolar_threshold: 5.0
+
+# Camera Parameters (EuRoC dataset)
+camera:
+  image_width: 752
+  image_height: 480
+  border_size: 1
+
+# Performance Parameters
+performance:
+  enable_timing: true
+  enable_debug_output: true

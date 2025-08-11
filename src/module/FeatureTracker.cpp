@@ -6,14 +6,7 @@
 namespace lightweight_vio {
 
 FeatureTracker::FeatureTracker()
-    : m_max_features(150)
-    , m_quality_level(0.01)
-    , m_min_distance(30.0)
-    , m_f_threshold(1.0)
-    , m_win_size(cv::Size(21, 21))
-    , m_max_level(3)
-    , m_criteria(cv::TermCriteria::COUNT | cv::TermCriteria::EPS, 30, 0.01)
-    , m_global_feature_id(0)
+    : m_global_feature_id(0)
 {
 }
 
@@ -38,7 +31,7 @@ void FeatureTracker::track_features(std::shared_ptr<Frame> current_frame,
     }
 
     // Extract new features if needed
-    if (current_frame->get_feature_count() < m_max_features) {
+    if (current_frame->get_feature_count() < m_config.getMaxFeatures()) {
         set_mask(current_frame);
         extract_new_features(current_frame);
     }
@@ -65,13 +58,14 @@ void FeatureTracker::extract_new_features(std::shared_ptr<Frame> frame) {
     // Set mask to avoid existing features
     for (const auto& feature : frame->get_features()) {
         if (feature->is_valid()) {
-            cv::circle(mask, feature->get_pixel_coord(), m_min_distance, 0, -1);
+            cv::circle(mask, feature->get_pixel_coord(), Config::getInstance().getMinDistance(), 0, -1);
         }
     }
 
     cv::goodFeaturesToTrack(frame->get_image(), corners, 
-                           m_max_features - frame->get_feature_count(),
-                           m_quality_level, m_min_distance, mask);
+                           Config::getInstance().getMaxFeatures() - frame->get_feature_count(),
+                           Config::getInstance().getQualityLevel(), 
+                           Config::getInstance().getMinDistance(), mask);
 
     for (const auto& corner : corners) {
         auto feature = std::make_shared<Feature>(m_global_feature_id++, corner);
@@ -100,22 +94,38 @@ void FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame> current_frame,
     std::vector<float> err;
 
     // Perform optical flow tracking
+    int window_size = Config::getInstance().getWindowSize();
     cv::calcOpticalFlowPyrLK(previous_frame->get_image(), current_frame->get_image(),
                             prev_pts, cur_pts, status, err,
-                            m_win_size, m_max_level, m_criteria);
+                            cv::Size(window_size, window_size), 
+                            Config::getInstance().getMaxLevel(), 
+                            Config::getInstance().getTermCriteria());
 
     // Create features for current frame based on tracking results
     int tracked_features = 0;
     for (size_t i = 0; i < prev_pts.size(); ++i) {
         if (status[i] && is_in_border(cur_pts[i], current_frame->get_image().size())) {
-            auto prev_feature = previous_frame->get_features()[i];
-            auto new_feature = std::make_shared<Feature>(
-                prev_feature->get_feature_id(),
-                cur_pts[i]
-            );
-            new_feature->set_track_count(prev_feature->get_track_count() + 1);
-            current_frame->add_feature(new_feature);
-            tracked_features++;
+            // Additional checks for tracking quality
+            float dx = cur_pts[i].x - prev_pts[i].x;
+            float dy = cur_pts[i].y - prev_pts[i].y;
+            float movement = std::sqrt(dx * dx + dy * dy);
+            
+            // Reject if error is too high or movement is too large
+            if (err[i] < Config::getInstance().getErrorThreshold() && 
+                movement < Config::getInstance().getMaxMovementDistance()) {
+                auto prev_feature = previous_frame->get_features()[i];
+                auto new_feature = std::make_shared<Feature>(
+                    prev_feature->get_feature_id(),
+                    cur_pts[i]
+                );
+                
+                // Update velocity
+                Eigen::Vector2f velocity(dx, dy);
+                new_feature->set_velocity(velocity);
+                new_feature->set_track_count(prev_feature->get_track_count() + 1);
+                current_frame->add_feature(new_feature);
+                tracked_features++;
+            }
         }
     }
 
@@ -134,6 +144,7 @@ void FeatureTracker::reject_outliers_with_fundamental_matrix(std::shared_ptr<Fra
 
     std::vector<cv::Point2f> prev_pts, cur_pts;
     std::vector<int> feature_ids;
+    std::vector<std::shared_ptr<Feature>> features_to_check;
 
     // Collect corresponding points
     for (const auto& feature : current_frame->get_features()) {
@@ -142,6 +153,7 @@ void FeatureTracker::reject_outliers_with_fundamental_matrix(std::shared_ptr<Fra
             prev_pts.push_back(prev_feature->get_pixel_coord());
             cur_pts.push_back(feature->get_pixel_coord());
             feature_ids.push_back(feature->get_feature_id());
+            features_to_check.push_back(feature);
         }
     }
 
@@ -149,19 +161,66 @@ void FeatureTracker::reject_outliers_with_fundamental_matrix(std::shared_ptr<Fra
         return;
     }
 
-    // Find fundamental matrix and inliers
-    std::vector<uchar> status;
-    cv::findFundamentalMat(prev_pts, cur_pts, cv::FM_RANSAC, m_f_threshold, 0.99, status);
+    std::vector<int> outlier_features;
 
-    // Remove outliers
-    for (size_t i = 0; i < status.size(); ++i) {
-        if (!status[i]) {
-            current_frame->remove_feature(feature_ids[i]);
+    // Step 1: Movement distance check (reject features that moved too far)
+    for (size_t i = 0; i < prev_pts.size(); ++i) {
+        float dx = cur_pts[i].x - prev_pts[i].x;
+        float dy = cur_pts[i].y - prev_pts[i].y;
+        float movement = std::sqrt(dx * dx + dy * dy);
+        
+        // Reject if movement is too large (likely tracking error)
+        if (movement > Config::getInstance().getMaxMovementDistance()) {
+            outlier_features.push_back(feature_ids[i]);
         }
     }
 
-    int outliers_removed = std::count(status.begin(), status.end(), 0);
-    std::cout << "Removed " << outliers_removed << " outliers using fundamental matrix" << std::endl;
+    // Step 2: Fundamental matrix RANSAC
+    std::vector<uchar> status;
+    if (prev_pts.size() >= 8) {
+        cv::findFundamentalMat(prev_pts, cur_pts, cv::FM_RANSAC, 
+                              Config::getInstance().getFundamentalThreshold(), 0.99, status);
+        
+        // Mark fundamental matrix outliers
+        for (size_t i = 0; i < status.size(); ++i) {
+            if (!status[i]) {
+                // Check if not already marked as outlier
+                if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
+                    outlier_features.push_back(feature_ids[i]);
+                }
+            }
+        }
+    }
+
+    // Step 3: Velocity consistency check (sudden direction changes)
+    for (size_t i = 0; i < features_to_check.size(); ++i) {
+        auto feature = features_to_check[i];
+        if (feature->get_track_count() > 1) {  // Need at least 2 frames of history
+            Eigen::Vector2f curr_vel = feature->get_velocity();
+            float dx = cur_pts[i].x - prev_pts[i].x;
+            float dy = cur_pts[i].y - prev_pts[i].y;
+            
+            // Check for sudden velocity change
+            float vel_diff_x = std::abs(dx - curr_vel.x());
+            float vel_diff_y = std::abs(dy - curr_vel.y());
+            
+            if (vel_diff_x > Config::getInstance().getMaxVelocityChange() || 
+                vel_diff_y > Config::getInstance().getMaxVelocityChange()) {
+                if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
+                    outlier_features.push_back(feature_ids[i]);
+                }
+            }
+        }
+    }
+
+    // Remove all outliers
+    for (int feature_id : outlier_features) {
+        current_frame->remove_feature(feature_id);
+    }
+
+    if (!outlier_features.empty()) {
+        std::cout << "Removed " << outlier_features.size() << " outliers (movement + fundamental matrix + velocity)" << std::endl;
+    }
 }
 
 void FeatureTracker::set_mask(std::shared_ptr<Frame> frame) {

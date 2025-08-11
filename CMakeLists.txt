@@ -17,6 +17,7 @@ include_directories(src)
 file(GLOB_RECURSE SOURCES 
     "src/database/*.cpp"
     "src/module/*.cpp"
+    "src/util/*.cpp"
 )
 
 # Add executable

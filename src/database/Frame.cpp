@@ -1,4 +1,5 @@
 #include "Frame.h"
+#include "../util/Config.h"
 #include <algorithm>
 #include <iostream>
 
@@ -71,12 +72,6 @@ void Frame::extract_features(int max_features) {
     
     std::cout << "[TIMING] Feature extraction: " << duration.count() / 1000.0 << " ms | "
               << "Extracted " << corners.size() << " features" << std::endl;
-}
-
-void Frame::reject_outliers_with_fundamental_matrix() {
-    // This function would implement fundamental matrix RANSAC
-    // For now, it's a placeholder
-    std::cout << "Rejecting outliers with fundamental matrix (placeholder)" << std::endl;
 }
 
 cv::Mat Frame::draw_features() const {
@@ -217,9 +212,11 @@ void Frame::compute_stereo_matches() {
     }
 
     // Perform optical flow tracking from left to right image with improved parameters
+    int window_size = Config::getInstance().getWindowSize();
     cv::calcOpticalFlowPyrLK(m_left_image, m_right_image, left_pts, right_pts, 
-                            status, err, cv::Size(21, 21), 3,
-                            cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, 0.01),
+                            status, err, cv::Size(window_size, window_size), 
+                            Config::getInstance().getMaxLevel(),
+                            Config::getInstance().getTermCriteria(),
                             0, 1e-4); // Lower eigenvalue threshold for better tracking
 
     int matches_found = 0;
@@ -232,7 +229,7 @@ void Frame::compute_stereo_matches() {
     size_t feature_idx = 0;
     for (auto& feature : m_features) {
         if (feature->is_valid() && feature_idx < status.size()) {
-            if (status[feature_idx] && err[feature_idx] < 50.0f) { // Very loose error threshold
+            if (status[feature_idx] && err[feature_idx] < Config::getInstance().getStereoErrorThreshold()) { // Very loose error threshold
                 good_left_pts.push_back(left_pts[feature_idx]);
                 good_right_pts.push_back(right_pts[feature_idx]);
             }
@@ -247,7 +244,7 @@ void Frame::compute_stereo_matches() {
         // Estimate fundamental matrix with RANSAC
         fundamental_matrix = cv::findFundamentalMat(
             good_left_pts, good_right_pts, cv::FM_RANSAC, 
-            3.0, 0.99, inlier_mask
+            Config::getInstance().getFundamentalThreshold(), 0.99, inlier_mask
         );
         
         std::cout << "Fundamental matrix estimated from " << cv::countNonZero(inlier_mask) 
@@ -292,12 +289,13 @@ void Frame::compute_stereo_matches() {
                 float disparity = left_pt.x - right_pt.x;
                 float y_diff = std::abs(left_pt.y - right_pt.y);
                 
-                if (disparity < 0.1f || disparity > 300.0f) {
+                if (disparity < Config::getInstance().getMinDisparity() || 
+                    disparity > Config::getInstance().getMaxDisparity()) {
                     is_valid_match = false;
                 }
                 
                 // Reject if y-coordinate difference is too large (even for unrectified stereo)
-                if (y_diff > 20.0f) {
+                if (y_diff > Config::getInstance().getMaxYDifference()) {
                     is_valid_match = false;
                 }
                 
@@ -316,46 +314,6 @@ void Frame::compute_stereo_matches() {
     std::cout << "[TIMING] Stereo matching: " << duration.count() / 1000.0 << " ms | "
               << "Matched " << matches_found << "/" << left_pts.size() << " features"
               << " (using epipolar constraint for unrectified stereo)" << std::endl;
-}
-
-void Frame::estimate_depth_from_stereo(float baseline, float focal_length) {
-    if (!is_stereo()) {
-        std::cout << "Cannot estimate depth: not a stereo frame" << std::endl;
-        return;
-    }
-
-    int depth_computed = 0;
-    for (auto& feature : m_features) {
-        if (feature->is_valid() && feature->has_stereo_match()) {
-            float disparity = feature->get_stereo_disparity();
-            if (disparity > 0.5f) {
-                float depth = (baseline * focal_length) / disparity;
-                if (depth > 0.1f && depth < 100.0f) { // Reasonable depth range
-                    feature->set_depth(depth);
-                    depth_computed++;
-                }
-            }
-        }
-    }
-
-    std::cout << "Computed depth for " << depth_computed << " features" << std::endl;
-}
-
-cv::Mat Frame::compute_disparity_map() const {
-    if (!is_stereo()) {
-        std::cout << "Cannot compute disparity map: not a stereo frame" << std::endl;
-        return cv::Mat();
-    }
-
-    cv::Ptr<cv::StereoBM> stereo = cv::StereoBM::create(16, 9);
-    cv::Mat disparity;
-    stereo->compute(m_left_image, m_right_image, disparity);
-    
-    // Normalize disparity for visualization
-    cv::Mat disparity_vis;
-    cv::normalize(disparity, disparity_vis, 0, 255, cv::NORM_MINMAX, CV_8U);
-    
-    return disparity_vis;
 }
 
 } // namespace lightweight_vio

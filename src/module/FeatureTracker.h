@@ -5,6 +5,7 @@
 #include <vector>
 #include "../database/Frame.h"
 #include "../database/Feature.h"
+#include "../util/Config.h"
 
 namespace lightweight_vio {
 
@@ -29,24 +30,9 @@ public:
     // Feature distribution
     void set_mask(std::shared_ptr<Frame> frame);
 
-    // Getters/Setters
-    void set_max_features(int max_features) { m_max_features = max_features; }
-    int get_max_features() const { return m_max_features; }
-    
-    void set_min_distance(double min_distance) { m_min_distance = min_distance; }
-    double get_min_distance() const { return m_min_distance; }
-
 private:
-    // Parameters
-    int m_max_features;
-    double m_quality_level;
-    double m_min_distance;
-    double m_f_threshold;
-    
-    // Optical flow parameters
-    cv::Size m_win_size;
-    int m_max_level;
-    cv::TermCriteria m_criteria;
+    // Configuration reference
+    const Config& m_config = Config::getInstance();
     
     // Global feature ID counter
     int m_global_feature_id;

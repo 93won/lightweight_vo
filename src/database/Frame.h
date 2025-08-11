@@ -48,12 +48,9 @@ public:
 
     // Feature operations
     void extract_features(int max_features = 150);
-    void reject_outliers_with_fundamental_matrix();
     
     // Stereo operations
     void compute_stereo_matches();
-    void estimate_depth_from_stereo(float baseline, float focal_length);
-    cv::Mat compute_disparity_map() const;
     
     // Visualization
     cv::Mat draw_features() const;
