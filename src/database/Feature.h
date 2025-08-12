@@ -58,6 +58,12 @@ public:
     const cv::Point2f& get_right_undistorted_coord() const { return m_right_undistorted_coord; }
     float get_stereo_disparity() const { return m_disparity; }
     float get_undistorted_disparity() const { return m_undistorted_disparity; }
+    Eigen::Vector2f get_right_undistorted_coord_normalized() const {
+        if (m_right_undistorted_coord.x < 0) return Eigen::Vector2f(-1, -1);
+        // This is a placeholder - ideally this should be calculated and stored
+        // during undistortion. For now, we assume it's just the undistorted coord.
+        return Eigen::Vector2f(m_right_undistorted_coord.x, m_right_undistorted_coord.y);
+    }
     
     // Calculate parallax between two observations
     float calculate_parallax(const Feature& other) const;
@@ -77,6 +83,7 @@ private:
     // Stereo matching data
     cv::Point2f m_right_coord;     // Pixel coordinates in right image
     cv::Point2f m_right_undistorted_coord; // Undistorted pixel coordinates in right image
+    Eigen::Vector2f m_right_normalized_coord; // Normalized coordinates in right camera
     float m_disparity;             // Stereo disparity (pixel coordinates)
     float m_undistorted_disparity; // Undistorted stereo disparity
     bool m_has_stereo_match;

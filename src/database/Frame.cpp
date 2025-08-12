@@ -141,17 +141,15 @@ cv::Mat Frame::draw_stereo_matches() const {
                     // Draw matching line (yellow)
                     cv::line(combined_image, left_pt, right_pt_shifted, cv::Scalar(0, 255, 255), 1);
                     
-                    // Show disparity value (use undistorted disparity if available)
-                    float disparity = feature->get_undistorted_disparity();
-                    if (disparity <= 0) {
-                        disparity = feature->get_stereo_disparity(); // fallback to original disparity
+                    // Show 3D point info instead of disparity
+                    if (feature->has_3d_point()) {
+                        Eigen::Vector3f pt3d = feature->get_3d_point();
+                        std::string depth_str = cv::format("%.2fm", pt3d[2]);
+                        cv::putText(combined_image, depth_str, 
+                                   cv::Point(left_pt.x + 5, left_pt.y - 5), 
+                                   cv::FONT_HERSHEY_SIMPLEX, 0.4, 
+                                   cv::Scalar(255, 255, 255), 1);
                     }
-                    
-                    std::string disp_str = cv::format("%.1f", disparity);
-                    cv::putText(combined_image, disp_str, 
-                               cv::Point(left_pt.x + 5, left_pt.y - 5), 
-                               cv::FONT_HERSHEY_SIMPLEX, 0.4, 
-                               cv::Scalar(255, 255, 255), 1);
                 }
             }
         }
@@ -168,11 +166,11 @@ cv::Mat Frame::draw_stereo_matches() const {
 
 cv::Mat Frame::draw_rectified_stereo_matches() const {
     if (!is_stereo()) {
-        std::cout << "Cannot draw rectified stereo matches: not a stereo frame" << std::endl;
+        std::cout << "Cannot draw normalized stereo matches: not a stereo frame" << std::endl;
         return cv::Mat();
     }
 
-    // Create side-by-side display of rectified images
+    // Create side-by-side display showing normalized coordinate space visualization
     cv::Mat left_display, right_display;
     if (m_left_image.channels() == 1) {
         cv::cvtColor(m_left_image, left_display, cv::COLOR_GRAY2BGR);
@@ -187,62 +185,64 @@ cv::Mat Frame::draw_rectified_stereo_matches() const {
     cv::hconcat(left_display, right_display, combined_image);
     
     int right_offset = m_left_image.cols;
-    int valid_rectified_matches = 0;
+    int valid_stereo_matches = 0;
 
-    // Draw rectified features and matches
+    // Draw normalized features and matches
     for (const auto& feature : m_features) {
         if (feature->is_valid()) {
-            // Use rectified (undistorted) coordinates for drawing
-            cv::Point2f left_rect = feature->get_undistorted_coord();
+            // Use original pixel coordinates for visualization
+            cv::Point2f left_px = feature->get_pixel_coord();
             
-            // Draw left rectified feature (green circle)
-            cv::circle(combined_image, left_rect, 3, cv::Scalar(0, 255, 0), 2);
+            // Draw left feature (green circle)
+            cv::circle(combined_image, left_px, 3, cv::Scalar(0, 255, 0), 2);
             
             if (feature->has_stereo_match()) {
-                cv::Point2f right_rect = feature->get_right_undistorted_coord();
+                cv::Point2f right_px = feature->get_right_coord();
                 
-                // Check if rectified stereo match is valid
-                if (right_rect.x >= 0 && right_rect.y >= 0 && feature->get_undistorted_disparity() > 0) {
-                    cv::Point2f right_rect_shifted(right_rect.x + right_offset, right_rect.y);
+                // Check if stereo match is valid
+                if (right_px.x >= 0 && right_px.y >= 0) {
+                    cv::Point2f right_px_shifted(right_px.x + right_offset, right_px.y);
                     
-                    // Draw right rectified feature (red circle)
-                    cv::circle(combined_image, right_rect_shifted, 3, cv::Scalar(0, 0, 255), 2);
+                    // Draw right feature (red circle)
+                    cv::circle(combined_image, right_px_shifted, 3, cv::Scalar(0, 0, 255), 2);
                     
-                    // Draw matching line (yellow) - should be horizontal for rectified stereo
-                    cv::line(combined_image, left_rect, right_rect_shifted, cv::Scalar(0, 255, 255), 1);
+                    // Draw matching line (yellow)
+                    cv::line(combined_image, left_px, right_px_shifted, cv::Scalar(0, 255, 255), 1);
                     
-                    // Show rectified disparity value
-                    float disparity = feature->get_undistorted_disparity();
-                    std::string disp_str = cv::format("%.1f", disparity);
-                    cv::putText(combined_image, disp_str, 
-                               cv::Point(left_rect.x + 5, left_rect.y - 5), 
-                               cv::FONT_HERSHEY_SIMPLEX, 0.4, 
-                               cv::Scalar(255, 255, 255), 1);
-                    
-                    // Show Y difference (should be very small)
-                    float y_diff = std::abs(left_rect.y - right_rect.y);
-                    float max_y_threshold = Config::getInstance().getMaxRectifiedYDifference();
-                    if (y_diff > max_y_threshold) { // Highlight if Y difference is large
-                        cv::putText(combined_image, cv::format("Y:%.1f", y_diff), 
-                                   cv::Point(left_rect.x + 5, left_rect.y + 15), 
-                                   cv::FONT_HERSHEY_SIMPLEX, 0.3, 
-                                   cv::Scalar(0, 0, 255), 1); // Red text for large Y diff
+                    // Show 3D point depth if available
+                    if (feature->has_3d_point()) {
+                        Eigen::Vector3f pt3d = feature->get_3d_point();
+                        std::string depth_str = cv::format("%.2fm", pt3d[2]);
+                        cv::putText(combined_image, depth_str, 
+                                   cv::Point(left_px.x + 5, left_px.y - 5), 
+                                   cv::FONT_HERSHEY_SIMPLEX, 0.4, 
+                                   cv::Scalar(255, 255, 255), 1);
                     }
                     
-                    valid_rectified_matches++;
+                    // Show normalized coordinates for debugging
+                    Eigen::Vector2f norm = feature->get_normalized_coord();
+                    if (norm[0] != 0.0f || norm[1] != 0.0f) { // Check if normalized coord is valid
+                        std::string norm_str = cv::format("(%.2f,%.2f)", norm[0], norm[1]);
+                        cv::putText(combined_image, norm_str, 
+                                   cv::Point(left_px.x + 5, left_px.y + 15), 
+                                   cv::FONT_HERSHEY_SIMPLEX, 0.3, 
+                                   cv::Scalar(0, 255, 255), 1);
+                    }
+                    
+                    valid_stereo_matches++;
                 }
             }
         }
     }
 
     // Add labels
-    cv::putText(combined_image, "Left Rectified", cv::Point(10, 30), 
+    cv::putText(combined_image, "Left (Normalized)", cv::Point(10, 30), 
                cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
-    cv::putText(combined_image, "Right Rectified", cv::Point(right_offset + 10, 30), 
+    cv::putText(combined_image, "Right (Normalized)", cv::Point(right_offset + 10, 30), 
                cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
     
     // Show statistics
-    cv::putText(combined_image, cv::format("Valid matches: %d", valid_rectified_matches), 
+    cv::putText(combined_image, cv::format("Valid matches: %d", valid_stereo_matches), 
                cv::Point(10, combined_image.rows - 10), 
                cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
 
@@ -383,22 +383,16 @@ void Frame::compute_stereo_matches() {
                     }
                 }
                 
-                // Additional basic checks
-                float disparity = left_pt.x - right_pt.x;
+                // Additional basic checks (remove disparity-based checks)
                 float y_diff = std::abs(left_pt.y - right_pt.y);
                 
-                if (disparity < Config::getInstance().getMinDisparity() || 
-                    disparity > Config::getInstance().getMaxDisparity()) {
-                    is_valid_match = false;
-                }
-                
-                // Reject if y-coordinate difference is too large (even for unrectified stereo)
+                // Reject if y-coordinate difference is too large (basic sanity check)
                 if (y_diff > Config::getInstance().getMaxYDifference()) {
                     is_valid_match = false;
                 }
                 
                 if (is_valid_match) {
-                    feature->set_stereo_match(right_pt, disparity);
+                    feature->set_stereo_match(right_pt, -1.0f); // No disparity stored
                     matches_found++;
                 } else {
                     // Invalid match - reset stereo match data
@@ -421,7 +415,7 @@ void Frame::compute_stereo_matches() {
     if (Config::getInstance().isTimingEnabled()) {
         std::cout << "[TIMING] Stereo matching: " << duration.count() / 1000.0 << " ms | "
                   << "Matched " << matches_found << "/" << left_pts.size() << " features"
-                  << " (using epipolar constraint for unrectified stereo)" << std::endl;
+                  << " (using epipolar constraint, no disparity)" << std::endl;
     }
 }
 
@@ -433,85 +427,58 @@ void Frame::undistort_features() {
     cv::Mat left_D = config.getLeftDistCoeffs();
     cv::Mat right_K = config.getRightCameraMatrix();
     cv::Mat right_D = config.getRightDistCoeffs();
-    cv::Mat T_lr = config.getLeftToRightTransform();
     
-    if (left_K.empty() || left_D.empty() || right_K.empty() || right_D.empty() || T_lr.empty()) {
-        std::cerr << "Camera calibration not available for stereo rectification" << std::endl;
+    if (left_K.empty() || left_D.empty()) {
+        std::cerr << "Camera calibration not available for undistortion" << std::endl;
         return;
     }
     
-    // Extract rotation and translation for stereo rectification
-    cv::Mat R = T_lr(cv::Rect(0, 0, 3, 3));
-    cv::Mat t = T_lr(cv::Rect(3, 0, 1, 3));
+    // Convert to Eigen for easier computation  
+    Eigen::Matrix3d K_left_eigen;
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            K_left_eigen(i, j) = left_K.at<double>(i, j);
+        }
+    }
     
-    // Image size
-    cv::Size image_size(m_left_image.cols, m_left_image.rows);
-    
-    // Compute stereo rectification matrices
-    cv::Mat R1, R2, P1, P2, Q;
-    cv::Mat map1_left, map2_left, map1_right, map2_right;
-    
-    cv::stereoRectify(left_K, left_D, right_K, right_D, image_size, R, t,
-                      R1, R2, P1, P2, Q, cv::CALIB_ZERO_DISPARITY, -1, image_size);
-    
-    // Create rectification maps
-    cv::initUndistortRectifyMap(left_K, left_D, R1, P1, image_size, CV_32FC1, map1_left, map2_left);
-    cv::initUndistortRectifyMap(right_K, right_D, R2, P2, image_size, CV_32FC1, map1_right, map2_right);
-    
-    // Process all features
+    // Process all features - convert to normalized coordinates only
     for (auto& feature : m_features) {
         if (feature->is_valid()) {
-            // Rectify left feature point
-            std::vector<cv::Point2f> left_distorted = {feature->get_pixel_coord()};
-            std::vector<cv::Point2f> left_rectified;
-            cv::undistortPoints(left_distorted, left_rectified, left_K, left_D, R1, P1);
+            // Get original pixel coordinate
+            cv::Point2f pixel_pt = feature->get_pixel_coord();
             
-            feature->set_undistorted_coord(left_rectified[0]);
+            // Method 1: Direct undistortion to normalized coordinates (no rectification)
+            std::vector<cv::Point2f> distorted_pts = {pixel_pt};
+            std::vector<cv::Point2f> undistorted_pts;
             
-            // Compute normalized coordinates using rectified camera matrix P1
-            cv::Point2f rect_pt = left_rectified[0];
-            double fx = P1.at<double>(0, 0);
-            double fy = P1.at<double>(1, 1);
-            double cx = P1.at<double>(0, 2);
-            double cy = P1.at<double>(1, 2);
+            // Undistort to normalized coordinates (output is already normalized)
+            cv::undistortPoints(distorted_pts, undistorted_pts, left_K, left_D);
             
-            double normalized_x = (static_cast<double>(rect_pt.x) - cx) / fx;
-            double normalized_y = (static_cast<double>(rect_pt.y) - cy) / fy;
-            Eigen::Vector2f normalized(static_cast<float>(normalized_x), static_cast<float>(normalized_y));
+            // Store undistorted coordinate (for compatibility, though we mainly use normalized)
+            feature->set_undistorted_coord(undistorted_pts[0]);
+            
+            // Store normalized coordinate (same as undistorted in this case)
+            Eigen::Vector2f normalized(undistorted_pts[0].x, undistorted_pts[0].y);
             feature->set_normalized_coord(normalized);
             
-            // If stereo match exists, rectify right point and compute disparity
+            // For stereo matches, we don't need rectification anymore
+            // The triangulation will handle the geometric relationship directly
             if (feature->has_stereo_match()) {
-                std::vector<cv::Point2f> right_distorted = {feature->get_right_coord()};
-                std::vector<cv::Point2f> right_rectified;
-                cv::undistortPoints(right_distorted, right_rectified, right_K, right_D, R2, P2);
+                cv::Point2f right_pixel = feature->get_right_coord();
                 
-                // Check if rectification was successful
-                cv::Point2f left_rect = left_rectified[0];
-                cv::Point2f right_rect = right_rectified[0];
-                
-                // Check Y difference in rectified coordinates (should be very small now)
-                float rectified_y_diff = std::abs(left_rect.y - right_rect.y);
-                float max_rectified_y_diff = static_cast<float>(config.getMaxRectifiedYDifference());
-                
-                if (rectified_y_diff > max_rectified_y_diff) {
-                    // Y difference too large even after rectification - invalidate stereo match
-                    feature->set_stereo_match(cv::Point2f(-1, -1), -1.0f);
-                    feature->set_undistorted_stereo_match(cv::Point2f(-1, -1), -1.0f);
-                } else {
-                    // Calculate rectified disparity (should be positive for proper stereo)
-                    float rectified_disparity = left_rect.x - right_rect.x;
+                // Check if stereo match is valid
+                if (right_pixel.x >= 0 && right_pixel.y >= 0) {
+                    // For right camera, undistort to normalized coordinates
+                    std::vector<cv::Point2f> right_distorted = {right_pixel};
+                    std::vector<cv::Point2f> right_undistorted;
                     
-                    if (rectified_disparity > 0.0f && 
-                        rectified_disparity >= static_cast<float>(config.getMinDisparity()) &&
-                        rectified_disparity <= static_cast<float>(config.getMaxDisparity())) {
-                        // Store rectified right coordinate and disparity
-                        feature->set_undistorted_stereo_match(right_rect, rectified_disparity);
-                    } else {
-                        // Invalid disparity - invalidate stereo match
-                        feature->set_stereo_match(cv::Point2f(-1, -1), -1.0f);
-                        feature->set_undistorted_stereo_match(cv::Point2f(-1, -1), -1.0f);
-                    }
+                    cv::undistortPoints(right_distorted, right_undistorted, right_K, right_D);
+                    
+                    // Store right undistorted coordinate
+                    feature->set_undistorted_stereo_match(right_undistorted[0], -1.0f); // No disparity concept
+                } else {
+                    // Invalid stereo match
+                    feature->set_undistorted_stereo_match(cv::Point2f(-1, -1), -1.0f);
                 }
             }
         }
@@ -520,19 +487,21 @@ void Frame::undistort_features() {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     
-    // Count valid rectified stereo matches
-    int valid_rectified_matches = 0;
+    // Count valid stereo matches (no disparity constraint)
+    int valid_stereo_matches = 0;
     for (const auto& feature : m_features) {
-        if (feature->is_valid() && feature->has_stereo_match() && 
-            feature->get_undistorted_disparity() > 0) {
-            valid_rectified_matches++;
+        if (feature->is_valid() && feature->has_stereo_match()) {
+            cv::Point2f right_undist = feature->get_right_undistorted_coord();
+            if (right_undist.x >= 0 && right_undist.y >= 0) {
+                valid_stereo_matches++;
+            }
         }
     }
     
     if (config.isTimingEnabled()) {
-        std::cout << "[TIMING] Stereo rectification: " << duration.count() / 1000.0 << " ms | "
-                  << "Rectified " << m_features.size() << " features | "
-                  << "Valid rectified stereo matches: " << valid_rectified_matches << std::endl;
+        std::cout << "[TIMING] Feature undistortion to normalized coords: " << duration.count() / 1000.0 << " ms | "
+                  << "Processed " << m_features.size() << " features | "
+                  << "Valid stereo matches: " << valid_stereo_matches << std::endl;
     }
 }
 
@@ -544,110 +513,149 @@ void Frame::triangulate_stereo_points() {
     cv::Mat left_D = config.getLeftDistCoeffs();
     cv::Mat right_K = config.getRightCameraMatrix();
     cv::Mat right_D = config.getRightDistCoeffs();
-    cv::Mat T_lr = config.getLeftToRightTransform();
+    cv::Mat T_rl = config.getLeftToRightTransform();  // Actually right-to-left transform
     
-    if (left_K.empty() || right_K.empty() || T_lr.empty()) {
+    if (left_K.empty() || right_K.empty() || T_rl.empty()) {
         std::cerr << "Camera calibration not available for triangulation" << std::endl;
         return;
     }
     
-    // Extract rotation and translation for stereo rectification
-    cv::Mat R = T_lr(cv::Rect(0, 0, 3, 3));
-    cv::Mat t = T_lr(cv::Rect(3, 0, 1, 3));
+    // Extract rotation and translation (T_rl: right to left transform)
+    // We need to convert this to left-to-right for triangulation
+    cv::Mat R_rl = T_rl(cv::Rect(0, 0, 3, 3));  // Right to left rotation
+    cv::Mat t_rl = T_rl(cv::Rect(3, 0, 1, 3));  // Right to left translation
     
-    // Image size
-    cv::Size image_size(m_left_image.cols, m_left_image.rows);
+    // Convert to left-to-right transform: T_lr = T_rl^(-1)
+    cv::Mat R_lr = R_rl.t();  // R^(-1) = R^T for rotation matrix
+    cv::Mat t_lr = -R_rl.t() * t_rl;  // t_lr = -R_rl^T * t_rl
     
-    // Compute stereo rectification matrices (same as in undistort_features)
-    cv::Mat R1, R2, P1, P2, Q;
-    cv::stereoRectify(left_K, left_D, right_K, right_D, image_size, R, t,
-                      R1, R2, P1, P2, Q, cv::CALIB_ZERO_DISPARITY, -1, image_size);
+    // Convert to Eigen for easier computation
+    Eigen::Matrix3d R_eigen, K_left_eigen, K_right_eigen;
+    Eigen::Vector3d t_eigen;
     
-    // Convert rectified projection matrices to Eigen
-    Eigen::Matrix<double, 3, 4> P1_eigen, P2_eigen;
+    // Convert CV matrices to Eigen (manual conversion)
     for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 4; j++) {
-            P1_eigen(i, j) = P1.at<double>(i, j);
-            P2_eigen(i, j) = P2.at<double>(i, j);
+        for (int j = 0; j < 3; j++) {
+            R_eigen(i, j) = R_lr.at<double>(i, j);  // Use left-to-right rotation
+            K_left_eigen(i, j) = left_K.at<double>(i, j);
+            K_right_eigen(i, j) = right_K.at<double>(i, j);
         }
     }
+    // Handle translation vector separately (3x1)
+    t_eigen << t_lr.at<double>(0,0), t_lr.at<double>(1,0), t_lr.at<double>(2,0);  // Use left-to-right translation
     
     // Counters for debugging
     int triangulated_count = 0;
     int depth_rejected = 0;
     int reprojection_rejected = 0;
     int total_stereo_matches = 0;
-    int homogeneous_fail_count = 0;
+    int normalized_fail_count = 0;
     std::vector<double> depth_values;
     
     for (auto& feature : m_features) {
         if (feature->is_valid() && feature->has_stereo_match()) {
             total_stereo_matches++;
             
-            // Get rectified pixel coordinates (these are the "undistorted" coordinates from rectification)
-            cv::Point2f left_pt = feature->get_undistorted_coord();
-            cv::Point2f right_pt = feature->get_right_undistorted_coord();
+            // Get original pixel coordinates (unrectified)
+            cv::Point2f left_px = feature->get_pixel_coord();
+            cv::Point2f right_px = feature->get_right_coord();
             
-            // Check if rectified coordinates are valid
-            if (right_pt.x < 0 || right_pt.y < 0) {
-                // Skip if rectified right coordinate is invalid
+            // Check if stereo match is valid
+            if (right_px.x < 0 || right_px.y < 0) {
                 continue;
             }
             
-            // Convert to Eigen vectors
-            Eigen::Vector2d pix1(left_pt.x, left_pt.y);
-            Eigen::Vector2d pix2(right_pt.x, right_pt.y);
+            // Convert pixel coordinates to normalized coordinates
+            Eigen::Vector3d left_normalized, right_normalized;
             
-            // SVD triangulation using rectified projection matrices
+            // Left camera normalization: (u-cx)/fx, (v-cy)/fy, 1
+            left_normalized << 
+                (left_px.x - K_left_eigen(0,2)) / K_left_eigen(0,0),
+                (left_px.y - K_left_eigen(1,2)) / K_left_eigen(1,1),
+                1.0;
+                
+            // Right camera normalization: (u-cx)/fx, (v-cy)/fy, 1  
+            right_normalized <<
+                (right_px.x - K_right_eigen(0,2)) / K_right_eigen(0,0),
+                (right_px.y - K_right_eigen(1,2)) / K_right_eigen(1,1),
+                1.0;
+            
+            // Triangulation using SVD
+            // Setup design matrix: A * X = 0
             Eigen::Matrix4d A;
-            A.row(0) = pix1[0] * P1_eigen.row(2) - P1_eigen.row(0);
-            A.row(1) = pix1[1] * P1_eigen.row(2) - P1_eigen.row(1);
-            A.row(2) = pix2[0] * P2_eigen.row(2) - P2_eigen.row(0);
-            A.row(3) = pix2[1] * P2_eigen.row(2) - P2_eigen.row(1);
             
+            // Left camera projection matrix is [I | 0] (identity pose)
+            Eigen::Matrix<double, 3, 4> P_left;
+            P_left.setZero();
+            P_left.block<3,3>(0,0) = Eigen::Matrix3d::Identity();
+            
+            // Right camera projection matrix is [R | t]
+            Eigen::Matrix<double, 3, 4> P_right;
+            P_right.block<3,3>(0,0) = R_eigen;
+            P_right.block<3,1>(0,3) = t_eigen;
+            
+            // Build constraint equations: normalized_point^T * [P * X] = 0
+            A.row(0) = left_normalized[0] * P_left.row(2) - P_left.row(0);
+            A.row(1) = left_normalized[1] * P_left.row(2) - P_left.row(1);
+            A.row(2) = right_normalized[0] * P_right.row(2) - P_right.row(0);
+            A.row(3) = right_normalized[1] * P_right.row(2) - P_right.row(1);
+            
+            // Solve using SVD
             Eigen::JacobiSVD<Eigen::Matrix4d> svd(A, Eigen::ComputeFullV);
             Eigen::Vector4d X_h = svd.matrixV().col(3);
             
             // Check homogeneous coordinate
             if (std::abs(X_h[3]) < 1e-6) {
-                homogeneous_fail_count++;
+                normalized_fail_count++;
                 continue;
             }
             
-            // Convert to 3D point
+            // Convert to 3D point in left camera frame
             X_h /= X_h[3];
             Eigen::Vector3d pos_3d = X_h.head<3>();
             
             depth_values.push_back(pos_3d[2]);
             
-            // Check depth range
+            // Check depth range (positive depth in front of camera)
             if (pos_3d[2] < config.getMinDepth() || pos_3d[2] > config.getMaxDepth()) {
                 depth_rejected++;
                 continue;
             }
             
-            // Reprojection error check using rectified projection matrices
-            // Project back to left rectified camera
-            Eigen::Vector3d proj_left = P1_eigen * X_h;
-            Eigen::Vector2d reproj_left(proj_left[0] / proj_left[2], proj_left[1] / proj_left[2]);
+            // Reprojection error check using normalized coordinates
+            // Project 3D point back to left camera (should match left_normalized)
+            Eigen::Vector3d reproj_left = pos_3d; // Already in left camera frame
+            reproj_left /= reproj_left[2]; // Normalize by depth
             
-            // Project back to right rectified camera  
-            Eigen::Vector3d proj_right = P2_eigen * X_h;
-            Eigen::Vector2d reproj_right(proj_right[0] / proj_right[2], proj_right[1] / proj_right[2]);
+            // Project 3D point to right camera
+            Eigen::Vector3d pos_right = R_eigen * pos_3d + t_eigen;
+            if (pos_right[2] <= 0) { // Check positive depth in right camera
+                depth_rejected++;
+                continue;
+            }
+            Eigen::Vector3d reproj_right = pos_right / pos_right[2];
             
-            // Calculate reprojection errors
-            double left_error = (pix1 - reproj_left).norm();
-            double right_error = (pix2 - reproj_right).norm();
+            // Calculate reprojection errors in normalized coordinates
+            double left_error = (left_normalized.head<2>() - reproj_left.head<2>()).norm();
+            double right_error = (right_normalized.head<2>() - reproj_right.head<2>()).norm();
             double max_error = std::max(left_error, right_error);
             
-            if (max_error > config.getMaxReprojectionError()) {
+            // Use normalized coordinate reprojection threshold
+            double max_reproj_error = config.getMaxReprojectionError() / std::min(K_left_eigen(0,0), K_left_eigen(1,1));
+            
+            if (max_error > max_reproj_error) {
                 reprojection_rejected++;
                 continue;
             }
             
-            // Success! Store the 3D point (transform back to original left camera frame if needed)
+            // Success! Store the 3D point in left camera frame
             Eigen::Vector3f point3D_float = pos_3d.cast<float>();
             feature->set_3d_point(point3D_float);
+            
+            // Update normalized coordinates in feature (using left camera)
+            Eigen::Vector2f normalized_2d(left_normalized[0], left_normalized[1]);
+            feature->set_normalized_coord(normalized_2d);
+            
             triangulated_count++;
         }
     }
@@ -656,11 +664,11 @@ void Frame::triangulate_stereo_points() {
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     
     if (config.isTimingEnabled()) {
-        std::cout << "[TIMING] Rectified stereo triangulation: " << duration.count() / 1000.0 << " ms | "
+        std::cout << "[TIMING] Normalized stereo triangulation: " << duration.count() / 1000.0 << " ms | "
                   << "Triangulated " << triangulated_count << " 3D points from " << total_stereo_matches 
                   << " stereo matches (depth rejected: " << depth_rejected 
                   << ", reprojection rejected: " << reprojection_rejected 
-                  << ", homogeneous failed: " << homogeneous_fail_count << ")" << std::endl;
+                  << ", normalization failed: " << normalized_fail_count << ")" << std::endl;
     }
 }
 
