@@ -39,9 +39,11 @@ void FeatureTracker::track_features(std::shared_ptr<Frame> current_frame,
     auto total_end = std::chrono::high_resolution_clock::now();
     auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(total_end - total_start);
     
-    std::cout << "[TIMING] Total feature tracking: " << total_duration.count() / 1000.0 << " ms | "
-              << "Frame " << current_frame->get_frame_id() 
-              << " has " << current_frame->get_feature_count() << " features" << std::endl;
+    if (m_config.isTimingEnabled()) {
+        std::cout << "[TIMING] Total feature tracking: " << total_duration.count() / 1000.0 << " ms | "
+                  << "Frame " << current_frame->get_frame_id() 
+                  << " has " << current_frame->get_feature_count() << " features" << std::endl;
+    }
 }
 
 void FeatureTracker::extract_new_features(std::shared_ptr<Frame> frame) {
@@ -53,30 +55,33 @@ void FeatureTracker::extract_new_features(std::shared_ptr<Frame> frame) {
     }
 
     std::vector<cv::Point2f> corners;
-    cv::Mat mask = cv::Mat::ones(frame->get_image().size(), CV_8UC1);
     
-    // Set mask to avoid existing features
-    for (const auto& feature : frame->get_features()) {
-        if (feature->is_valid()) {
-            cv::circle(mask, feature->get_pixel_coord(), Config::getInstance().getMinDistance(), 0, -1);
+    // Use the mask created by set_mask function
+    cv::Mat mask_to_use = m_mask.empty() ? cv::Mat() : m_mask;
+
+    int features_needed = Config::getInstance().getMaxFeatures() - frame->get_feature_count();
+    
+    if (features_needed > 0) {
+        cv::goodFeaturesToTrack(frame->get_image(), corners, 
+                               features_needed,
+                               Config::getInstance().getQualityLevel(), 
+                               Config::getInstance().getMinDistance(), 
+                               mask_to_use);
+
+        for (const auto& corner : corners) {
+            auto feature = std::make_shared<Feature>(m_global_feature_id++, corner);
+            frame->add_feature(feature);
         }
-    }
-
-    cv::goodFeaturesToTrack(frame->get_image(), corners, 
-                           Config::getInstance().getMaxFeatures() - frame->get_feature_count(),
-                           Config::getInstance().getQualityLevel(), 
-                           Config::getInstance().getMinDistance(), mask);
-
-    for (const auto& corner : corners) {
-        auto feature = std::make_shared<Feature>(m_global_feature_id++, corner);
-        frame->add_feature(feature);
     }
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     
-    std::cout << "[TIMING] New feature extraction: " << duration.count() / 1000.0 << " ms | "
-              << "Extracted " << corners.size() << " new features" << std::endl;
+    const Config& config = Config::getInstance();
+    if (config.isTimingEnabled()) {
+        std::cout << "[TIMING] New feature extraction: " << duration.count() / 1000.0 << " ms | "
+                  << "Extracted " << corners.size() << " new features" << std::endl;
+    }
 }
 
 void FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame> current_frame,
@@ -132,8 +137,10 @@ void FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame> current_frame,
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     
-    std::cout << "[TIMING] Optical flow tracking: " << duration.count() / 1000.0 << " ms | "
-              << "Tracked " << tracked_features << "/" << prev_pts.size() << " features" << std::endl;
+    if (m_config.isTimingEnabled()) {
+        std::cout << "[TIMING] Optical flow tracking: " << duration.count() / 1000.0 << " ms | "
+                  << "Tracked " << tracked_features << "/" << prev_pts.size() << " features" << std::endl;
+    }
 }
 
 void FeatureTracker::reject_outliers_with_fundamental_matrix(std::shared_ptr<Frame> current_frame,
@@ -218,16 +225,54 @@ void FeatureTracker::reject_outliers_with_fundamental_matrix(std::shared_ptr<Fra
         current_frame->remove_feature(feature_id);
     }
 
-    if (!outlier_features.empty()) {
+    if (!outlier_features.empty() && m_config.isDebugOutputEnabled()) {
         std::cout << "Removed " << outlier_features.size() << " outliers (movement + fundamental matrix + velocity)" << std::endl;
     }
 }
 
 void FeatureTracker::set_mask(std::shared_ptr<Frame> frame) {
-    // This is a placeholder for the mask setting function
-    // In VINS-Mono, this ensures uniform distribution of features
-    // For now, we'll just print a message
-    std::cout << "Setting mask for uniform feature distribution (placeholder)" << std::endl;
+    if (frame->get_image().empty()) {
+        std::cerr << "Cannot set mask: image is empty" << std::endl;
+        return;
+    }
+    
+    // Create mask initialized to 255 (valid areas for feature detection)
+    m_mask = cv::Mat(frame->get_image().size(), CV_8UC1, cv::Scalar(255));
+    
+    const Config& config = Config::getInstance();
+    int min_distance = static_cast<int>(config.getMinDistance());
+    int border_size = config.getBorderSize();
+    
+    // Set border regions to 0 (invalid for feature detection)
+    if (border_size > 0) {
+        m_mask(cv::Rect(0, 0, frame->get_image().cols, border_size)) = 0;                    // Top
+        m_mask(cv::Rect(0, frame->get_image().rows - border_size, frame->get_image().cols, border_size)) = 0; // Bottom
+        m_mask(cv::Rect(0, 0, border_size, frame->get_image().rows)) = 0;                    // Left
+        m_mask(cv::Rect(frame->get_image().cols - border_size, 0, border_size, frame->get_image().rows)) = 0; // Right
+    }
+    
+    // For each existing feature, create a circular mask around it
+    for (const auto& feature : frame->get_features()) {
+        if (feature->is_valid()) {
+            cv::Point2f pt = feature->get_pixel_coord();
+            
+            // Check if feature is within image bounds
+            if (pt.x >= 0 && pt.y >= 0 && 
+                pt.x < frame->get_image().cols && pt.y < frame->get_image().rows) {
+                
+                // Create circular mask around existing feature
+                cv::circle(m_mask, pt, min_distance, cv::Scalar(0), -1);
+            }
+        }
+    }
+    
+    if (config.isDebugOutputEnabled()) {
+        int valid_pixels = cv::countNonZero(m_mask);
+        int total_pixels = m_mask.rows * m_mask.cols;
+        std::cout << "[DEBUG] Mask set: " << valid_pixels << "/" << total_pixels 
+                  << " pixels available for new features (" 
+                  << (100.0 * valid_pixels / total_pixels) << "%)" << std::endl;
+    }
 }
 
 void FeatureTracker::update_feature_track_count(std::shared_ptr<Frame> frame) {

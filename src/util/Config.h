@@ -30,9 +30,11 @@ public:
         return cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 
                                max_iterations, epsilon); 
     }
+    double getMinEigenThreshold() const { return min_eigen_threshold; }
     
     // Outlier Rejection Parameters
     double getFundamentalThreshold() const { return fundamental_threshold; }
+    double getFundamentalConfidence() const { return fundamental_confidence; }
     double getMaxMovementDistance() const { return max_movement_distance; }
     double getMaxVelocityChange() const { return max_velocity_change; }
     int getMinPointsForRansac() const { return min_points_for_ransac; }
@@ -44,10 +46,26 @@ public:
     double getMaxYDifference() const { return max_y_difference; }
     double getEpipolarThreshold() const { return epipolar_threshold; }
     
+    // Stereo Rectification Parameters
+    double getMaxRectifiedYDifference() const { return max_rectified_y_difference; }
+    
+    // Triangulation Parameters
+    double getMinDepth() const { return min_depth; }
+    double getMaxDepth() const { return max_depth; }
+    double getMaxReprojectionError() const { return max_reprojection_error; }
+    double getMinParallax() const { return min_parallax; }
+    
     // Camera Parameters
     int getImageWidth() const { return image_width; }
     int getImageHeight() const { return image_height; }
     int getBorderSize() const { return border_size; }
+    
+    // Camera Calibration
+    cv::Mat getLeftCameraMatrix() const { return left_camera_matrix.clone(); }
+    cv::Mat getRightCameraMatrix() const { return right_camera_matrix.clone(); }
+    cv::Mat getLeftDistCoeffs() const { return left_dist_coeffs.clone(); }
+    cv::Mat getRightDistCoeffs() const { return right_dist_coeffs.clone(); }
+    cv::Mat getLeftToRightTransform() const { return T_left_right.clone(); }
     
     // Performance Parameters
     bool isTimingEnabled() const { return enable_timing; }
@@ -68,9 +86,11 @@ private:
     double epsilon = 0.01;
     double error_threshold = 30.0;
     double max_movement = 100.0;
+    double min_eigen_threshold = 1e-4;
     
     // Outlier Rejection Parameters
     double fundamental_threshold = 1.0;
+    double fundamental_confidence = 0.99;
     double max_movement_distance = 50.0;
     double max_velocity_change = 20.0;
     int min_points_for_ransac = 8;
@@ -82,10 +102,26 @@ private:
     double max_y_difference = 20.0;
     double epipolar_threshold = 5.0;
     
+    // Stereo Rectification Parameters
+    double max_rectified_y_difference = 2.0;
+    
+    // Triangulation Parameters
+    double min_depth = 0.1;
+    double max_depth = 100.0;
+    double max_reprojection_error = 2.0;
+    double min_parallax = 0.5;
+    
     // Camera Parameters
     int image_width = 752;
     int image_height = 480;
     int border_size = 1;
+    
+    // Camera Calibration Matrices
+    cv::Mat left_camera_matrix;
+    cv::Mat right_camera_matrix;
+    cv::Mat left_dist_coeffs;
+    cv::Mat right_dist_coeffs;
+    cv::Mat T_left_right;  // Transform from left to right camera
     
     // Performance Parameters
     bool enable_timing = true;

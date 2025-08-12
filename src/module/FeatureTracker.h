@@ -37,6 +37,9 @@ private:
     // Global feature ID counter
     int m_global_feature_id;
     
+    // Feature distribution mask
+    cv::Mat m_mask;
+    
     // Helper functions
     bool is_in_border(const cv::Point2f& point, const cv::Size& img_size, int border_size = 1) const;
     void update_feature_track_count(std::shared_ptr<Frame> frame);

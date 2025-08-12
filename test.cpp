@@ -79,7 +79,7 @@ int main(int argc, char* argv[]) {
     
     // Load configuration
     try {
-        Config::getInstance().load("config/euroc.yaml");
+        Config::getInstance().load("../config/euroc.yaml");
         std::cout << "Configuration loaded successfully" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Failed to load configuration: " << e.what() << std::endl;
@@ -162,6 +162,12 @@ int main(int argc, char* argv[]) {
         // Compute stereo matches if stereo data is available
         if (current_frame->is_stereo()) {
             current_frame->compute_stereo_matches();
+            
+            // Undistort feature coordinates
+            current_frame->undistort_features();
+            
+            // Triangulate 3D points from stereo matches
+            current_frame->triangulate_stereo_points();
         }
         
         auto frame_end = std::chrono::high_resolution_clock::now();
@@ -186,12 +192,15 @@ int main(int argc, char* argv[]) {
                           std::to_string(image_data.size()) + 
                           " | Features: " + std::to_string(current_frame->get_feature_count());
         if (current_frame->is_stereo()) {
-            // Count stereo matches
+            // Count stereo matches and 3D points
             int stereo_matches = 0;
+            int triangulated_points = 0;
             for (const auto& feature : current_frame->get_features()) {
                 if (feature->has_stereo_match()) stereo_matches++;
+                if (feature->has_3d_point()) triangulated_points++;
             }
             info += " | Stereo: " + std::to_string(stereo_matches);
+            info += " | 3D: " + std::to_string(triangulated_points);
         }
         info += " | TS: " + std::to_string(image_data[current_idx].timestamp);
         

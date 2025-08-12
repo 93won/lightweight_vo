@@ -201,6 +201,30 @@ src/module/FeatureTracker.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_euroc.dir/build.make CMakeFiles/test_euroc.dir/src/module/FeatureTracker.cpp.s
 .PHONY : src/module/FeatureTracker.cpp.s
 
+src/util/Config.o: src/util/Config.cpp.o
+.PHONY : src/util/Config.o
+
+# target to build an object file
+src/util/Config.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_euroc.dir/build.make CMakeFiles/test_euroc.dir/src/util/Config.cpp.o
+.PHONY : src/util/Config.cpp.o
+
+src/util/Config.i: src/util/Config.cpp.i
+.PHONY : src/util/Config.i
+
+# target to preprocess a source file
+src/util/Config.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_euroc.dir/build.make CMakeFiles/test_euroc.dir/src/util/Config.cpp.i
+.PHONY : src/util/Config.cpp.i
+
+src/util/Config.s: src/util/Config.cpp.s
+.PHONY : src/util/Config.s
+
+# target to generate assembly for a file
+src/util/Config.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_euroc.dir/build.make CMakeFiles/test_euroc.dir/src/util/Config.cpp.s
+.PHONY : src/util/Config.cpp.s
+
 test.o: test.cpp.o
 .PHONY : test.o
 
@@ -243,6 +267,9 @@ help:
 	@echo "... src/module/FeatureTracker.o"
 	@echo "... src/module/FeatureTracker.i"
 	@echo "... src/module/FeatureTracker.s"
+	@echo "... src/util/Config.o"
+	@echo "... src/util/Config.i"
+	@echo "... src/util/Config.s"
 	@echo "... test.o"
 	@echo "... test.i"
 	@echo "... test.s"

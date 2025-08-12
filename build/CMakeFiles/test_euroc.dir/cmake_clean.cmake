@@ -5,6 +5,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/test_euroc.dir/src/database/Frame.cpp.o.d"
   "CMakeFiles/test_euroc.dir/src/module/FeatureTracker.cpp.o"
   "CMakeFiles/test_euroc.dir/src/module/FeatureTracker.cpp.o.d"
+  "CMakeFiles/test_euroc.dir/src/util/Config.cpp.o"
+  "CMakeFiles/test_euroc.dir/src/util/Config.cpp.o.d"
   "CMakeFiles/test_euroc.dir/test.cpp.o"
   "CMakeFiles/test_euroc.dir/test.cpp.o.d"
   "test_euroc"

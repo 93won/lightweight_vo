@@ -1,42 +1,83 @@
+%YAML:1.0
+---
 # EuRoC Dataset Configuration for Lightweight VIO
+# This configuration file contains all tunable parameters for the VIO system
+# Adjust these values based on your dataset characteristics and performance requirements
 
 # Feature Detection Parameters
+# Controls how corner features are detected using goodFeaturesToTrack
 feature_detection:
-  max_features: 150
-  quality_level: 0.01
-  min_distance: 30.0
+  max_features: 150           # Maximum number of features to track per frame
+  quality_level: 0.01         # Minimum accepted quality of corners (0.01 = 1% of best corner)
+  min_distance: 30.0          # Minimum distance between features in pixels (prevents clustering)
 
-# Optical Flow Tracking Parameters
+# Optical Flow Tracking Parameters  
+# Controls Lucas-Kanade optical flow for feature tracking between frames
 optical_flow:
-  window_size: 21
-  max_level: 3
-  max_iterations: 30
-  epsilon: 0.01
-  error_threshold: 30.0
-  max_movement: 100.0
+  window_size: 21             # Size of search window (21x21 pixels) - larger = more robust but slower
+  max_level: 3                # Number of pyramid levels (0 = no pyramid, 3 = 4 levels total)
+  max_iterations: 30          # Maximum iterations for iterative LK algorithm
+  epsilon: 0.01               # Convergence criteria - stop when change < epsilon
+  error_threshold: 30.0       # Maximum tracking error to accept a match (pixels)
+  max_movement: 100.0         # Maximum pixel movement between frames (rejects large jumps)
+  min_eigen_threshold: 1e-4   # Minimum eigenvalue threshold for optical flow (smaller = more restrictive)
 
 # Outlier Rejection Parameters
+# Multi-stage outlier filtering to improve tracking robustness  
 outlier_rejection:
-  fundamental_threshold: 1.0
-  max_movement_distance: 50.0
-  max_velocity_change: 20.0
-  min_points_for_ransac: 8
+  fundamental_threshold: 1.0  # RANSAC threshold for fundamental matrix (pixels) - lower = stricter
+  fundamental_confidence: 0.99 # Confidence level for RANSAC fundamental matrix estimation
+  max_movement_distance: 50.0 # Maximum allowed movement distance (pixels) in outlier check
+  max_velocity_change: 20.0   # Maximum change in velocity between frames (pixels)
+  min_points_for_ransac: 8    # Minimum points required to estimate fundamental matrix
 
 # Stereo Matching Parameters
+# Controls stereo correspondence matching between left/right images
+# Uses dynamically estimated fundamental matrix for epipolar constraint
 stereo_matching:
-  error_threshold: 50.0
-  min_disparity: 0.1
-  max_disparity: 300.0
-  max_y_difference: 20.0
-  epipolar_threshold: 5.0
+  error_threshold: 50.0       # Maximum optical flow error for stereo matches (pixels)
+  min_disparity: 0.1          # Minimum disparity (pixels) - filters out very far points
+  max_disparity: 300.0        # Maximum disparity (pixels) - filters out very close points  
+  max_y_difference: 20.0      # Maximum Y-coordinate difference for stereo pairs (pixels)
+  epipolar_threshold: 1.0     # Maximum distance from epipolar line using estimated F matrix (pixels)
 
-# Camera Parameters (EuRoC dataset)
+# Triangulation Parameters
+# Controls 3D point generation from stereo matches
+triangulation:
+  min_depth: 0.1              # Minimum depth for valid 3D points (meters)
+  max_depth: 100.0            # Maximum depth for valid 3D points (meters)
+  max_reprojection_error: 10.0 # Maximum reprojection error for valid triangulation (pixels)
+  min_parallax: 0.5           # Minimum parallax angle for reliable triangulation (degrees)
+
+# Camera Parameters (EuRoC dataset specific)
+# Image dimensions and processing parameters
 camera:
-  image_width: 752
-  image_height: 480
-  border_size: 1
+  image_width: 752            # Image width in pixels (EuRoC standard)
+  image_height: 480           # Image height in pixels (EuRoC standard)  
+  border_size: 1              # Border size to exclude from feature detection (pixels)
+  
+  # Left camera (cam0) intrinsics
+  left_intrinsics: [458.654, 457.296, 367.215, 248.375]  # [fx, fy, cx, cy]
+  left_distortion: [-0.28340811, 0.07395907, 0.00019359, 1.76187114e-05]  # [k1, k2, p1, p2]
+  
+  # Right camera (cam1) intrinsics  
+  right_intrinsics: [457.587, 456.134, 379.999, 255.238]  # [fx, fy, cx, cy]
+  right_distortion: [-0.28368365, 0.07451284, -0.00010473, -3.55590700e-05]  # [k1, k2, p1, p2]
+  
+  # Left camera extrinsics (T_BS - body to sensor transform)
+  left_T_BS: [0.0148655429818, -0.999880929698, 0.00414029679422, -0.0216401454975,
+              0.999557249008, 0.0149672133247, 0.025715529948, -0.064676986768,
+              -0.0257744366974, 0.00375618835797, 0.999660727178, 0.00981073058949,
+              0.0, 0.0, 0.0, 1.0]
+  
+  # Right camera extrinsics (T_BS - body to sensor transform)
+  right_T_BS: [0.0125552670891, -0.999755099723, 0.0182237714554, -0.0198435579556,
+               0.999598781151, 0.0130119051815, 0.0251588363115, 0.0453689425024,
+               -0.0253898008918, 0.0179005838253, 0.999517347078, 0.00786212447038,
+               0.0, 0.0, 0.0, 1.0]
 
 # Performance Parameters
+# Debug and timing control flags
 performance:
-  enable_timing: true
-  enable_debug_output: true
+  enable_timing: true         # Print timing information for performance analysis
+  enable_debug_output: true   # Print debug messages and feature counts

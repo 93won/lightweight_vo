@@ -51,11 +51,14 @@ public:
     
     // Stereo operations
     void compute_stereo_matches();
+    void undistort_features();
+    void triangulate_stereo_points();
     
     // Visualization
     cv::Mat draw_features() const;
     cv::Mat draw_tracks(const Frame& previous_frame) const;
     cv::Mat draw_stereo_matches() const;
+    cv::Mat draw_rectified_stereo_matches() const;
 
 private:
     // Frame information

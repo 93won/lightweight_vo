@@ -540,4 +540,5 @@ CMakeFiles/test_euroc.dir/test.cpp.o: \
  /usr/include/eigen3/Eigen/src/Eigenvalues/GeneralizedEigenSolver.h \
  /usr/include/eigen3/Eigen/src/Eigenvalues/RealQZ.h \
  /usr/include/eigen3/Eigen/src/Eigenvalues/MatrixBaseEigenvalues.h \
- /home/eugene/lightweight_vio/src/module/FeatureTracker.h
+ /home/eugene/lightweight_vio/src/module/FeatureTracker.h \
+ /home/eugene/lightweight_vio/src/module/../util/Config.h
