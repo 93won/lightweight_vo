@@ -144,8 +144,9 @@ bool Config::load(const std::string& config_file) {
             
             // Compute T_left_right = T_B_right.inv() * T_B_left
             // This gives us the transform from left camera to right camera coordinate system
+            // Following T_ab convention: T_rl transforms points from left to right
             T_left_right = T_B_right.inv() * T_B_left;
-            std::cout << "Camera extrinsics loaded and relative transform computed successfully" << std::endl;
+            std::cout << "Camera extrinsics loaded and T_rl (left-to-right) transform computed successfully" << std::endl;
         } else {
             std::cout << "Failed to load camera extrinsics" << std::endl;
         }

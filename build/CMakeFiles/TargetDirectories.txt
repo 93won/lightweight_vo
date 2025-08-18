@@ -1,3 +1,0 @@
-/home/eugene/lightweight_vio/build/CMakeFiles/test_euroc.dir
-/home/eugene/lightweight_vio/build/CMakeFiles/edit_cache.dir
-/home/eugene/lightweight_vio/build/CMakeFiles/rebuild_cache.dir

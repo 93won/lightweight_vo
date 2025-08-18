@@ -1,0 +1,27 @@
+# Build directories
+build/
+bin/
+lib/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ImGui configuration
+imgui.ini
+
+# Compiled objects
+*.o
+*.so
+*.a
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Datasets
+datasets/

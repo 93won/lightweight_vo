@@ -65,7 +65,7 @@ public:
     cv::Mat getRightCameraMatrix() const { return right_camera_matrix.clone(); }
     cv::Mat getLeftDistCoeffs() const { return left_dist_coeffs.clone(); }
     cv::Mat getRightDistCoeffs() const { return right_dist_coeffs.clone(); }
-    cv::Mat getLeftToRightTransform() const { return T_left_right.clone(); }
+    cv::Mat getLeftToRightTransform() const { return T_left_right.clone(); }  // T_rl: left to right transform
     
     // Performance Parameters
     bool isTimingEnabled() const { return enable_timing; }
@@ -121,7 +121,7 @@ private:
     cv::Mat right_camera_matrix;
     cv::Mat left_dist_coeffs;
     cv::Mat right_dist_coeffs;
-    cv::Mat T_left_right;  // Transform from left to right camera
+    cv::Mat T_left_right;  // T_rl: Transform from left to right camera (following T_ab = b->a convention)
     
     // Performance Parameters
     bool enable_timing = true;

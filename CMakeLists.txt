@@ -8,29 +8,67 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Find packages
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(glfw3 REQUIRED)
+find_package(OpenGL REQUIRED)
+find_package(GLEW REQUIRED)
+find_package(Threads REQUIRED)
+
+# Find GLU for legacy OpenGL functions
+find_library(GLU_LIBRARY GLU REQUIRED)
 
 # Include directories
 include_directories(${OpenCV_INCLUDE_DIRS})
+include_directories(${EIGEN3_INCLUDE_DIR})
 include_directories(src)
+include_directories(thirdparty/imgui)
+include_directories(thirdparty/imgui/backends)
 
 # Collect source files
 file(GLOB_RECURSE SOURCES 
     "src/database/*.cpp"
     "src/module/*.cpp"
     "src/util/*.cpp"
+    "src/viewer/*.cpp"
 )
 
-# Add executable
-add_executable(test_euroc test.cpp ${SOURCES})
+# ImGui sources
+set(IMGUI_SOURCES
+    thirdparty/imgui/imgui.cpp
+    thirdparty/imgui/imgui_demo.cpp
+    thirdparty/imgui/imgui_draw.cpp
+    thirdparty/imgui/imgui_tables.cpp
+    thirdparty/imgui/imgui_widgets.cpp
+    thirdparty/imgui/backends/imgui_impl_glfw.cpp
+    thirdparty/imgui/backends/imgui_impl_opengl2.cpp
+)
+
+
+
+# Add VIO with ImGui viewer
+add_executable(test_vio_viewer test_vio_viewer.cpp 
+    src/database/Frame.cpp
+    src/database/Feature.cpp  
+    src/module/FeatureTracker.cpp
+    src/util/Config.cpp
+    src/viewer/ImGuiViewer.cpp
+    ${IMGUI_SOURCES}
+)
 
 # Link libraries
-target_link_libraries(test_euroc ${OpenCV_LIBS})
+# target_link_libraries(test_imgui_viewer glfw OpenGL::GL ${GLU_LIBRARY} GLEW::GLEW Threads::Threads)
+target_link_libraries(test_vio_viewer ${OpenCV_LIBS} yaml-cpp glfw OpenGL::GL ${GLU_LIBRARY} GLEW::GLEW Threads::Threads)
 
-# Link Eigen3
+
+# Link Eigen3 to all targets
 if(TARGET Eigen3::Eigen)
-    target_link_libraries(test_euroc Eigen3::Eigen)
-elseif(EIGEN3_FOUND)
-    include_directories(${EIGEN3_INCLUDE_DIR})
+    # target_link_libraries(test Eigen3::Eigen)
+    # target_link_libraries(test_imgui_viewer Eigen3::Eigen)
+    target_link_libraries(test_vio_viewer Eigen3::Eigen)
+else()
+    # Fallback for older CMake versions
+    # target_include_directories(test PRIVATE ${EIGEN3_INCLUDE_DIR})
+    # target_include_directories(test_imgui_viewer PRIVATE ${EIGEN3_INCLUDE_DIR})
+    target_include_directories(test_vio_viewer PRIVATE ${EIGEN3_INCLUDE_DIR})
 endif()
 
 # Print OpenCV information for debugging

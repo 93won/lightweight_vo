@@ -474,11 +474,14 @@ void Frame::undistort_features() {
                     
                     cv::undistortPoints(right_distorted, right_undistorted, right_K, right_D);
                     
-                    // Store right undistorted coordinate
-                    feature->set_undistorted_stereo_match(right_undistorted[0], -1.0f); // No disparity concept
+                    // Also calculate normalized coordinates for right camera
+                    Eigen::Vector2f right_normalized(right_undistorted[0].x, right_undistorted[0].y);
+                    
+                    // Store right undistorted coordinate and normalized coordinate
+                    feature->set_undistorted_stereo_match(right_undistorted[0], right_normalized, -1.0f);
                 } else {
                     // Invalid stereo match
-                    feature->set_undistorted_stereo_match(cv::Point2f(-1, -1), -1.0f);
+                    feature->set_undistorted_stereo_match(cv::Point2f(-1, -1), Eigen::Vector2f(-1,-1), -1.0f);
                 }
             }
         }
@@ -513,21 +516,17 @@ void Frame::triangulate_stereo_points() {
     cv::Mat left_D = config.getLeftDistCoeffs();
     cv::Mat right_K = config.getRightCameraMatrix();
     cv::Mat right_D = config.getRightDistCoeffs();
-    cv::Mat T_rl = config.getLeftToRightTransform();  // Actually right-to-left transform
+    cv::Mat T_rl = config.getLeftToRightTransform();  // T_rl: left to right transform (following T_ab = b->a convention)
     
     if (left_K.empty() || right_K.empty() || T_rl.empty()) {
         std::cerr << "Camera calibration not available for triangulation" << std::endl;
         return;
     }
     
-    // Extract rotation and translation (T_rl: right to left transform)
-    // We need to convert this to left-to-right for triangulation
-    cv::Mat R_rl = T_rl(cv::Rect(0, 0, 3, 3));  // Right to left rotation
-    cv::Mat t_rl = T_rl(cv::Rect(3, 0, 1, 3));  // Right to left translation
-    
-    // Convert to left-to-right transform: T_lr = T_rl^(-1)
-    cv::Mat R_lr = R_rl.t();  // R^(-1) = R^T for rotation matrix
-    cv::Mat t_lr = -R_rl.t() * t_rl;  // t_lr = -R_rl^T * t_rl
+    // Extract rotation and translation (T_rl: left to right transform)
+    // This directly gives us left-to-right transformation for triangulation
+    cv::Mat R_lr = T_rl(cv::Rect(0, 0, 3, 3));  // Left to right rotation  
+    cv::Mat t_lr = T_rl(cv::Rect(3, 0, 1, 3));  // Left to right translation
     
     // Convert to Eigen for easier computation
     Eigen::Matrix3d R_eigen, K_left_eigen, K_right_eigen;
@@ -544,6 +543,13 @@ void Frame::triangulate_stereo_points() {
     // Handle translation vector separately (3x1)
     t_eigen << t_lr.at<double>(0,0), t_lr.at<double>(1,0), t_lr.at<double>(2,0);  // Use left-to-right translation
     
+    // Debug: Print camera baseline
+    double baseline = t_eigen.norm();
+    if (config.isDebugOutputEnabled()) {
+        std::cout << "Camera baseline: " << baseline << " meters" << std::endl;
+        std::cout << "Translation vector: (" << t_eigen[0] << ", " << t_eigen[1] << ", " << t_eigen[2] << ")" << std::endl;
+    }
+    
     // Counters for debugging
     int triangulated_count = 0;
     int depth_rejected = 0;
@@ -556,29 +562,18 @@ void Frame::triangulate_stereo_points() {
         if (feature->is_valid() && feature->has_stereo_match()) {
             total_stereo_matches++;
             
-            // Get original pixel coordinates (unrectified)
-            cv::Point2f left_px = feature->get_pixel_coord();
-            cv::Point2f right_px = feature->get_right_coord();
+            // Get pre-calculated normalized coordinates (more accurate)
+            Eigen::Vector2f left_norm_2d = feature->get_normalized_coord();
+            Eigen::Vector2f right_norm_2d = feature->get_right_normalized_coord();
             
             // Check if stereo match is valid
-            if (right_px.x < 0 || right_px.y < 0) {
+            if (right_norm_2d[0] == -1.0f || right_norm_2d[1] == -1.0f) {
                 continue;
             }
             
-            // Convert pixel coordinates to normalized coordinates
-            Eigen::Vector3d left_normalized, right_normalized;
-            
-            // Left camera normalization: (u-cx)/fx, (v-cy)/fy, 1
-            left_normalized << 
-                (left_px.x - K_left_eigen(0,2)) / K_left_eigen(0,0),
-                (left_px.y - K_left_eigen(1,2)) / K_left_eigen(1,1),
-                1.0;
-                
-            // Right camera normalization: (u-cx)/fx, (v-cy)/fy, 1  
-            right_normalized <<
-                (right_px.x - K_right_eigen(0,2)) / K_right_eigen(0,0),
-                (right_px.y - K_right_eigen(1,2)) / K_right_eigen(1,1),
-                1.0;
+            // Convert to 3D homogeneous coordinates for DLT
+            Eigen::Vector3d left_normalized(left_norm_2d[0], left_norm_2d[1], 1.0);
+            Eigen::Vector3d right_normalized(right_norm_2d[0], right_norm_2d[1], 1.0);
             
             // Triangulation using SVD
             // Setup design matrix: A * X = 0
@@ -589,10 +584,11 @@ void Frame::triangulate_stereo_points() {
             P_left.setZero();
             P_left.block<3,3>(0,0) = Eigen::Matrix3d::Identity();
             
-            // Right camera projection matrix is [R | t]
+            // Right camera projection matrix using T_rl (left-to-right transform)
+            // T_rl directly gives us left-to-right transformation
             Eigen::Matrix<double, 3, 4> P_right;
-            P_right.block<3,3>(0,0) = R_eigen;
-            P_right.block<3,1>(0,3) = t_eigen;
+            P_right.block<3,3>(0,0) = R_eigen;  // R_lr (left-to-right rotation)
+            P_right.block<3,1>(0,3) = t_eigen;  // t_lr (left-to-right translation)
             
             // Build constraint equations: normalized_point^T * [P * X] = 0
             A.row(0) = left_normalized[0] * P_left.row(2) - P_left.row(0);
@@ -616,9 +612,21 @@ void Frame::triangulate_stereo_points() {
             
             depth_values.push_back(pos_3d[2]);
             
+            // Debug: Print depth values to see what we're getting
+            if (config.isDebugOutputEnabled() && depth_values.size() <= 10) {
+                // std::cout << "Triangulated depth: " << pos_3d[2] 
+                //           << ", 3D point: (" << pos_3d[0] << ", " << pos_3d[1] << ", " << pos_3d[2] << ")" 
+                //           << ", left_norm: (" << left_norm_2d[0] << ", " << left_norm_2d[1] << ")"
+                //           << ", right_norm: (" << right_norm_2d[0] << ", " << right_norm_2d[1] << ")" << std::endl;
+            }
+            
             // Check depth range (positive depth in front of camera)
             if (pos_3d[2] < config.getMinDepth() || pos_3d[2] > config.getMaxDepth()) {
                 depth_rejected++;
+                // if (config.isDebugOutputEnabled() && depth_rejected <= 5) {
+                //     std::cout << "Depth rejected: " << pos_3d[2] << " (range: " 
+                //               << config.getMinDepth() << " - " << config.getMaxDepth() << ")" << std::endl;
+                // }
                 continue;
             }
             
@@ -627,7 +635,7 @@ void Frame::triangulate_stereo_points() {
             Eigen::Vector3d reproj_left = pos_3d; // Already in left camera frame
             reproj_left /= reproj_left[2]; // Normalize by depth
             
-            // Project 3D point to right camera
+            // Project 3D point to right camera using T_rl (left-to-right)
             Eigen::Vector3d pos_right = R_eigen * pos_3d + t_eigen;
             if (pos_right[2] <= 0) { // Check positive depth in right camera
                 depth_rejected++;
