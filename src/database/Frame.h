@@ -11,9 +11,13 @@
 
 namespace lightweight_vio {
 
+class MapPoint;
+
 class Frame {
 public:
     Frame(long long timestamp, int frame_id);
+    Frame(long long timestamp, int frame_id, double fx, double fy, double cx, double cy, 
+          const std::vector<double>& distortion_coeffs = {0.0, 0.0, 0.0, 0.0, 0.0});
     ~Frame() = default;
 
     // Getters
@@ -45,6 +49,28 @@ public:
     std::shared_ptr<Feature> get_feature(int feature_id);
     std::shared_ptr<const Feature> get_feature(int feature_id) const;
     size_t get_feature_count() const { return m_features.size(); }
+    
+    // MapPoint management
+    void initialize_map_points(); // Initialize map_points vector with left feature count
+    void set_map_point(int feature_index, std::shared_ptr<MapPoint> map_point);
+    std::shared_ptr<MapPoint> get_map_point(int feature_index) const;
+    bool has_map_point(int feature_index) const;
+    const std::vector<std::shared_ptr<MapPoint>>& get_map_points() const { return m_map_points; }
+
+    // Outlier flag management
+    void set_outlier_flag(int feature_index, bool is_outlier);
+    bool get_outlier_flag(int feature_index) const;
+    const std::vector<bool>& get_outlier_flags() const { return m_outlier_flags; }
+    void initialize_outlier_flags(); // Initialize outlier flags with false
+
+    // Camera parameter management
+    void set_camera_intrinsics(double fx, double fy, double cx, double cy);
+    void get_camera_intrinsics(double& fx, double& fy, double& cx, double& cy) const;
+    void set_distortion_coeffs(const std::vector<double>& distortion_coeffs);
+    const std::vector<double>& get_distortion_coeffs() const { return m_distortion_coeffs; }
+    
+    // Undistort a single point
+    cv::Point2f undistort_point(const cv::Point2f& distorted_point) const;
 
     // Feature operations
     void extract_features(int max_features = 150);
@@ -70,6 +96,17 @@ private:
     // Features
     std::vector<std::shared_ptr<Feature>> m_features;
     std::unordered_map<int, size_t> m_feature_id_to_index;  // Quick lookup
+    
+    // MapPoints corresponding to features (same indexing as m_features)
+    std::vector<std::shared_ptr<MapPoint>> m_map_points;
+    
+    // Outlier flags for map points (same indexing as m_features and m_map_points)
+    std::vector<bool> m_outlier_flags;
+
+    // Camera intrinsic parameters
+    double m_fx, m_fy;           // Focal lengths
+    double m_cx, m_cy;           // Principal point
+    std::vector<double> m_distortion_coeffs; // Distortion coefficients [k1, k2, p1, p2, k3]
 
     // Pose (camera pose in world frame)
     Eigen::Matrix3f m_rotation;    // Rotation matrix

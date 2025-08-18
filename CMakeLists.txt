@@ -47,7 +47,8 @@ set(IMGUI_SOURCES
 # Add VIO with ImGui viewer
 add_executable(test_vio_viewer test_vio_viewer.cpp 
     src/database/Frame.cpp
-    src/database/Feature.cpp  
+    src/database/Feature.cpp
+    src/database/MapPoint.cpp  
     src/module/FeatureTracker.cpp
     src/util/Config.cpp
     src/viewer/ImGuiViewer.cpp

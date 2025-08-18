@@ -1,0 +1,60 @@
+#pragma once
+
+#include <vector>
+#include <memory>
+#include <Eigen/Dense>
+
+namespace lightweight_vio {
+
+class Frame;
+class Feature;
+
+struct Observation {
+    std::weak_ptr<Frame> frame;
+    int feature_index;
+    
+    Observation(std::shared_ptr<Frame> f, int idx) 
+        : frame(f), feature_index(idx) {}
+};
+
+class MapPoint {
+public:
+    MapPoint();
+    MapPoint(const Eigen::Vector3f& position);
+    ~MapPoint();
+
+    // Position management
+    void set_position(const Eigen::Vector3f& position);
+    const Eigen::Vector3f& get_position() const;
+    
+    // Observation management
+    void add_observation(std::shared_ptr<Frame> frame, int feature_index);
+    void remove_observation(std::shared_ptr<Frame> frame);
+    const std::vector<Observation>& get_observations() const;
+    int get_observation_count() const;
+    
+    // Utility functions
+    bool is_observed_by_frame(std::shared_ptr<Frame> frame) const;
+    int get_feature_index_in_frame(std::shared_ptr<Frame> frame) const;
+    
+    // MapPoint management
+    void set_id(int id);
+    int get_id() const;
+    
+    void set_bad();
+    bool is_bad() const;
+    
+    // Triangulation and refinement
+    void update_position_from_observations();
+    double compute_reprojection_error() const;
+
+private:
+    int m_id;
+    Eigen::Vector3f m_position;
+    std::vector<Observation> m_observations;
+    bool m_is_bad;
+    
+    static int s_next_id;
+};
+
+} // namespace lightweight_vio

@@ -1,4 +1,5 @@
 #include "Frame.h"
+#include "MapPoint.h"
 #include "../util/Config.h"
 #include <algorithm>
 #include <iostream>
@@ -11,6 +12,23 @@ Frame::Frame(long long timestamp, int frame_id)
     , m_rotation(Eigen::Matrix3f::Identity())
     , m_translation(Eigen::Vector3f::Zero())
     , m_is_keyframe(false)
+    , m_fx(500.0), m_fy(500.0)  // Default focal lengths
+    , m_cx(320.0), m_cy(240.0)  // Default principal point
+{
+    // Initialize default distortion coefficients (no distortion)
+    m_distortion_coeffs = {0.0, 0.0, 0.0, 0.0, 0.0};
+}
+
+Frame::Frame(long long timestamp, int frame_id, double fx, double fy, double cx, double cy, 
+             const std::vector<double>& distortion_coeffs)
+    : m_timestamp(timestamp)
+    , m_frame_id(frame_id)
+    , m_rotation(Eigen::Matrix3f::Identity())
+    , m_translation(Eigen::Vector3f::Zero())
+    , m_is_keyframe(false)
+    , m_fx(fx), m_fy(fy)
+    , m_cx(cx), m_cy(cy)
+    , m_distortion_coeffs(distortion_coeffs)
 {
 }
 
@@ -22,6 +40,9 @@ void Frame::set_pose(const Eigen::Matrix3f& rotation, const Eigen::Vector3f& tra
 void Frame::add_feature(std::shared_ptr<Feature> feature) {
     m_features.push_back(feature);
     m_feature_id_to_index[feature->get_feature_id()] = m_features.size() - 1;
+    // Add corresponding null map point and outlier flag
+    m_map_points.push_back(nullptr);
+    m_outlier_flags.push_back(false);
 }
 
 void Frame::remove_feature(int feature_id) {
@@ -29,6 +50,8 @@ void Frame::remove_feature(int feature_id) {
     if (it != m_feature_id_to_index.end()) {
         size_t index = it->second;
         m_features.erase(m_features.begin() + index);
+        m_map_points.erase(m_map_points.begin() + index);
+        m_outlier_flags.erase(m_outlier_flags.begin() + index);
         m_feature_id_to_index.erase(it);
         update_feature_index();
     }
@@ -422,6 +445,9 @@ void Frame::compute_stereo_matches() {
 void Frame::undistort_features() {
     auto start_time = std::chrono::high_resolution_clock::now();
     
+    // Initialize outlier flags for all features
+    initialize_outlier_flags();
+    
     const Config& config = Config::getInstance();
     cv::Mat left_K = config.getLeftCameraMatrix();
     cv::Mat left_D = config.getLeftDistCoeffs();
@@ -678,6 +704,122 @@ void Frame::triangulate_stereo_points() {
                   << ", reprojection rejected: " << reprojection_rejected 
                   << ", normalization failed: " << normalized_fail_count << ")" << std::endl;
     }
+}
+
+void Frame::initialize_map_points() {
+    m_map_points.clear();
+    m_map_points.resize(m_features.size(), nullptr);
+}
+
+void Frame::set_map_point(int feature_index, std::shared_ptr<MapPoint> map_point) {
+    if (feature_index >= 0 && feature_index < static_cast<int>(m_map_points.size())) {
+        m_map_points[feature_index] = map_point;
+    }
+}
+
+std::shared_ptr<MapPoint> Frame::get_map_point(int feature_index) const {
+    if (feature_index >= 0 && feature_index < static_cast<int>(m_map_points.size())) {
+        return m_map_points[feature_index];
+    }
+    return nullptr;
+}
+
+bool Frame::has_map_point(int feature_index) const {
+    if (feature_index >= 0 && feature_index < static_cast<int>(m_map_points.size())) {
+        return m_map_points[feature_index] != nullptr;
+    }
+    return false;
+}
+
+// Outlier flag management
+void Frame::set_outlier_flag(int feature_index, bool is_outlier) {
+    if (feature_index >= 0 && feature_index < static_cast<int>(m_outlier_flags.size())) {
+        m_outlier_flags[feature_index] = is_outlier;
+    }
+}
+
+bool Frame::get_outlier_flag(int feature_index) const {
+    if (feature_index >= 0 && feature_index < static_cast<int>(m_outlier_flags.size())) {
+        return m_outlier_flags[feature_index];
+    }
+    return false; // Default to not outlier if index is invalid
+}
+
+void Frame::initialize_outlier_flags() {
+    m_outlier_flags.assign(m_features.size(), false);
+}
+
+// Camera parameter management
+void Frame::set_camera_intrinsics(double fx, double fy, double cx, double cy) {
+    m_fx = fx;
+    m_fy = fy;
+    m_cx = cx;
+    m_cy = cy;
+}
+
+void Frame::get_camera_intrinsics(double& fx, double& fy, double& cx, double& cy) const {
+    fx = m_fx;
+    fy = m_fy;
+    cx = m_cx;
+    cy = m_cy;
+}
+
+void Frame::set_distortion_coeffs(const std::vector<double>& distortion_coeffs) {
+    m_distortion_coeffs = distortion_coeffs;
+}
+
+cv::Point2f Frame::undistort_point(const cv::Point2f& distorted_point) const {
+    if (m_distortion_coeffs.empty() || 
+        (m_distortion_coeffs.size() >= 5 && 
+         std::abs(m_distortion_coeffs[0]) < 1e-6 && 
+         std::abs(m_distortion_coeffs[1]) < 1e-6)) {
+        return distorted_point; // No significant distortion correction needed
+    }
+
+    // Convert to normalized coordinates
+    double x = (distorted_point.x - m_cx) / m_fx;
+    double y = (distorted_point.y - m_cy) / m_fy;
+
+    // Iterative undistortion (Newton-Raphson method)
+    if (m_distortion_coeffs.size() >= 5) {
+        double k1 = m_distortion_coeffs[0];
+        double k2 = m_distortion_coeffs[1];
+        double p1 = m_distortion_coeffs[2];
+        double p2 = m_distortion_coeffs[3];
+        double k3 = m_distortion_coeffs[4];
+
+        // Initial guess
+        double x_u = x;
+        double y_u = y;
+
+        // Iterative correction (typically 5 iterations are enough)
+        for (int iter = 0; iter < 5; ++iter) {
+            double r2 = x_u*x_u + y_u*y_u;
+            double r4 = r2*r2;
+            double r6 = r4*r2;
+
+            // Radial distortion
+            double radial_factor = 1.0 + k1*r2 + k2*r4 + k3*r6;
+            
+            // Tangential distortion
+            double dx = 2.0*p1*x_u*y_u + p2*(r2 + 2.0*x_u*x_u);
+            double dy = p1*(r2 + 2.0*y_u*y_u) + 2.0*p2*x_u*y_u;
+
+            // Distorted coordinates
+            double x_d = x_u * radial_factor + dx;
+            double y_d = y_u * radial_factor + dy;
+
+            // Correction
+            x_u = x_u - (x_d - x);
+            y_u = y_u - (y_d - y);
+        }
+
+        x = x_u;
+        y = y_u;
+    }
+
+    // Convert back to pixel coordinates
+    return cv::Point2f(x * m_fx + m_cx, y * m_fy + m_cy);
 }
 
 } // namespace lightweight_vio
