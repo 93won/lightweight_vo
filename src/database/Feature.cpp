@@ -5,6 +5,7 @@ namespace lightweight_vio {
 
 Feature::Feature(int feature_id, const cv::Point2f& pixel_coord)
     : m_feature_id(feature_id)
+    , m_tracked_feature_id(-1)  // No tracked feature by default
     , m_pixel_coord(pixel_coord)
     , m_undistorted_coord(cv::Point2f(-1, -1))  // Invalid until computed
     , m_normalized_coord(Eigen::Vector2f::Zero())

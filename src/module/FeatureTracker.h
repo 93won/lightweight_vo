@@ -5,6 +5,7 @@
 #include <vector>
 #include "../database/Frame.h"
 #include "../database/Feature.h"
+#include "../database/MapPoint.h"
 #include "../util/Config.h"
 
 namespace lightweight_vio {
@@ -19,13 +20,13 @@ public:
                        std::shared_ptr<Frame> previous_frame = nullptr);
 
     // Feature extraction and tracking
-    void extract_new_features(std::shared_ptr<Frame> frame);
-    void optical_flow_tracking(std::shared_ptr<Frame> current_frame, 
+    std::pair<int, int> extract_new_features(std::shared_ptr<Frame> frame);
+    std::pair<int, int> optical_flow_tracking(std::shared_ptr<Frame> current_frame, 
                               std::shared_ptr<Frame> previous_frame);
     
     // Outlier rejection
-    void reject_outliers_with_fundamental_matrix(std::shared_ptr<Frame> current_frame,
-                                               std::shared_ptr<Frame> previous_frame);
+    void reject_outliers_with_essential_matrix(std::shared_ptr<Frame> current_frame,
+                                              std::shared_ptr<Frame> previous_frame);
 
     // Feature distribution
     void set_mask(std::shared_ptr<Frame> frame);
@@ -33,9 +34,6 @@ public:
 private:
     // Configuration reference
     const Config& m_config = Config::getInstance();
-    
-    // Global feature ID counter
-    int m_global_feature_id;
     
     // Feature distribution mask
     cv::Mat m_mask;
@@ -47,6 +45,13 @@ private:
     void update_features_with_points(std::vector<std::shared_ptr<Feature>>& features, 
                                     const std::vector<cv::Point2f>& points,
                                     const std::vector<uchar>& status);
+    
+    // Map point creation and triangulation
+    bool can_triangulate_feature(std::shared_ptr<Feature> feature, std::shared_ptr<Frame> frame);
+    std::shared_ptr<MapPoint> create_map_point_from_stereo(std::shared_ptr<Feature> feature, std::shared_ptr<Frame> frame);
+    
+    // Batch stereo matching for all features without map points
+    int batch_stereo_matching_and_map_point_creation(const std::shared_ptr<Frame>& frame);
 };
 
 } // namespace lightweight_vio

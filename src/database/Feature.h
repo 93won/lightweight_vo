@@ -14,6 +14,8 @@ public:
         // Getters
     int get_feature_id() const { return m_feature_id; }
     cv::Point2f get_pixel_coord() const { return m_pixel_coord; }
+    float get_u() const { return m_pixel_coord.x; }
+    float get_v() const { return m_pixel_coord.y; }
     cv::Point2f get_undistorted_coord() const { return m_undistorted_coord; }
     Eigen::Vector2f get_normalized_coord() const { return m_normalized_coord; }
     Eigen::Vector3f get_3d_point() const { return m_3d_point; }
@@ -36,6 +38,11 @@ public:
     void set_depth(float depth) { m_depth = depth; }
     void set_track_count(int count) { m_track_count = count; }
     void set_valid(bool valid) { m_is_valid = valid; }
+    
+    // Tracking relationship
+    void set_tracked_feature_id(int tracked_id) { m_tracked_feature_id = tracked_id; }
+    int get_tracked_feature_id() const { return m_tracked_feature_id; }
+    bool has_tracked_feature() const { return m_tracked_feature_id != -1; }
 
     // Operations
     void increment_track_count() { m_track_count++; }
@@ -68,6 +75,7 @@ public:
 
 private:
     int m_feature_id;              // Unique feature ID
+    int m_tracked_feature_id;      // ID of the feature this one tracks from previous frame (-1 if none)
     cv::Point2f m_pixel_coord;      // Pixel coordinates in left image
     cv::Point2f m_undistorted_coord; // Undistorted pixel coordinates
     Eigen::Vector2f m_normalized_coord;  // Normalized camera coordinates

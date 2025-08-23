@@ -76,7 +76,7 @@ bool SE3Manifold::MinusJacobian(const double* x, double* jacobian) const {
         Eigen::Map<Eigen::Matrix<double, 6, 6, Eigen::RowMajor>> jac(jacobian);
         
         // Right Jacobian inverse for SE3
-        jac = Sophus::SE3d::rightJacobianInv(tangent);
+        jac = Sophus::SE3d::leftJacobianInverse(tangent);
         
         return true;
     } catch (const std::exception& e) {
@@ -156,7 +156,7 @@ bool SO3Manifold::MinusJacobian(const double* x, double* jacobian) const {
         Eigen::Map<const Eigen::Vector3d> tangent(x);
         Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>> jac(jacobian);
         
-        jac = Sophus::SO3d::rightJacobianInv(tangent);
+        jac = Sophus::SO3d::leftJacobianInverse(tangent);
         
         return true;
     } catch (const std::exception& e) {

@@ -15,9 +15,23 @@ class MapPoint;
 
 class Frame {
 public:
+    // Constructors
     Frame(long long timestamp, int frame_id);
-    Frame(long long timestamp, int frame_id, double fx, double fy, double cx, double cy, 
-          const std::vector<double>& distortion_coeffs = {0.0, 0.0, 0.0, 0.0, 0.0});
+    Frame(long long timestamp, int frame_id, 
+          double fx, double fy, double cx, double cy, 
+          double baseline, // Stereo baseline
+          const std::vector<double>& distortion_coeffs);
+    
+    // Stereo constructor - directly takes both images with manual camera params
+    Frame(long long timestamp, int frame_id,
+          const cv::Mat& left_image, const cv::Mat& right_image,
+          double fx, double fy, double cx, double cy, 
+          double baseline,
+          const std::vector<double>& distortion_coeffs);
+          
+    // Simple stereo constructor - uses Config for camera parameters
+    Frame(long long timestamp, int frame_id,
+          const cv::Mat& left_image, const cv::Mat& right_image);
     ~Frame() = default;
 
     // Getters
@@ -30,17 +44,14 @@ public:
     const Eigen::Matrix3f& get_rotation() const { return m_rotation; }
     const Eigen::Vector3f& get_translation() const { return m_translation; }
     bool is_keyframe() const { return m_is_keyframe; }
-    bool is_stereo() const { return !m_right_image.empty(); }
+    bool is_stereo() const { return true; } // Always stereo
+    double get_baseline() const { return m_baseline; }
 
-    // Setters
-    void set_left_image(const cv::Mat& image) { m_left_image = image.clone(); }
-    void set_right_image(const cv::Mat& image) { m_right_image = image.clone(); }
-    void set_image(const cv::Mat& image) { m_left_image = image.clone(); } // For backward compatibility
-    void set_stereo_images(const cv::Mat& left_image, const cv::Mat& right_image) {
-        m_left_image = left_image.clone();
-        m_right_image = right_image.clone();
-    }
+    // Stereo input only
+    void set_stereo_images(const cv::Mat& left_image, const cv::Mat& right_image);
     void set_pose(const Eigen::Matrix3f& rotation, const Eigen::Vector3f& translation);
+    void set_Twb(const Eigen::Matrix4f& Twb);
+    Eigen::Matrix4f get_Twb() const;
     void set_keyframe(bool is_keyframe) { m_is_keyframe = is_keyframe; }
 
     // Feature management
@@ -73,29 +84,34 @@ public:
     cv::Point2f undistort_point(const cv::Point2f& distorted_point) const;
 
     // Feature operations
-    void extract_features(int max_features = 150);
+    void extract_stereo_features(int max_features = 150);
+    void compute_stereo_depth();
     
-    // Stereo operations
-    void compute_stereo_matches();
-    void undistort_features();
-    void triangulate_stereo_points();
+    // Depth operations
+    double get_depth(int feature_index) const;
+    bool has_depth(int feature_index) const;
+    bool has_valid_stereo_depth(const cv::Point2f& pixel_coord) const;
+    double get_stereo_depth(const cv::Point2f& pixel_coord) const;
     
-    // Visualization
+    // Visualization functions (for viewer)
     cv::Mat draw_features() const;
     cv::Mat draw_tracks(const Frame& previous_frame) const;
     cv::Mat draw_stereo_matches() const;
-    cv::Mat draw_rectified_stereo_matches() const;
 
 private:
     // Frame information
     long long m_timestamp;         // Timestamp in nanoseconds
     int m_frame_id;               // Unique frame ID
     cv::Mat m_left_image;          // Left camera grayscale image
-    cv::Mat m_right_image;         // Right camera grayscale image (optional for stereo)
+    cv::Mat m_right_image;         // Right camera grayscale image (always provided)
     
     // Features
-    std::vector<std::shared_ptr<Feature>> m_features;
+    std::vector<std::shared_ptr<Feature>> m_features;      // Left camera features
     std::unordered_map<int, size_t> m_feature_id_to_index;  // Quick lookup
+    
+    // Stereo matches (left feature index -> right feature index)
+    std::vector<int> m_stereo_matches; // -1 if no match
+    std::vector<double> m_depths;      // Depth for each left feature
     
     // MapPoints corresponding to features (same indexing as m_features)
     std::vector<std::shared_ptr<MapPoint>> m_map_points;
@@ -106,6 +122,7 @@ private:
     // Camera intrinsic parameters
     double m_fx, m_fy;           // Focal lengths
     double m_cx, m_cy;           // Principal point
+    double m_baseline;           // Stereo baseline (distance between cameras)
     std::vector<double> m_distortion_coeffs; // Distortion coefficients [k1, k2, p1, p2, k3]
 
     // Pose (camera pose in world frame)
@@ -120,6 +137,16 @@ private:
     // Helper functions
     void update_feature_index();
     bool is_in_border(const cv::Point2f& point, int border_size = 1) const;
+    
+    // Internal processing methods
+    void extract_features(int max_features = 150);
+    void compute_stereo_matches();
+    void undistort_features();
+    void triangulate_stereo_points();
+    double compute_disparity_at_point(const cv::Point2f& pixel_coord) const;
+    
+    // Visualization function (internal use only)
+    cv::Mat draw_rectified_stereo_matches() const;
 };
 
 } // namespace lightweight_vio

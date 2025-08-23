@@ -166,17 +166,17 @@ void ImGuiViewer::render() {
 
     // Feature Tracking Image Window
     if (m_tracking_texture) {
-        ImGui::Begin("Feature Tracking");
+        ImGui::Begin("Feature Tracking", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
         ImGui::Image((void*)(intptr_t)m_tracking_texture, 
-                    ImVec2(m_tracking_width * 0.5f, m_tracking_height * 0.5f));
+                    ImVec2(m_tracking_width * 1.0f, m_tracking_height * 1.0f));
         ImGui::End();
     }
     
     // Stereo Matching Image Window  
     if (m_stereo_texture) {
-        ImGui::Begin("Stereo Matching");
+        ImGui::Begin("Stereo Matching", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
         ImGui::Image((void*)(intptr_t)m_stereo_texture, 
-                    ImVec2(m_stereo_width * 0.5f, m_stereo_height * 0.5f));
+                    ImVec2(m_stereo_width * 1.0f, m_stereo_height * 1.0f));
         ImGui::End();
     }
 

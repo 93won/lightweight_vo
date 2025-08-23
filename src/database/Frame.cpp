@@ -19,8 +19,9 @@ Frame::Frame(long long timestamp, int frame_id)
     m_distortion_coeffs = {0.0, 0.0, 0.0, 0.0, 0.0};
 }
 
-Frame::Frame(long long timestamp, int frame_id, double fx, double fy, double cx, double cy, 
-             const std::vector<double>& distortion_coeffs)
+Frame::Frame(long long timestamp, int frame_id, 
+             double fx, double fy, double cx, double cy, 
+             double baseline, const std::vector<double>& distortion_coeffs)
     : m_timestamp(timestamp)
     , m_frame_id(frame_id)
     , m_rotation(Eigen::Matrix3f::Identity())
@@ -28,13 +29,85 @@ Frame::Frame(long long timestamp, int frame_id, double fx, double fy, double cx,
     , m_is_keyframe(false)
     , m_fx(fx), m_fy(fy)
     , m_cx(cx), m_cy(cy)
+    , m_baseline(baseline)
     , m_distortion_coeffs(distortion_coeffs)
 {
+}
+
+Frame::Frame(long long timestamp, int frame_id,
+             const cv::Mat& left_image, const cv::Mat& right_image,
+             double fx, double fy, double cx, double cy, 
+             double baseline,
+             const std::vector<double>& distortion_coeffs)
+    : m_timestamp(timestamp)
+    , m_frame_id(frame_id)
+    , m_left_image(left_image.clone())
+    , m_right_image(right_image.clone())
+    , m_rotation(Eigen::Matrix3f::Identity())
+    , m_translation(Eigen::Vector3f::Zero())
+    , m_is_keyframe(false)
+    , m_fx(fx), m_fy(fy)
+    , m_cx(cx), m_cy(cy)
+    , m_baseline(baseline)
+    , m_distortion_coeffs(distortion_coeffs)
+{
+}
+
+Frame::Frame(long long timestamp, int frame_id,
+             const cv::Mat& left_image, const cv::Mat& right_image)
+    : m_timestamp(timestamp)
+    , m_frame_id(frame_id)
+    , m_left_image(left_image.clone())
+    , m_right_image(right_image.clone())
+    , m_rotation(Eigen::Matrix3f::Identity())
+    , m_translation(Eigen::Vector3f::Zero())
+    , m_is_keyframe(false)
+{
+    // Get camera parameters from Config
+    const Config& config = Config::getInstance();
+    cv::Mat left_K = config.getLeftCameraMatrix();
+    
+    if (!left_K.empty()) {
+        m_fx = left_K.at<double>(0, 0);
+        m_fy = left_K.at<double>(1, 1);
+        m_cx = left_K.at<double>(0, 2);
+        m_cy = left_K.at<double>(1, 2);
+    } else {
+        // Fallback to default values if config not available
+        m_fx = 458.654; m_fy = 457.296; 
+        m_cx = 367.215; m_cy = 248.375;
+    }
+    
+    // Get distortion coefficients
+    cv::Mat left_D = config.getLeftDistCoeffs();
+    if (!left_D.empty()) {
+        m_distortion_coeffs.clear();
+        for (int i = 0; i < left_D.rows; ++i) {
+            m_distortion_coeffs.push_back(left_D.at<double>(i, 0));
+        }
+    } else {
+        m_distortion_coeffs = {0.0, 0.0, 0.0, 0.0, 0.0}; // No distortion
+    }
+    
+    // Baseline will be calculated automatically in triangulation from transform
+    m_baseline = 0.11; // Default fallback, will be overridden by actual calculation
 }
 
 void Frame::set_pose(const Eigen::Matrix3f& rotation, const Eigen::Vector3f& translation) {
     m_rotation = rotation;
     m_translation = translation;
+}
+
+void Frame::set_Twb(const Eigen::Matrix4f& Twb) {
+    m_rotation = Twb.block<3, 3>(0, 0);
+    m_translation = Twb.block<3, 1>(0, 3);
+}
+
+Eigen::Matrix4f Frame::get_Twb() const {
+    Eigen::Matrix4f Twb = Eigen::Matrix4f::Identity();
+    Twb.block<3, 3>(0, 0) = m_rotation;
+    Twb.block<3, 1>(0, 3) = m_translation;
+    return Twb;
 }
 
 void Frame::add_feature(std::shared_ptr<Feature> feature) {
@@ -93,11 +166,7 @@ void Frame::extract_features(int max_features) {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     
-    const Config& config = Config::getInstance();
-    if (config.isTimingEnabled()) {
-        std::cout << "[TIMING] Feature extraction: " << duration.count() / 1000.0 << " ms | "
-                  << "Extracted " << corners.size() << " features" << std::endl;
-    }
+    // Timing output removed for cleaner logs
 }
 
 cv::Mat Frame::draw_features() const {
@@ -112,8 +181,16 @@ cv::Mat Frame::draw_features() const {
         if (feature->is_valid()) {
             const cv::Point2f& pt = feature->get_pixel_coord();
             int track_count = feature->get_track_count();
-            float len = std::min(1.0f, 1.0f * track_count / 20.0f);
-            cv::Scalar color(255 * (1 - len), 0, 255 * len);
+            
+            // Blue to red gradient based on track count (5 tracks = full red)
+            float ratio = std::min(1.0f, static_cast<float>(track_count) / 5.0f);
+            
+            // BGR color: Blue (255,0,0) -> Red (0,0,255)
+            int blue = static_cast<int>(255 * (1.0f - ratio));   // 255 -> 0
+            int green = 0;                                       // Always 0
+            int red = static_cast<int>(255 * ratio);             // 0 -> 255
+            
+            cv::Scalar color(blue, green, red);
             cv::circle(display_image, pt, 2, color, 2);
         }
     }
@@ -278,12 +355,15 @@ cv::Mat Frame::draw_tracks(const Frame& previous_frame) const {
     for (const auto& feature : m_features) {
         if (!feature->is_valid()) continue;
 
-        auto prev_feature = previous_frame.get_feature(feature->get_feature_id());
-        if (prev_feature && prev_feature->is_valid()) {
-            cv::line(display_image, 
-                    prev_feature->get_pixel_coord(), 
-                    feature->get_pixel_coord(), 
-                    cv::Scalar(0, 255, 0), 1);
+        // Use tracked_feature_id to find corresponding previous feature
+        if (feature->has_tracked_feature()) {
+            auto prev_feature = previous_frame.get_feature(feature->get_tracked_feature_id());
+            if (prev_feature && prev_feature->is_valid()) {
+                cv::line(display_image, 
+                        prev_feature->get_pixel_coord(), 
+                        feature->get_pixel_coord(), 
+                        cv::Scalar(0, 255, 0), 1);
+            }
         }
     }
 
@@ -365,11 +445,7 @@ void Frame::compute_stereo_matches() {
             Config::getInstance().getFundamentalConfidence(), inlier_mask
         );
         
-        const Config& config = Config::getInstance();
-        if (config.isDebugOutputEnabled()) {
-            std::cout << "Fundamental matrix estimated from " << cv::countNonZero(inlier_mask) 
-                      << "/" << good_left_pts.size() << " initial matches" << std::endl;
-        }
+        // Debug output removed for cleaner logs
     }
     
     // Now apply matches with epipolar constraint
@@ -435,11 +511,7 @@ void Frame::compute_stereo_matches() {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     
-    if (Config::getInstance().isTimingEnabled()) {
-        std::cout << "[TIMING] Stereo matching: " << duration.count() / 1000.0 << " ms | "
-                  << "Matched " << matches_found << "/" << left_pts.size() << " features"
-                  << " (using epipolar constraint, no disparity)" << std::endl;
-    }
+    // Timing output removed for cleaner logs
 }
 
 void Frame::undistort_features() {
@@ -527,11 +599,7 @@ void Frame::undistort_features() {
         }
     }
     
-    if (config.isTimingEnabled()) {
-        std::cout << "[TIMING] Feature undistortion to normalized coords: " << duration.count() / 1000.0 << " ms | "
-                  << "Processed " << m_features.size() << " features | "
-                  << "Valid stereo matches: " << valid_stereo_matches << std::endl;
-    }
+    // Timing output removed for cleaner logs
 }
 
 void Frame::triangulate_stereo_points() {
@@ -569,12 +637,8 @@ void Frame::triangulate_stereo_points() {
     // Handle translation vector separately (3x1)
     t_eigen << t_lr.at<double>(0,0), t_lr.at<double>(1,0), t_lr.at<double>(2,0);  // Use left-to-right translation
     
-    // Debug: Print camera baseline
+    // Calculate baseline for triangulation (removed debug output)
     double baseline = t_eigen.norm();
-    if (config.isDebugOutputEnabled()) {
-        std::cout << "Camera baseline: " << baseline << " meters" << std::endl;
-        std::cout << "Translation vector: (" << t_eigen[0] << ", " << t_eigen[1] << ", " << t_eigen[2] << ")" << std::endl;
-    }
     
     // Counters for debugging
     int triangulated_count = 0;
@@ -697,13 +761,7 @@ void Frame::triangulate_stereo_points() {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     
-    if (config.isTimingEnabled()) {
-        std::cout << "[TIMING] Normalized stereo triangulation: " << duration.count() / 1000.0 << " ms | "
-                  << "Triangulated " << triangulated_count << " 3D points from " << total_stereo_matches 
-                  << " stereo matches (depth rejected: " << depth_rejected 
-                  << ", reprojection rejected: " << reprojection_rejected 
-                  << ", normalization failed: " << normalized_fail_count << ")" << std::endl;
-    }
+    // Timing output removed for cleaner logs
 }
 
 void Frame::initialize_map_points() {
@@ -820,6 +878,130 @@ cv::Point2f Frame::undistort_point(const cv::Point2f& distorted_point) const {
 
     // Convert back to pixel coordinates
     return cv::Point2f(x * m_fx + m_cx, y * m_fy + m_cy);
+}
+
+void Frame::extract_stereo_features(int max_features) {
+    // Extract features only from left image
+    extract_features(max_features);
+    
+    // Initialize stereo match vectors
+    m_stereo_matches.assign(m_features.size(), -1);
+    m_depths.assign(m_features.size(), -1.0);
+}
+
+void Frame::compute_stereo_depth() {
+    // First compute stereo matches
+    compute_stereo_matches();
+    
+    // Then undistort features
+    undistort_features();
+    
+    // Finally triangulate to get 3D points and extract depth
+    triangulate_stereo_points();
+    
+    // Update depth array from triangulated 3D points
+    m_depths.assign(m_features.size(), -1.0);
+    
+    for (size_t i = 0; i < m_features.size(); ++i) {
+        auto feature = m_features[i];
+        if (feature && feature->is_valid() && feature->has_3d_point()) {
+            Eigen::Vector3f point3d = feature->get_3d_point();
+            m_depths[i] = point3d[2]; // Z coordinate is depth in camera frame
+        }
+    }
+}
+
+double Frame::get_depth(int feature_index) const {
+    if (feature_index >= 0 && feature_index < static_cast<int>(m_depths.size())) {
+        return m_depths[feature_index];
+    }
+    return -1.0;
+}
+
+bool Frame::has_depth(int feature_index) const {
+    if (feature_index >= 0 && feature_index < static_cast<int>(m_depths.size())) {
+        return m_depths[feature_index] > 0.0;
+    }
+    return false;
+}
+
+bool Frame::has_valid_stereo_depth(const cv::Point2f& pixel_coord) const {
+    // Check if pixel coordinate is within image bounds
+    if (pixel_coord.x < 0 || pixel_coord.y < 0 || 
+        pixel_coord.x >= m_left_image.cols || pixel_coord.y >= m_left_image.rows) {
+        return false;
+    }
+    
+    // Compute stereo disparity and check if valid
+    double disparity = compute_disparity_at_point(pixel_coord);
+    return disparity > 0.0;
+}
+
+double Frame::get_stereo_depth(const cv::Point2f& pixel_coord) const {
+    if (!has_valid_stereo_depth(pixel_coord)) {
+        return 0.0;
+    }
+    
+    double disparity = compute_disparity_at_point(pixel_coord);
+    if (disparity > 0.0) {
+        return (m_fx * m_baseline) / disparity;
+    }
+    return 0.0;
+}
+
+double Frame::compute_disparity_at_point(const cv::Point2f& pixel_coord) const {
+    // Simple stereo matching using normalized cross correlation
+    int x = static_cast<int>(pixel_coord.x);
+    int y = static_cast<int>(pixel_coord.y);
+    
+    if (x < 0 || y < 0 || x >= m_left_image.cols || y >= m_left_image.rows) {
+        return 0.0;
+    }
+    
+    // Search window parameters
+    int search_range = 64;  // Maximum disparity to search
+    int window_size = 5;    // Correlation window size
+    int half_window = window_size / 2;
+    
+    // Check if we have enough space for correlation window
+    if (x - half_window < 0 || x + half_window >= m_left_image.cols ||
+        y - half_window < 0 || y + half_window >= m_left_image.rows) {
+        return 0.0;
+    }
+    
+    double best_disparity = 0.0;
+    double best_correlation = -1.0;
+    
+    // Extract left patch
+    cv::Rect left_rect(x - half_window, y - half_window, window_size, window_size);
+    cv::Mat left_patch = m_left_image(left_rect);
+    
+    // Search along epipolar line (assuming rectified stereo)
+    for (int d = 1; d < search_range && (x - d) >= half_window; ++d) {
+        cv::Rect right_rect(x - d - half_window, y - half_window, window_size, window_size);
+        
+        if (right_rect.x >= 0 && right_rect.x + right_rect.width <= m_right_image.cols) {
+            cv::Mat right_patch = m_right_image(right_rect);
+            
+            // Compute normalized cross correlation
+            cv::Mat correlation_result;
+            cv::matchTemplate(left_patch, right_patch, correlation_result, cv::TM_CCOEFF_NORMED);
+            
+            double correlation = correlation_result.at<float>(0, 0);
+            
+            if (correlation > best_correlation) {
+                best_correlation = correlation;
+                best_disparity = static_cast<double>(d);
+            }
+        }
+    }
+    
+    // Only accept if correlation is strong enough
+    if (best_correlation > 0.7) {
+        return best_disparity;
+    }
+    
+    return 0.0;
 }
 
 } // namespace lightweight_vio

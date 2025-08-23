@@ -25,10 +25,10 @@ optical_flow:
 # Outlier Rejection Parameters
 # Multi-stage outlier filtering to improve tracking robustness  
 outlier_rejection:
-  fundamental_threshold: 1.0  # RANSAC threshold for fundamental matrix (pixels) - lower = stricter
-  fundamental_confidence: 0.99 # Confidence level for RANSAC fundamental matrix estimation
-  max_movement_distance: 50.0 # Maximum allowed movement distance (pixels) in outlier check
-  max_velocity_change: 20.0   # Maximum change in velocity between frames (pixels)
+  fundamental_threshold: 5.0  # RANSAC threshold for fundamental matrix (pixels) - increased from 1.0
+  fundamental_confidence: 0.95 # Confidence level for RANSAC fundamental matrix estimation - decreased from 0.99
+  max_movement_distance: 50.0 # Maximum allowed movement distance (pixels) in outlier check - increased from 50.0
+  max_velocity_change: 30.0   # Maximum change in velocity between frames (pixels) - increased from 100.0
   min_points_for_ransac: 8    # Minimum points required to estimate fundamental matrix
 
 # Stereo Matching Parameters

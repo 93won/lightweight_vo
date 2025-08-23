@@ -11,6 +11,7 @@
 #include "src/database/Frame.h"
 #include "src/database/Feature.h"
 #include "src/module/FeatureTracker.h"
+#include "src/module/Estimator.h"
 #include "src/util/Config.h"
 #include "src/viewer/ImGuiViewer.h"
 
@@ -72,6 +73,12 @@ cv::Mat load_image(const std::string& dataset_path, const std::string& filename,
     return image;
 }
 
+std::pair<cv::Mat, cv::Mat> load_stereo_images(const std::string& dataset_path, const std::string& filename) {
+    cv::Mat left_image = load_image(dataset_path, filename, 0);
+    cv::Mat right_image = load_image(dataset_path, filename, 1);
+    return std::make_pair(left_image, right_image);
+}
+
 std::vector<Eigen::Vector3f> extract_3d_points(std::shared_ptr<Frame> frame) {
     std::vector<Eigen::Vector3f> points;
     
@@ -115,18 +122,19 @@ int main(int argc, char* argv[]) {
     // Initialize 3D viewer
     std::cout << "Creating ImGui 3D viewer..." << std::endl;
     ImGuiViewer viewer;
-    if (!viewer.initialize(1400, 900)) {
+    if (!viewer.initialize(3840, 1600)) {
         std::cerr << "Failed to initialize 3D viewer" << std::endl;
         return -1;
     }
     
-    FeatureTracker tracker;
+    // Initialize Estimator
+    Estimator estimator; // Use default constructor
     
     std::shared_ptr<Frame> previous_frame = nullptr;
     int current_idx = 0;
     bool auto_play = true;
     
-    std::cout << "Starting feature tracking with 3D visualization..." << std::endl;
+    std::cout << "Starting VIO estimation with 3D visualization..." << std::endl;
     std::cout << "Controls:" << std::endl;
     std::cout << "  3D Viewer: Mouse for camera control" << std::endl;
     std::cout << "  ESC: Exit application" << std::endl;
@@ -151,28 +159,13 @@ int main(int argc, char* argv[]) {
             clahe->apply(right_image, processed_right_image);
         }
         
-        // Create current frame
-        auto frame_start = std::chrono::high_resolution_clock::now();
-        auto current_frame = std::make_shared<Frame>(image_data[current_idx].timestamp, current_idx);
+        // Process frame through estimator
+        auto estimation_result = estimator.process_frame(
+            processed_left_image, processed_right_image, 
+            image_data[current_idx].timestamp);
         
-        if (!processed_right_image.empty()) {
-            current_frame->set_stereo_images(processed_left_image, processed_right_image);
-        } else {
-            current_frame->set_left_image(processed_left_image);
-        }
-        
-        // Track features
-        tracker.track_features(current_frame, previous_frame);
-        
-        // Compute stereo matches and triangulate if stereo data is available
-        if (current_frame->is_stereo()) {
-            current_frame->compute_stereo_matches();
-            current_frame->undistort_features();
-            current_frame->triangulate_stereo_points();
-        }
-        
-        auto frame_end = std::chrono::high_resolution_clock::now();
-        auto frame_duration = std::chrono::duration_cast<std::chrono::microseconds>(frame_end - frame_start);
+        // Get current frame from estimator
+        auto current_frame = estimator.get_current_frame();
         
         // Extract 3D points from current frame
         std::vector<Eigen::Vector3f> current_points = extract_3d_points(current_frame);
@@ -191,9 +184,9 @@ int main(int argc, char* argv[]) {
         // Add frame information to tracking image
         std::string info = "Frame: " + std::to_string(current_idx + 1) + "/" + 
                           std::to_string(image_data.size()) + 
-                          " | Features: " + std::to_string(current_frame->get_feature_count());
+                          " | Features: " + std::to_string(estimation_result.num_features);
         
-        if (current_frame->is_stereo()) {
+        if (current_frame && current_frame->is_stereo()) {
             int stereo_matches = 0;
             int triangulated_points = 0;
             for (const auto& feature : current_frame->get_features()) {
@@ -204,7 +197,12 @@ int main(int argc, char* argv[]) {
             info += " | 3D: " + std::to_string(triangulated_points);
         }
         info += " | Current 3D: " + std::to_string(current_points.size());
-        info += " | Time: " + std::to_string(frame_duration.count() / 1000.0) + "ms";
+        if (estimation_result.success) {
+            info += " | Estimation: SUCCESS";
+        } else {
+            info += " | Estimation: FAILED";
+        }
+        info += " | Time: " + std::to_string(estimation_result.optimization_time_ms) + "ms";
         
         cv::putText(tracking_image, info, cv::Point(10, 30), 
                    cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
@@ -213,7 +211,7 @@ int main(int argc, char* argv[]) {
         viewer.updateTrackingImage(tracking_image);
         
         // Update stereo matching image if available
-        if (current_frame->is_stereo()) {
+        if (current_frame && current_frame->is_stereo()) {
             cv::Mat stereo_image = current_frame->draw_stereo_matches();
             viewer.updateStereoImage(stereo_image);
         }

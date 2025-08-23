@@ -14,7 +14,7 @@ public:
     ImGuiViewer();
     ~ImGuiViewer();
 
-    bool initialize(int width = 1200, int height = 800);
+    bool initialize(int width = 2400, int height = 1200);
     void shutdown();
     
     bool shouldClose() const;

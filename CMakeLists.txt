@@ -13,6 +13,10 @@ find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(Threads REQUIRED)
 
+# Build Ceres and Sophus from thirdparty
+add_subdirectory(thirdparty/ceres-solver)
+add_subdirectory(thirdparty/Sophus)
+
 # Find GLU for legacy OpenGL functions
 find_library(GLU_LIBRARY GLU REQUIRED)
 
@@ -22,6 +26,9 @@ include_directories(${EIGEN3_INCLUDE_DIR})
 include_directories(src)
 include_directories(thirdparty/imgui)
 include_directories(thirdparty/imgui/backends)
+include_directories(thirdparty/Sophus)
+include_directories(thirdparty/ceres-solver/include)
+include_directories(${CMAKE_BINARY_DIR}/thirdparty/ceres-solver/include)
 
 # Collect source files
 file(GLOB_RECURSE SOURCES 
@@ -50,6 +57,10 @@ add_executable(test_vio_viewer test_vio_viewer.cpp
     src/database/Feature.cpp
     src/database/MapPoint.cpp  
     src/module/FeatureTracker.cpp
+    src/module/PoseOptimizer.cpp
+    src/module/Estimator.cpp
+    src/factor/SE3Manifolds.cpp
+    src/factor/PnPFactors.cpp
     src/util/Config.cpp
     src/viewer/ImGuiViewer.cpp
     ${IMGUI_SOURCES}
@@ -57,7 +68,17 @@ add_executable(test_vio_viewer test_vio_viewer.cpp
 
 # Link libraries
 # target_link_libraries(test_imgui_viewer glfw OpenGL::GL ${GLU_LIBRARY} GLEW::GLEW Threads::Threads)
-target_link_libraries(test_vio_viewer ${OpenCV_LIBS} yaml-cpp glfw OpenGL::GL ${GLU_LIBRARY} GLEW::GLEW Threads::Threads)
+target_link_libraries(test_vio_viewer 
+    ${OpenCV_LIBS} 
+    yaml-cpp 
+    glfw 
+    OpenGL::GL 
+    ${GLU_LIBRARY} 
+    GLEW::GLEW 
+    Threads::Threads
+    ceres
+    Sophus::Sophus
+)
 
 
 # Link Eigen3 to all targets

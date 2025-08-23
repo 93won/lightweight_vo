@@ -4,6 +4,11 @@
 #include <Eigen/Dense>
 #include <sophus/se3.hpp>
 
+// Define Vector6d as it's not available in standard Eigen
+namespace Eigen {
+    typedef Matrix<double, 6, 1> Vector6d;
+}
+
 namespace lightweight_vio {
 namespace factor {
 
