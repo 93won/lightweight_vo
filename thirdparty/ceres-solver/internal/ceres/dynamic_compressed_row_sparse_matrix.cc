@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,9 +32,8 @@
 
 #include <cstring>
 
-#include "absl/log/check.h"
-
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 DynamicCompressedRowSparseMatrix::DynamicCompressedRowSparseMatrix(
     int num_rows, int num_cols, int initial_max_num_nonzeros)
@@ -71,8 +70,8 @@ void DynamicCompressedRowSparseMatrix::Finalize(int num_additional_elements) {
 
   // Count the number of non-zeros and resize `cols_` and `values_`.
   int num_jacobian_nonzeros = 0;
-  for (const auto& dynamic_col : dynamic_cols_) {
-    num_jacobian_nonzeros += dynamic_col.size();
+  for (int i = 0; i < dynamic_cols_.size(); ++i) {
+    num_jacobian_nonzeros += dynamic_cols_[i].size();
   }
 
   SetMaxNumNonZeros(num_jacobian_nonzeros + num_additional_elements);
@@ -100,4 +99,5 @@ void DynamicCompressedRowSparseMatrix::Finalize(int num_additional_elements) {
       << "the number of jacobian nonzeros. Please contact the developers!";
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

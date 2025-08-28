@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,11 +33,11 @@
 
 #include <memory>
 
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/preconditioner.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class BlockSparseMatrix;
 class SparseCholesky;
@@ -67,15 +67,15 @@ class InnerProductComputer;
 // computationally expensive this preconditioner will be.
 //
 // See the tests for example usage.
-class CERES_NO_EXPORT SubsetPreconditioner
+class CERES_EXPORT_INTERNAL SubsetPreconditioner
     : public BlockSparseMatrixPreconditioner {
  public:
-  SubsetPreconditioner(Preconditioner::Options options,
+  SubsetPreconditioner(const Preconditioner::Options& options,
                        const BlockSparseMatrix& A);
-  ~SubsetPreconditioner() override;
+  virtual ~SubsetPreconditioner();
 
   // Preconditioner interface
-  void RightMultiplyAndAccumulate(const double* x, double* y) const final;
+  void RightMultiply(const double* x, double* y) const final;
   int num_rows() const final { return num_cols_; }
   int num_cols() const final { return num_cols_; }
 
@@ -88,8 +88,7 @@ class CERES_NO_EXPORT SubsetPreconditioner
   std::unique_ptr<InnerProductComputer> inner_product_computer_;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_SUBSET_PRECONDITIONER_H_

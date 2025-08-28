@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2025 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,9 +33,11 @@
 #include <memory>
 
 #include "ceres/jet.h"
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 static constexpr double kTolerance = 1e-12;
 
@@ -88,26 +90,6 @@ TEST(Grid1D, TwoDataDimensionIntegerDataStacked) {
   Grid1D<int, 2, false> grid(x, 0, 3);
   for (int i = 0; i < 3; ++i) {
     double value[2];
-    grid.GetValue(i, value);
-    EXPECT_EQ(value[0], static_cast<double>(i + 1));
-    EXPECT_EQ(value[1], static_cast<double>(i + 5));
-  }
-}
-
-TEST(Grid1D, JetSupport) {
-  const ceres::Jet<double, 1> x[] = {
-      ceres::Jet<double, 1>{1},
-      ceres::Jet<double, 1>{2},
-      ceres::Jet<double, 1>{3},
-      ceres::Jet<double, 1>{5},
-      ceres::Jet<double, 1>{6},
-      ceres::Jet<double, 1>{7},
-  };
-
-  ceres::Grid1D<ceres::Jet<double, 1>, 2, false> grid(x, 0, 3);
-
-  for (int i = 0; i < 3; ++i) {
-    ceres::Jet<double, 1> value[2];
     grid.GetValue(i, value);
     EXPECT_EQ(value[0], static_cast<double>(i + 1));
     EXPECT_EQ(value[1], static_cast<double>(i + 5));
@@ -237,33 +219,6 @@ TEST(Grid2D, TwoDataDimensionColMajorStacked) {
   }
 }
 
-TEST(Grid2D, JetSupport) {
-  ceres::Jet<double, 1> x[] = {
-      ceres::Jet<double, 1>{1},
-      ceres::Jet<double, 1>{2},
-      ceres::Jet<double, 1>{2},
-      ceres::Jet<double, 1>{3},
-      ceres::Jet<double, 1>{3},
-      ceres::Jet<double, 1>{4},
-      ceres::Jet<double, 1>{4},
-      ceres::Jet<double, 1>{8},
-      ceres::Jet<double, 1>{8},
-      ceres::Jet<double, 1>{12},
-      ceres::Jet<double, 1>{12},
-      ceres::Jet<double, 1>{16},
-  };
-
-  ceres::Grid2D<ceres::Jet<double, 1>, 2, false, false> grid(x, 0, 2, 0, 3);
-  for (int r = 0; r < 2; ++r) {
-    for (int c = 0; c < 3; ++c) {
-      ceres::Jet<double, 1> value[2];
-      grid.GetValue(r, c, value);
-      EXPECT_EQ(value[0], static_cast<double>(r + c + 1));
-      EXPECT_EQ(value[1], static_cast<double>(4 * (r + c + 1)));
-    }
-  }
-}
-
 class CubicInterpolatorTest : public ::testing::Test {
  public:
   template <int kDataDimension>
@@ -271,7 +226,7 @@ class CubicInterpolatorTest : public ::testing::Test {
                                       const double b,
                                       const double c,
                                       const double d) {
-    values_ = std::make_unique<double[]>(kDataDimension * kNumSamples);
+    values_.reset(new double[kDataDimension * kNumSamples]);
 
     for (int x = 0; x < kNumSamples; ++x) {
       for (int dim = 0; dim < kDataDimension; ++dim) {
@@ -380,7 +335,7 @@ class BiCubicInterpolatorTest : public ::testing::Test {
 
   template <int kDataDimension>
   void RunPolynomialInterpolationTest(const Eigen::Matrix3d& coeff) {
-    values_ = std::make_unique<double[]>(kNumRows * kNumCols * kDataDimension);
+    values_.reset(new double[kNumRows * kNumCols * kDataDimension]);
     coeff_ = coeff;
     double* v = values_.get();
     for (int r = 0; r < kNumRows; ++r) {
@@ -575,4 +530,5 @@ TEST(BiCubicInterpolator, JetEvaluation) {
               kTolerance);
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

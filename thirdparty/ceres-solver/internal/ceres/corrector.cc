@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,10 +33,11 @@
 #include <cmath>
 #include <cstddef>
 
-#include "absl/log/check.h"
 #include "ceres/internal/eigen.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 Corrector::Corrector(const double sq_norm, const double rho[3]) {
   CHECK_GE(sq_norm, 0.0);
@@ -87,7 +88,7 @@ Corrector::Corrector(const double sq_norm, const double rho[3]) {
   // We now require that the first derivative of the loss function be
   // positive only if the second derivative is positive. This is
   // because when the second derivative is non-positive, we do not use
-  // the second order correction suggested by BAMS and instead use a
+  // the second order correction suggested by BANS and instead use a
   // simpler first order strategy which does not use a division by the
   // gradient of the loss function.
   CHECK_GT(rho[1], 0.0);
@@ -110,8 +111,8 @@ Corrector::Corrector(const double sq_norm, const double rho[3]) {
 }
 
 void Corrector::CorrectResiduals(const int num_rows, double* residuals) {
-  DCHECK(residuals != nullptr);
-  // Equation 11 in BAMS.
+  DCHECK(residuals != NULL);
+  // Equation 11 in BANS.
   VectorRef(residuals, num_rows) *= residual_scaling_;
 }
 
@@ -119,8 +120,8 @@ void Corrector::CorrectJacobian(const int num_rows,
                                 const int num_cols,
                                 double* residuals,
                                 double* jacobian) {
-  DCHECK(residuals != nullptr);
-  DCHECK(jacobian != nullptr);
+  DCHECK(residuals != NULL);
+  DCHECK(jacobian != NULL);
 
   // The common case (rho[2] <= 0).
   if (alpha_sq_norm_ == 0.0) {
@@ -128,7 +129,7 @@ void Corrector::CorrectJacobian(const int num_rows,
     return;
   }
 
-  // Equation 11 in BAMS.
+  // Equation 11 in BANS.
   //
   //  J = sqrt(rho) * (J - alpha^2 r * r' J)
   //
@@ -154,4 +155,5 @@ void Corrector::CorrectJacobian(const int num_rows,
   }
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

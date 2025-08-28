@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,6 +32,7 @@
 
 #include "Eigen/Core"
 #include "ceres/block_structure.h"
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
@@ -44,34 +45,34 @@ TEST(DetectStructure, EverythingStatic) {
 
   CompressedRowBlockStructure bs;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 3;
   bs.cols.back().position = 0;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 4;
   bs.cols.back().position = 3;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 4;
   bs.cols.back().position = 7;
 
   {
-    bs.rows.emplace_back();
+    bs.rows.push_back(CompressedRow());
     CompressedRow& row = bs.rows.back();
     row.block.size = 2;
     row.block.position = 0;
-    row.cells.emplace_back(0, 0);
-    row.cells.emplace_back(1, 0);
+    row.cells.push_back(Cell(0, 0));
+    row.cells.push_back(Cell(1, 0));
   }
 
   {
-    bs.rows.emplace_back();
+    bs.rows.push_back(CompressedRow());
     CompressedRow& row = bs.rows.back();
     row.block.size = 2;
     row.block.position = 2;
-    row.cells.emplace_back(0, 0);
-    row.cells.emplace_back(2, 0);
+    row.cells.push_back(Cell(0, 0));
+    row.cells.push_back(Cell(2, 0));
   }
 
   int row_block_size = 0;
@@ -93,34 +94,34 @@ TEST(DetectStructure, DynamicRow) {
 
   CompressedRowBlockStructure bs;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 3;
   bs.cols.back().position = 0;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 4;
   bs.cols.back().position = 3;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 4;
   bs.cols.back().position = 7;
 
   {
-    bs.rows.emplace_back();
+    bs.rows.push_back(CompressedRow());
     CompressedRow& row = bs.rows.back();
     row.block.size = 2;
     row.block.position = 0;
-    row.cells.emplace_back(0, 0);
-    row.cells.emplace_back(1, 0);
+    row.cells.push_back(Cell(0, 0));
+    row.cells.push_back(Cell(1, 0));
   }
 
   {
-    bs.rows.emplace_back();
+    bs.rows.push_back(CompressedRow());
     CompressedRow& row = bs.rows.back();
     row.block.size = 1;
     row.block.position = 2;
-    row.cells.emplace_back(0, 0);
-    row.cells.emplace_back(2, 0);
+    row.cells.push_back(Cell(0, 0));
+    row.cells.push_back(Cell(2, 0));
   }
 
   int row_block_size = 0;
@@ -142,34 +143,34 @@ TEST(DetectStructure, DynamicFBlockDifferentRows) {
 
   CompressedRowBlockStructure bs;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 3;
   bs.cols.back().position = 0;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 4;
   bs.cols.back().position = 3;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 3;
   bs.cols.back().position = 7;
 
   {
-    bs.rows.emplace_back();
+    bs.rows.push_back(CompressedRow());
     CompressedRow& row = bs.rows.back();
     row.block.size = 2;
     row.block.position = 0;
-    row.cells.emplace_back(0, 0);
-    row.cells.emplace_back(1, 0);
+    row.cells.push_back(Cell(0, 0));
+    row.cells.push_back(Cell(1, 0));
   }
 
   {
-    bs.rows.emplace_back();
+    bs.rows.push_back(CompressedRow());
     CompressedRow& row = bs.rows.back();
     row.block.size = 2;
     row.block.position = 2;
-    row.cells.emplace_back(0, 0);
-    row.cells.emplace_back(2, 0);
+    row.cells.push_back(Cell(0, 0));
+    row.cells.push_back(Cell(2, 0));
   }
 
   int row_block_size = 0;
@@ -191,34 +192,34 @@ TEST(DetectStructure, DynamicEBlock) {
 
   CompressedRowBlockStructure bs;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 3;
   bs.cols.back().position = 0;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 4;
   bs.cols.back().position = 3;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 3;
   bs.cols.back().position = 7;
 
   {
-    bs.rows.emplace_back();
+    bs.rows.push_back(CompressedRow());
     CompressedRow& row = bs.rows.back();
     row.block.size = 2;
     row.block.position = 0;
-    row.cells.emplace_back(0, 0);
-    row.cells.emplace_back(2, 0);
+    row.cells.push_back(Cell(0, 0));
+    row.cells.push_back(Cell(2, 0));
   }
 
   {
-    bs.rows.emplace_back();
+    bs.rows.push_back(CompressedRow());
     CompressedRow& row = bs.rows.back();
     row.block.size = 2;
     row.block.position = 2;
-    row.cells.emplace_back(1, 0);
-    row.cells.emplace_back(2, 0);
+    row.cells.push_back(Cell(1, 0));
+    row.cells.push_back(Cell(2, 0));
   }
 
   int row_block_size = 0;
@@ -240,26 +241,26 @@ TEST(DetectStructure, DynamicFBlockSameRow) {
 
   CompressedRowBlockStructure bs;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 3;
   bs.cols.back().position = 0;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 4;
   bs.cols.back().position = 3;
 
-  bs.cols.emplace_back();
+  bs.cols.push_back(Block());
   bs.cols.back().size = 3;
   bs.cols.back().position = 7;
 
   {
-    bs.rows.emplace_back();
+    bs.rows.push_back(CompressedRow());
     CompressedRow& row = bs.rows.back();
     row.block.size = 2;
     row.block.position = 0;
-    row.cells.emplace_back(0, 0);
-    row.cells.emplace_back(1, 0);
-    row.cells.emplace_back(2, 0);
+    row.cells.push_back(Cell(0, 0));
+    row.cells.push_back(Cell(1, 0));
+    row.cells.push_back(Cell(2, 0));
   }
 
   int row_block_size = 0;

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,16 +32,15 @@
 #ifndef CERES_INTERNAL_SCHUR_TEMPLATES_H_
 #define CERES_INTERNAL_SCHUR_TEMPLATES_H_
 
-#include "ceres/internal/config.h"
-#include "ceres/internal/export.h"
 #include "ceres/linear_solver.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-CERES_NO_EXPORT
 void GetBestSchurTemplateSpecialization(int* row_block_size,
                                         int* e_block_size,
                                         int* f_block_size);
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_SCHUR_TEMPLATES_H_

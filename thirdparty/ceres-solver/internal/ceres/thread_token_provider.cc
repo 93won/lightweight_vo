@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,22 +30,44 @@
 
 #include "ceres/thread_token_provider.h"
 
-#include "absl/log/check.h"
+#ifdef CERES_USE_OPENMP
+#include <omp.h>
+#endif
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 ThreadTokenProvider::ThreadTokenProvider(int num_threads) {
+  (void)num_threads;
+#ifdef CERES_USE_CXX_THREADS
   for (int i = 0; i < num_threads; i++) {
     pool_.Push(i);
   }
+#endif
 }
 
 int ThreadTokenProvider::Acquire() {
+#ifdef CERES_USE_OPENMP
+  return omp_get_thread_num();
+#endif
+
+#ifdef CERES_NO_THREADS
+  return 0;
+#endif
+
+#ifdef CERES_USE_CXX_THREADS
   int thread_id;
   CHECK(pool_.Wait(&thread_id));
   return thread_id;
+#endif
 }
 
-void ThreadTokenProvider::Release(int thread_id) { pool_.Push(thread_id); }
+void ThreadTokenProvider::Release(int thread_id) {
+  (void)thread_id;
+#ifdef CERES_USE_CXX_THREADS
+  pool_.Push(thread_id);
+#endif
+}
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

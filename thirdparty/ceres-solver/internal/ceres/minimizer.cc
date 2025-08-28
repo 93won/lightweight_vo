@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,29 +30,28 @@
 
 #include "ceres/minimizer.h"
 
-#include <memory>
-
-#include "absl/log/log.h"
 #include "ceres/line_search_minimizer.h"
 #include "ceres/trust_region_minimizer.h"
 #include "ceres/types.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-std::unique_ptr<Minimizer> Minimizer::Create(MinimizerType minimizer_type) {
+Minimizer* Minimizer::Create(MinimizerType minimizer_type) {
   if (minimizer_type == TRUST_REGION) {
-    return std::make_unique<TrustRegionMinimizer>();
+    return new TrustRegionMinimizer;
   }
 
   if (minimizer_type == LINE_SEARCH) {
-    return std::make_unique<LineSearchMinimizer>();
+    return new LineSearchMinimizer;
   }
 
   LOG(FATAL) << "Unknown minimizer_type: " << minimizer_type;
-  return nullptr;
+  return NULL;
 }
 
-Minimizer::~Minimizer() = default;
+Minimizer::~Minimizer() {}
 
 bool Minimizer::RunCallbacks(const Minimizer::Options& options,
                              const IterationSummary& iteration_summary,
@@ -88,4 +87,5 @@ bool Minimizer::RunCallbacks(const Minimizer::Options& options,
   return false;
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

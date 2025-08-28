@@ -37,7 +37,7 @@ functor is straightforward and will look as follows:
    template <typename T> T TemplatedComputeDistortion(const T r2) {
      const double k1 = 0.0082;
      const double k2 = 0.000023;
-     return 1.0 + k1 * r2 + k2 * r2 * r2;
+     return 1.0 + k1 * y2 + k2 * r2 * r2;
    }
 
    struct Affine2DWithDistortion {
@@ -118,13 +118,12 @@ An implementation of the above three steps looks as follows:
        y[0] = y_in[0];
        y[1] = y_in[1];
 
-       compute_distortion = std::make_unique<ceres::CostFunctionToFunctor<1, 1>>(
-         std::make_unique<ceres::NumericDiffCostFunction<
-               ComputeDistortionValueFunctor
-             , ceres::CENTRAL, 1, 1
-           >
-         >()
-       );
+       compute_distortion.reset(new ceres::CostFunctionToFunctor<1, 1>(
+            new ceres::NumericDiffCostFunction<ComputeDistortionValueFunctor,
+                                               ceres::CENTRAL,
+                                               1,
+                                               1>(
+               new ComputeDistortionValueFunctor)));
      }
 
      template <typename T>
@@ -141,7 +140,7 @@ An implementation of the above three steps looks as follows:
 
      double x[2];
      double y[2];
-     std::unique_ptr<ceres::CostFunctionToFunctor<1, 1>> compute_distortion;
+     std::unique_ptr<ceres::CostFunctionToFunctor<1, 1> > compute_distortion;
    };
 
 
@@ -149,7 +148,7 @@ A function that returns its value and derivative
 ------------------------------------------------
 
 Now suppose we are given a function :code:`ComputeDistortionValue`
-that is able to compute its value and optionally its Jacobian on demand
+thatis able to compute its value and optionally its Jacobian on demand
 and has the following signature:
 
 .. code-block:: c++

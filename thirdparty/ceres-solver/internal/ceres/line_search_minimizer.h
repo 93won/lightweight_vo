@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,20 +32,21 @@
 #define CERES_INTERNAL_LINE_SEARCH_MINIMIZER_H_
 
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
 #include "ceres/minimizer.h"
 #include "ceres/solver.h"
 #include "ceres/types.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Generic line search minimization algorithm.
 //
 // For example usage, see SolverImpl::Minimize.
-class CERES_NO_EXPORT LineSearchMinimizer final : public Minimizer {
+class LineSearchMinimizer : public Minimizer {
  public:
   struct State {
-    State(int /*num_parameters*/, int num_effective_parameters)
+    State(int num_parameters, int num_effective_parameters)
         : cost(0.0),
           gradient(num_effective_parameters),
           gradient_squared_norm(0.0),
@@ -62,11 +63,13 @@ class CERES_NO_EXPORT LineSearchMinimizer final : public Minimizer {
     double step_size;
   };
 
+  ~LineSearchMinimizer() {}
   void Minimize(const Minimizer::Options& options,
                 double* parameters,
                 Solver::Summary* summary) final;
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_LINE_SEARCH_MINIMIZER_H_

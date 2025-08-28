@@ -177,7 +177,8 @@ cv::Mat Frame::draw_features() const {
         display_image = m_left_image.clone();
     }
 
-    for (const auto& feature : m_features) {
+    for (size_t i = 0; i < m_features.size(); ++i) {
+        const auto& feature = m_features[i];
         if (feature->is_valid()) {
             const cv::Point2f& pt = feature->get_pixel_coord();
             int track_count = feature->get_track_count();
@@ -192,6 +193,15 @@ cv::Mat Frame::draw_features() const {
             
             cv::Scalar color(blue, green, red);
             cv::circle(display_image, pt, 2, color, 2);
+            
+            // Display MapPoint ID if feature has associated map point
+            auto map_point = get_map_point(i);
+            if (map_point && !map_point->is_bad()) {
+                std::string id_text = std::to_string(map_point->get_id());
+                cv::Point2f text_pt(pt.x + 5, pt.y - 5);  // Offset text slightly from point
+                cv::putText(display_image, id_text, text_pt, 
+                           cv::FONT_HERSHEY_SIMPLEX, 0.3, color, 1);
+            }
         }
     }
 

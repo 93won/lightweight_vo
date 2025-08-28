@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -40,7 +40,7 @@
 #include <string>
 
 #include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 
 namespace ceres {
 
@@ -67,7 +67,8 @@ enum LinearSolverType {
   // Eigen.
   DENSE_QR,
 
-  // Solve the normal equations using a sparse cholesky solver;
+  // Solve the normal equations using a sparse cholesky solver; requires
+  // SuiteSparse or CXSparse.
   SPARSE_NORMAL_CHOLESKY,
 
   // Specialized solvers, specific to problems with a generalized
@@ -97,17 +98,13 @@ enum PreconditionerType {
   // Block diagonal of the Gauss-Newton Hessian.
   JACOBI,
 
-  // Note: The following four preconditioners can only be used with
+  // Note: The following three preconditioners can only be used with
   // the ITERATIVE_SCHUR solver. They are well suited for Structure
   // from Motion problems.
 
   // Block diagonal of the Schur complement. This preconditioner may
   // only be used with the ITERATIVE_SCHUR solver.
   SCHUR_JACOBI,
-
-  // Use power series expansion to approximate the inversion of Schur complement
-  // as a preconditioner.
-  SCHUR_POWER_SERIES_EXPANSION,
 
   // Visibility clustering based preconditioners.
   //
@@ -137,7 +134,7 @@ enum PreconditionerType {
   // well the matrix Q approximates J'J, or how well the chosen
   // residual blocks approximate the non-linear least squares
   // problem.
-  SUBSET
+  SUBSET,
 };
 
 enum VisibilityClusteringType {
@@ -168,6 +165,11 @@ enum SparseLinearAlgebraLibraryType {
   // minimum degree ordering.
   SUITE_SPARSE,
 
+  // A lightweight replacement for SuiteSparse, which does not require
+  // a LAPACK/BLAS implementation. Consequently, its performance is
+  // also a bit lower than SuiteSparse.
+  CX_SPARSE,
+
   // Eigen's sparse linear algebra routines. In particular Ceres uses
   // the Simplicial LDLT routines.
   EIGEN_SPARSE,
@@ -175,43 +177,15 @@ enum SparseLinearAlgebraLibraryType {
   // Apple's Accelerate framework sparse linear algebra routines.
   ACCELERATE_SPARSE,
 
-  // Nvidia's cuDSS and cuSPARSE libraries.
-  CUDA_SPARSE,
-
   // No sparse linear solver should be used.  This does not necessarily
   // imply that Ceres was built without any sparse library, although that
   // is the likely use case, merely that one should not be used.
   NO_SPARSE
 };
 
-// The order in which variables are eliminated in a linear solver
-// can have a significant of impact on the efficiency and accuracy
-// of the method. e.g., when doing sparse Cholesky factorization,
-// there are matrices for which a good ordering will give a
-// Cholesky factor with O(n) storage, where as a bad ordering will
-// result in a completely dense factor.
-//
-// So sparse direct solvers like SPARSE_NORMAL_CHOLESKY and
-// SPARSE_SCHUR and preconditioners like SUBSET, CLUSTER_JACOBI &
-// CLUSTER_TRIDIAGONAL use a fill reducing ordering of the columns and
-// rows of the matrix being factorized before actually the numeric
-// factorization.
-//
-// This enum controls the class of algorithm used to compute this
-// fill reducing ordering. There is no single algorithm that works
-// on all matrices, so determining which algorithm works better is a
-// matter of empirical experimentation.
-enum LinearSolverOrderingType {
-  // Approximate Minimum Degree.
-  AMD,
-  // Nested Dissection.
-  NESDIS
-};
-
 enum DenseLinearAlgebraLibraryType {
   EIGEN,
   LAPACK,
-  CUDA,
 };
 
 // Logging options
@@ -491,11 +465,6 @@ CERES_EXPORT const char* SparseLinearAlgebraLibraryTypeToString(
     SparseLinearAlgebraLibraryType type);
 CERES_EXPORT bool StringToSparseLinearAlgebraLibraryType(
     std::string value, SparseLinearAlgebraLibraryType* type);
-
-CERES_EXPORT const char* LinearSolverOrderingTypeToString(
-    LinearSolverOrderingType type);
-CERES_EXPORT bool StringToLinearSolverOrderingType(
-    std::string value, LinearSolverOrderingType* type);
 
 CERES_EXPORT const char* DenseLinearAlgebraLibraryTypeToString(
     DenseLinearAlgebraLibraryType type);

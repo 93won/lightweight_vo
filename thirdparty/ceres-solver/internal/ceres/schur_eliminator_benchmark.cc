@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,19 +28,16 @@
 //
 // Authors: sameeragarwal@google.com (Sameer Agarwal)
 
-#include <algorithm>
-#include <memory>
-#include <random>
-#include <vector>
-
 #include "Eigen/Dense"
 #include "benchmark/benchmark.h"
 #include "ceres/block_random_access_dense_matrix.h"
 #include "ceres/block_sparse_matrix.h"
 #include "ceres/block_structure.h"
+#include "ceres/random.h"
 #include "ceres/schur_eliminator.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 constexpr int kRowBlockSize = 2;
 constexpr int kEBlockSize = 3;
@@ -49,7 +46,7 @@ constexpr int kFBlockSize = 6;
 class BenchmarkData {
  public:
   explicit BenchmarkData(const int num_e_blocks) {
-    auto* bs = new CompressedRowBlockStructure;
+    CompressedRowBlockStructure* bs = new CompressedRowBlockStructure;
     bs->cols.resize(num_e_blocks + 1);
     int col_pos = 0;
     for (int i = 0; i < num_e_blocks; ++i) {
@@ -91,18 +88,17 @@ class BenchmarkData {
       }
     }
 
-    matrix_ = std::make_unique<BlockSparseMatrix>(bs);
+    matrix_.reset(new BlockSparseMatrix(bs));
     double* values = matrix_->mutable_values();
-    std::generate_n(values, matrix_->num_nonzeros(), [this] {
-      return standard_normal_(prng_);
-    });
+    for (int i = 0; i < matrix_->num_nonzeros(); ++i) {
+      values[i] = RandNormal();
+    }
 
     b_.resize(matrix_->num_rows());
     b_.setRandom();
 
-    std::vector<Block> blocks;
-    blocks.emplace_back(kFBlockSize, 0);
-    lhs_ = std::make_unique<BlockRandomAccessDenseMatrix>(blocks, &context_, 1);
+    std::vector<int> blocks(1, kFBlockSize);
+    lhs_.reset(new BlockRandomAccessDenseMatrix(blocks));
     diagonal_.resize(matrix_->num_cols());
     diagonal_.setOnes();
     rhs_.resize(kFBlockSize);
@@ -121,11 +117,7 @@ class BenchmarkData {
   Vector* mutable_y() { return &y_; }
   Vector* mutable_z() { return &z_; }
 
-  ContextImpl* context() { return &context_; }
-
  private:
-  ContextImpl context_;
-
   std::unique_ptr<BlockSparseMatrix> matrix_;
   Vector b_;
   std::unique_ptr<BlockRandomAccessDenseMatrix> lhs_;
@@ -133,19 +125,18 @@ class BenchmarkData {
   Vector diagonal_;
   Vector z_;
   Vector y_;
-  std::mt19937 prng_;
-  std::normal_distribution<> standard_normal_;
 };
 
-static void BM_SchurEliminatorEliminate(benchmark::State& state) {
+void BM_SchurEliminatorEliminate(benchmark::State& state) {
   const int num_e_blocks = state.range(0);
   BenchmarkData data(num_e_blocks);
 
+  ContextImpl context;
   LinearSolver::Options linear_solver_options;
   linear_solver_options.e_block_size = kEBlockSize;
   linear_solver_options.row_block_size = kRowBlockSize;
   linear_solver_options.f_block_size = kFBlockSize;
-  linear_solver_options.context = data.context();
+  linear_solver_options.context = &context;
   std::unique_ptr<SchurEliminatorBase> eliminator(
       SchurEliminatorBase::Create(linear_solver_options));
 
@@ -159,15 +150,16 @@ static void BM_SchurEliminatorEliminate(benchmark::State& state) {
   }
 }
 
-static void BM_SchurEliminatorBackSubstitute(benchmark::State& state) {
+void BM_SchurEliminatorBackSubstitute(benchmark::State& state) {
   const int num_e_blocks = state.range(0);
   BenchmarkData data(num_e_blocks);
 
+  ContextImpl context;
   LinearSolver::Options linear_solver_options;
   linear_solver_options.e_block_size = kEBlockSize;
   linear_solver_options.row_block_size = kRowBlockSize;
   linear_solver_options.f_block_size = kFBlockSize;
-  linear_solver_options.context = data.context();
+  linear_solver_options.context = &context;
   std::unique_ptr<SchurEliminatorBase> eliminator(
       SchurEliminatorBase::Create(linear_solver_options));
 
@@ -186,7 +178,7 @@ static void BM_SchurEliminatorBackSubstitute(benchmark::State& state) {
   }
 }
 
-static void BM_SchurEliminatorForOneFBlockEliminate(benchmark::State& state) {
+void BM_SchurEliminatorForOneFBlockEliminate(benchmark::State& state) {
   const int num_e_blocks = state.range(0);
   BenchmarkData data(num_e_blocks);
   SchurEliminatorForOneFBlock<2, 3, 6> eliminator;
@@ -200,8 +192,7 @@ static void BM_SchurEliminatorForOneFBlockEliminate(benchmark::State& state) {
   }
 }
 
-static void BM_SchurEliminatorForOneFBlockBackSubstitute(
-    benchmark::State& state) {
+void BM_SchurEliminatorForOneFBlockBackSubstitute(benchmark::State& state) {
   const int num_e_blocks = state.range(0);
   BenchmarkData data(num_e_blocks);
   SchurEliminatorForOneFBlock<2, 3, 6> eliminator;
@@ -225,6 +216,7 @@ BENCHMARK(BM_SchurEliminatorForOneFBlockEliminate)->Range(10, 10000);
 BENCHMARK(BM_SchurEliminatorBackSubstitute)->Range(10, 10000);
 BENCHMARK(BM_SchurEliminatorForOneFBlockBackSubstitute)->Range(10, 10000);
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 BENCHMARK_MAIN();

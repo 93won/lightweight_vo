@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,11 +30,12 @@
 
 #include "ceres/preconditioner.h"
 
-#include "absl/log/check.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-Preconditioner::~Preconditioner() = default;
+Preconditioner::~Preconditioner() {}
 
 PreconditionerType Preconditioner::PreconditionerForZeroEBlocks(
     PreconditionerType preconditioner_type) {
@@ -47,27 +48,26 @@ PreconditionerType Preconditioner::PreconditionerForZeroEBlocks(
 }
 
 SparseMatrixPreconditionerWrapper::SparseMatrixPreconditionerWrapper(
-    const SparseMatrix* matrix, const Preconditioner::Options& options)
-    : matrix_(matrix), options_(options) {
+    const SparseMatrix* matrix)
+    : matrix_(matrix) {
   CHECK(matrix != nullptr);
 }
 
-SparseMatrixPreconditionerWrapper::~SparseMatrixPreconditionerWrapper() =
-    default;
+SparseMatrixPreconditionerWrapper::~SparseMatrixPreconditionerWrapper() {}
 
-bool SparseMatrixPreconditionerWrapper::UpdateImpl(const SparseMatrix& /*A*/,
-                                                   const double* /*D*/) {
+bool SparseMatrixPreconditionerWrapper::UpdateImpl(const SparseMatrix& A,
+                                                   const double* D) {
   return true;
 }
 
-void SparseMatrixPreconditionerWrapper::RightMultiplyAndAccumulate(
-    const double* x, double* y) const {
-  matrix_->RightMultiplyAndAccumulate(
-      x, y, options_.context, options_.num_threads);
+void SparseMatrixPreconditionerWrapper::RightMultiply(const double* x,
+                                                      double* y) const {
+  matrix_->RightMultiply(x, y);
 }
 
 int SparseMatrixPreconditionerWrapper::num_rows() const {
   return matrix_->num_rows();
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

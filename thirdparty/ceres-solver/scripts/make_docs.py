@@ -1,8 +1,8 @@
-#!/usr/bin/python3
+#!/usr/bin/python
 # encoding: utf-8
 #
 # Ceres Solver - A fast non-linear least squares minimizer
-# Copyright 2023 Google Inc. All rights reserved.
+# Copyright 2015 Google Inc. All rights reserved.
 # http://ceres-solver.org/
 #
 # Redistribution and use in source and binary forms, with or without
@@ -60,7 +60,7 @@ elif N == 4:
   sphinx_exe = sys.argv[3]
 
 # Run Sphinx to build the documentation.
-os.system('%s -n -a -d %s %s %s' %(sphinx_exe, cache_dir, src_dir, html_dir))
+os.system('%s -b html -d %s %s %s' %(sphinx_exe, cache_dir, src_dir, html_dir))
 
 replacements = [
   # The title for the homepage is not ideal, so change it.

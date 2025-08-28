@@ -38,6 +38,9 @@ public:
     void updateStereoImage(const cv::Mat& image);
     GLuint createTextureFromMat(const cv::Mat& mat);
     
+    // Input handling
+    void processKeyboardInput(bool& auto_play, bool& step_mode, bool& advance_frame);
+    
 private:
     GLFWwindow* m_window;
     bool m_initialized;
@@ -63,6 +66,10 @@ private:
     GLuint m_stereo_texture;
     int m_tracking_width, m_tracking_height;
     int m_stereo_width, m_stereo_height;
+    
+    // Keyboard input state
+    bool m_space_pressed;
+    bool m_next_pressed;
     
     // OpenGL setup
     void setupOpenGL();

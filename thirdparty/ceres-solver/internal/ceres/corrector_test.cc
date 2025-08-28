@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,10 +32,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
-#include <random>
 
 #include "ceres/internal/eigen.h"
+#include "ceres/random.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
@@ -159,19 +160,18 @@ TEST(Corrector, MultidimensionalGaussNewtonApproximation) {
   // and hessians.
   Matrix c_hess(2, 2);
   Vector c_grad(2);
-  std::mt19937 prng;
-  std::uniform_real_distribution<double> uniform01(0.0, 1.0);
+
+  srand(5);
   for (int iter = 0; iter < 10000; ++iter) {
     // Initialize the jacobian and residual.
-    for (double& jacobian_entry : jacobian) jacobian_entry = uniform01(prng);
-    for (double& residual : residuals) residual = uniform01(prng);
+    for (int i = 0; i < 2 * 3; ++i) jacobian[i] = RandDouble();
+    for (int i = 0; i < 3; ++i) residuals[i] = RandDouble();
 
     const double sq_norm = res.dot(res);
 
     rho[0] = sq_norm;
-    rho[1] = uniform01(prng);
-    rho[2] = uniform01(
-        prng, std::uniform_real_distribution<double>::param_type(-1, 1));
+    rho[1] = RandDouble();
+    rho[2] = 2.0 * RandDouble() - 1.0;
 
     // If rho[2] > 0, then the curvature correction to the correction
     // and the gauss newton approximation will match. Otherwise, we
@@ -227,11 +227,10 @@ TEST(Corrector, MultidimensionalGaussNewtonApproximationZeroResidual) {
   Matrix c_hess(2, 2);
   Vector c_grad(2);
 
-  std::mt19937 prng;
-  std::uniform_real_distribution<double> uniform01(0.0, 1.0);
+  srand(5);
   for (int iter = 0; iter < 10000; ++iter) {
     // Initialize the jacobian.
-    for (double& jacobian_entry : jacobian) jacobian_entry = uniform01(prng);
+    for (int i = 0; i < 2 * 3; ++i) jacobian[i] = RandDouble();
 
     // Zero residuals
     res.setZero();
@@ -239,9 +238,8 @@ TEST(Corrector, MultidimensionalGaussNewtonApproximationZeroResidual) {
     const double sq_norm = res.dot(res);
 
     rho[0] = sq_norm;
-    rho[1] = uniform01(prng);
-    rho[2] = uniform01(
-        prng, std::uniform_real_distribution<double>::param_type(-1, 1));
+    rho[1] = RandDouble();
+    rho[2] = 2 * RandDouble() - 1.0;
 
     // Ground truth values.
     g_res = sqrt(rho[1]) * res;

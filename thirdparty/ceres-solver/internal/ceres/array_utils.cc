@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,14 +36,16 @@
 #include <string>
 #include <vector>
 
-#include "absl/strings/str_format.h"
+#include "ceres/stringprintf.h"
 #include "ceres/types.h"
+namespace ceres {
+namespace internal {
 
-namespace ceres::internal {
+using std::string;
 
-bool IsArrayValid(const int64_t size, const double* x) {
-  if (x != nullptr) {
-    for (int64_t i = 0; i < size; ++i) {
+bool IsArrayValid(const int size, const double* x) {
+  if (x != NULL) {
+    for (int i = 0; i < size; ++i) {
       if (!std::isfinite(x[i]) || (x[i] == kImpossibleValue)) {
         return false;
       }
@@ -52,12 +54,12 @@ bool IsArrayValid(const int64_t size, const double* x) {
   return true;
 }
 
-int64_t FindInvalidValue(const int64_t size, const double* x) {
-  if (x == nullptr) {
+int FindInvalidValue(const int size, const double* x) {
+  if (x == NULL) {
     return size;
   }
 
-  for (int64_t i = 0; i < size; ++i) {
+  for (int i = 0; i < size; ++i) {
     if (!std::isfinite(x[i]) || (x[i] == kImpossibleValue)) {
       return i;
     }
@@ -66,41 +68,40 @@ int64_t FindInvalidValue(const int64_t size, const double* x) {
   return size;
 }
 
-void InvalidateArray(const int64_t size, double* x) {
-  if (x != nullptr) {
-    for (int64_t i = 0; i < size; ++i) {
+void InvalidateArray(const int size, double* x) {
+  if (x != NULL) {
+    for (int i = 0; i < size; ++i) {
       x[i] = kImpossibleValue;
     }
   }
 }
 
-void AppendArrayToString(const int64_t size,
-                         const double* x,
-                         std::string* result) {
-  for (int64_t i = 0; i < size; ++i) {
-    if (x == nullptr) {
-      absl::StrAppendFormat(result, "Not Computed  ");
+void AppendArrayToString(const int size, const double* x, string* result) {
+  for (int i = 0; i < size; ++i) {
+    if (x == NULL) {
+      StringAppendF(result, "Not Computed  ");
     } else {
       if (x[i] == kImpossibleValue) {
-        absl::StrAppendFormat(result, "Uninitialized ");
+        StringAppendF(result, "Uninitialized ");
       } else {
-        absl::StrAppendFormat(result, "%12g ", x[i]);
+        StringAppendF(result, "%12g ", x[i]);
       }
     }
   }
 }
 
-void MapValuesToContiguousRange(const int64_t size, int* array) {
+void MapValuesToContiguousRange(const int size, int* array) {
   std::vector<int> unique_values(array, array + size);
   std::sort(unique_values.begin(), unique_values.end());
   unique_values.erase(std::unique(unique_values.begin(), unique_values.end()),
                       unique_values.end());
 
-  for (int64_t i = 0; i < size; ++i) {
+  for (int i = 0; i < size; ++i) {
     array[i] =
         std::lower_bound(unique_values.begin(), unique_values.end(), array[i]) -
         unique_values.begin();
   }
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

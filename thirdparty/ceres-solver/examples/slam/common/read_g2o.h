@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2016 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,16 +34,12 @@
 #define EXAMPLES_CERES_READ_G2O_H_
 
 #include <fstream>
-#include <functional>
-#include <istream>
-#include <map>
 #include <string>
-#include <vector>
 
-#include "absl/log/check.h"
-#include "absl/log/log.h"
+#include "glog/logging.h"
 
-namespace ceres::examples {
+namespace ceres {
+namespace examples {
 
 // Reads a single pose from the input and inserts it into the map. Returns false
 // if there is a duplicate entry.
@@ -64,7 +60,7 @@ bool ReadVertex(std::ifstream* infile,
   return true;
 }
 
-// Reads the constraints between two vertices in the pose graph
+// Reads the contraints between two vertices in the pose graph
 template <typename Constraint, typename Allocator>
 void ReadConstraint(std::ifstream* infile,
                     std::vector<Constraint, Allocator>* constraints) {
@@ -108,8 +104,8 @@ template <typename Pose,
 bool ReadG2oFile(const std::string& filename,
                  std::map<int, Pose, std::less<int>, MapAllocator>* poses,
                  std::vector<Constraint, VectorAllocator>* constraints) {
-  CHECK(poses != nullptr);
-  CHECK(constraints != nullptr);
+  CHECK(poses != NULL);
+  CHECK(constraints != NULL);
 
   poses->clear();
   constraints->clear();
@@ -141,6 +137,7 @@ bool ReadG2oFile(const std::string& filename,
   return true;
 }
 
-}  // namespace ceres::examples
+}  // namespace examples
+}  // namespace ceres
 
 #endif  // EXAMPLES_CERES_READ_G2O_H_

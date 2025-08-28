@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -39,9 +39,8 @@
 //
 // This file is generated using generate_template_specializations.py.
 
-#include "ceres/schur_templates.h"
-
 #include "ceres/internal/eigen.h"
+#include "ceres/schur_templates.h"
 
 namespace ceres {
 namespace internal {
@@ -57,103 +56,118 @@ void GetBestSchurTemplateSpecialization(int* row_block_size,
   *e_block_size = Eigen::Dynamic;
   *f_block_size = Eigen::Dynamic;
 #ifndef CERES_RESTRICT_SCHUR_SPECIALIZATION
-  if ((options.row_block_size == 2) && (options.e_block_size == 2) &&
-      (options.f_block_size == 2)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 2) &&
+     (options.f_block_size == 2)) {
     *row_block_size = 2;
     *e_block_size = 2;
     *f_block_size = 2;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 2) &&
-      (options.f_block_size == 3)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 2) &&
+     (options.f_block_size == 3)) {
     *row_block_size = 2;
     *e_block_size = 2;
     *f_block_size = 3;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 2) &&
-      (options.f_block_size == 4)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 2) &&
+     (options.f_block_size == 4)) {
     *row_block_size = 2;
     *e_block_size = 2;
     *f_block_size = 4;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 2)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 2)) {
     *row_block_size = 2;
     *e_block_size = 2;
     *f_block_size = Eigen::Dynamic;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 3) &&
-      (options.f_block_size == 3)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 3) &&
+     (options.f_block_size == 3)) {
     *row_block_size = 2;
     *e_block_size = 3;
     *f_block_size = 3;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 3) &&
-      (options.f_block_size == 4)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 3) &&
+     (options.f_block_size == 4)) {
     *row_block_size = 2;
     *e_block_size = 3;
     *f_block_size = 4;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 3) &&
-      (options.f_block_size == 6)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 3) &&
+     (options.f_block_size == 6)) {
     *row_block_size = 2;
     *e_block_size = 3;
     *f_block_size = 6;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 3) &&
-      (options.f_block_size == 9)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 3) &&
+     (options.f_block_size == 9)) {
     *row_block_size = 2;
     *e_block_size = 3;
     *f_block_size = 9;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 3)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 3)) {
     *row_block_size = 2;
     *e_block_size = 3;
     *f_block_size = Eigen::Dynamic;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 4) &&
-      (options.f_block_size == 3)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 4) &&
+     (options.f_block_size == 3)) {
     *row_block_size = 2;
     *e_block_size = 4;
     *f_block_size = 3;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 4) &&
-      (options.f_block_size == 4)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 4) &&
+     (options.f_block_size == 4)) {
     *row_block_size = 2;
     *e_block_size = 4;
     *f_block_size = 4;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 4) &&
-      (options.f_block_size == 6)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 4) &&
+     (options.f_block_size == 6)) {
     *row_block_size = 2;
     *e_block_size = 4;
     *f_block_size = 6;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 4) &&
-      (options.f_block_size == 8)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 4) &&
+     (options.f_block_size == 8)) {
     *row_block_size = 2;
     *e_block_size = 4;
     *f_block_size = 8;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 4) &&
-      (options.f_block_size == 9)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 4) &&
+     (options.f_block_size == 9)) {
     *row_block_size = 2;
     *e_block_size = 4;
     *f_block_size = 9;
     return;
   }
-  if ((options.row_block_size == 2) && (options.e_block_size == 4)) {
+  if ((options.row_block_size == 2) &&
+     (options.e_block_size == 4)) {
     *row_block_size = 2;
     *e_block_size = 4;
     *f_block_size = Eigen::Dynamic;
@@ -165,35 +179,40 @@ void GetBestSchurTemplateSpecialization(int* row_block_size,
     *f_block_size = Eigen::Dynamic;
     return;
   }
-  if ((options.row_block_size == 3) && (options.e_block_size == 3) &&
-      (options.f_block_size == 3)) {
+  if ((options.row_block_size == 3) &&
+     (options.e_block_size == 3) &&
+     (options.f_block_size == 3)) {
     *row_block_size = 3;
     *e_block_size = 3;
     *f_block_size = 3;
     return;
   }
-  if ((options.row_block_size == 4) && (options.e_block_size == 4) &&
-      (options.f_block_size == 2)) {
+  if ((options.row_block_size == 4) &&
+     (options.e_block_size == 4) &&
+     (options.f_block_size == 2)) {
     *row_block_size = 4;
     *e_block_size = 4;
     *f_block_size = 2;
     return;
   }
-  if ((options.row_block_size == 4) && (options.e_block_size == 4) &&
-      (options.f_block_size == 3)) {
+  if ((options.row_block_size == 4) &&
+     (options.e_block_size == 4) &&
+     (options.f_block_size == 3)) {
     *row_block_size = 4;
     *e_block_size = 4;
     *f_block_size = 3;
     return;
   }
-  if ((options.row_block_size == 4) && (options.e_block_size == 4) &&
-      (options.f_block_size == 4)) {
+  if ((options.row_block_size == 4) &&
+     (options.e_block_size == 4) &&
+     (options.f_block_size == 4)) {
     *row_block_size = 4;
     *e_block_size = 4;
     *f_block_size = 4;
     return;
   }
-  if ((options.row_block_size == 4) && (options.e_block_size == 4)) {
+  if ((options.row_block_size == 4) &&
+     (options.e_block_size == 4)) {
     *row_block_size = 4;
     *e_block_size = 4;
     *f_block_size = Eigen::Dynamic;

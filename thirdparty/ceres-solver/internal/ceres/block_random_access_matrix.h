@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,9 +35,10 @@
 
 #include <mutex>
 
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // A matrix implementing the BlockRandomAccessMatrix interface is a
 // matrix whose rows and columns are divided into blocks. For example
@@ -61,7 +62,7 @@ namespace ceres::internal {
 //
 // There is no requirement that all cells be present, i.e. the matrix
 // itself can be block sparse. When a cell is not present, the GetCell
-// method will return a nullptr pointer.
+// method will return a NULL pointer.
 //
 // There is no requirement about how the cells are stored beyond that
 // form a dense submatrix of a larger dense matrix. Like everywhere
@@ -76,7 +77,7 @@ namespace ceres::internal {
 //                              &row, &col,
 //                              &row_stride, &col_stride);
 //
-//  if (cell != nullptr) {
+//  if (cell != NULL) {
 //     MatrixRef m(cell->values, row_stride, col_stride);
 //     std::lock_guard<std::mutex> l(&cell->m);
 //     m.block(row, col, row_block_size, col_block_size) = ...
@@ -84,21 +85,21 @@ namespace ceres::internal {
 
 // Structure to carry a pointer to the array containing a cell and the
 // mutex guarding it.
-struct CERES_NO_EXPORT CellInfo {
-  CellInfo() = default;
+struct CellInfo {
+  CellInfo() : values(nullptr) {}
   explicit CellInfo(double* values) : values(values) {}
 
-  double* values{nullptr};
+  double* values;
   std::mutex m;
 };
 
-class CERES_NO_EXPORT BlockRandomAccessMatrix {
+class CERES_EXPORT_INTERNAL BlockRandomAccessMatrix {
  public:
   virtual ~BlockRandomAccessMatrix();
 
   // If the cell (row_block_id, col_block_id) is present, then return
   // a CellInfo with a pointer to the dense matrix containing it,
-  // otherwise return nullptr. The dense matrix containing this cell has
+  // otherwise return NULL. The dense matrix containing this cell has
   // size row_stride, col_stride and the cell is located at position
   // (row, col) within this matrix.
   //
@@ -122,6 +123,7 @@ class CERES_NO_EXPORT BlockRandomAccessMatrix {
   virtual int num_cols() const = 0;
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_BLOCK_RANDOM_ACCESS_MATRIX_H_

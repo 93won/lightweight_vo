@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,28 +33,32 @@
 #ifndef CERES_INTERNAL_DENSE_SPARSE_MATRIX_H_
 #define CERES_INTERNAL_DENSE_SPARSE_MATRIX_H_
 
-#include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/sparse_matrix.h"
 #include "ceres/types.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class TripletSparseMatrix;
 
-class CERES_NO_EXPORT DenseSparseMatrix final : public SparseMatrix {
+class CERES_EXPORT_INTERNAL DenseSparseMatrix : public SparseMatrix {
  public:
   // Build a matrix with the same content as the TripletSparseMatrix
   // m. This assumes that m does not have any repeated entries.
   explicit DenseSparseMatrix(const TripletSparseMatrix& m);
-  explicit DenseSparseMatrix(Matrix m);
+  explicit DenseSparseMatrix(const ColMajorMatrix& m);
+
   DenseSparseMatrix(int num_rows, int num_cols);
+  DenseSparseMatrix(int num_rows, int num_cols, bool reserve_diagonal);
+
+  virtual ~DenseSparseMatrix() {}
 
   // SparseMatrix interface.
   void SetZero() final;
-  void RightMultiplyAndAccumulate(const double* x, double* y) const final;
-  void LeftMultiplyAndAccumulate(const double* x, double* y) const final;
+  void RightMultiply(const double* x, double* y) const final;
+  void LeftMultiply(const double* x, double* y) const final;
   void SquaredColumnNorm(double* x) const final;
   void ScaleColumns(const double* scale) final;
   void ToDenseMatrix(Matrix* dense_matrix) const final;
@@ -65,15 +69,40 @@ class CERES_NO_EXPORT DenseSparseMatrix final : public SparseMatrix {
   const double* values() const final { return m_.data(); }
   double* mutable_values() final { return m_.data(); }
 
-  const Matrix& matrix() const;
-  Matrix* mutable_matrix();
+  ConstColMajorMatrixRef matrix() const;
+  ColMajorMatrixRef mutable_matrix();
+
+  // Only one diagonal can be appended at a time. The diagonal is appended to
+  // as a new set of rows, e.g.
+  //
+  // Original matrix:
+  //
+  //   x x x
+  //   x x x
+  //   x x x
+  //
+  // After append diagonal (1, 2, 3):
+  //
+  //   x x x
+  //   x x x
+  //   x x x
+  //   1 0 0
+  //   0 2 0
+  //   0 0 3
+  //
+  // Calling RemoveDiagonal removes the block. It is a fatal error to append a
+  // diagonal to a matrix that already has an appended diagonal, and it is also
+  // a fatal error to remove a diagonal from a matrix that has none.
+  void AppendDiagonal(double* d);
+  void RemoveDiagonal();
 
  private:
-  Matrix m_;
+  ColMajorMatrix m_;
+  bool has_diagonal_appended_;
+  bool has_diagonal_reserved_;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_DENSE_SPARSE_MATRIX_H_

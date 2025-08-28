@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,7 @@
 //
 // Author: strandmark@google.com (Petter Strandmark)
 //
-// Class for loading the data required for describing a Fields of Experts (FoE)
+// Class for loading the data required for descibing a Fields of Experts (FoE)
 // model.
 
 #include "fields_of_experts.h"
@@ -38,12 +38,13 @@
 
 #include "pgm_image.h"
 
-namespace ceres::examples {
+namespace ceres {
+namespace examples {
 
 FieldsOfExpertsCost::FieldsOfExpertsCost(const std::vector<double>& filter)
     : filter_(filter) {
   set_num_residuals(1);
-  for (int64_t i = 0; i < filter_.size(); ++i) {
+  for (int i = 0; i < filter_.size(); ++i) {
     mutable_parameter_block_sizes()->push_back(1);
   }
 }
@@ -53,15 +54,15 @@ FieldsOfExpertsCost::FieldsOfExpertsCost(const std::vector<double>& filter)
 bool FieldsOfExpertsCost::Evaluate(double const* const* parameters,
                                    double* residuals,
                                    double** jacobians) const {
-  const int64_t num_variables = filter_.size();
+  int num_variables = filter_.size();
   residuals[0] = 0;
-  for (int64_t i = 0; i < num_variables; ++i) {
+  for (int i = 0; i < num_variables; ++i) {
     residuals[0] += filter_[i] * parameters[i][0];
   }
 
-  if (jacobians != nullptr) {
-    for (int64_t i = 0; i < num_variables; ++i) {
-      if (jacobians[i] != nullptr) {
+  if (jacobians != NULL) {
+    for (int i = 0; i < num_variables; ++i) {
+      if (jacobians[i] != NULL) {
         jacobians[i][0] = filter_[i];
       }
     }
@@ -144,4 +145,5 @@ ceres::LossFunction* FieldsOfExperts::NewLossFunction(int alpha_index) const {
   return new FieldsOfExpertsLoss(alpha_[alpha_index]);
 }
 
-}  // namespace ceres::examples
+}  // namespace examples
+}  // namespace ceres

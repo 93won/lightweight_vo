@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2024 Google Inc. All rights reserved.
+// Copyright 2016 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,10 +34,9 @@
 #define CERES_EXAMPLES_POSE_GRAPH_2D_POSE_GRAPH_2D_ERROR_TERM_H_
 
 #include "Eigen/Core"
-#include "ceres/autodiff_cost_function.h"
-#include "normalize_angle.h"
 
-namespace ceres::examples {
+namespace ceres {
+namespace examples {
 
 template <typename T>
 Eigen::Matrix<T, 2, 2> RotationMatrix2D(T yaw_radians) {
@@ -97,9 +96,10 @@ class PoseGraph2dErrorTerm {
                                      double y_ab,
                                      double yaw_ab_radians,
                                      const Eigen::Matrix3d& sqrt_information) {
-    return new ceres::
-        AutoDiffCostFunction<PoseGraph2dErrorTerm, 3, 1, 1, 1, 1, 1, 1>(
-            x_ab, y_ab, yaw_ab_radians, sqrt_information);
+    return (new ceres::
+                AutoDiffCostFunction<PoseGraph2dErrorTerm, 3, 1, 1, 1, 1, 1, 1>(
+                    new PoseGraph2dErrorTerm(
+                        x_ab, y_ab, yaw_ab_radians, sqrt_information)));
   }
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -113,6 +113,7 @@ class PoseGraph2dErrorTerm {
   const Eigen::Matrix3d sqrt_information_;
 };
 
-}  // namespace ceres::examples
+}  // namespace examples
+}  // namespace ceres
 
 #endif  // CERES_EXAMPLES_POSE_GRAPH_2D_POSE_GRAPH_2D_ERROR_TERM_H_

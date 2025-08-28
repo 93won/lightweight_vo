@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,28 +36,26 @@
 #include "ceres/trust_region_minimizer.h"
 
 #include <cmath>
-#include <memory>
 
-#include "absl/log/check.h"
-#include "absl/log/log.h"
 #include "ceres/autodiff_cost_function.h"
 #include "ceres/cost_function.h"
 #include "ceres/dense_qr_solver.h"
 #include "ceres/dense_sparse_matrix.h"
 #include "ceres/evaluator.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/linear_solver.h"
 #include "ceres/minimizer.h"
 #include "ceres/problem.h"
 #include "ceres/trust_region_strategy.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Templated Evaluator for Powell's function. The template parameters
 // indicate which of the four variables/columns of the jacobian are
 // active. This is equivalent to constructing a problem and using the
-// SubsetManifold. This allows us to test the support for
+// SubsetLocalParameterization. This allows us to test the support for
 // the Evaluator::Plus operation besides checking for the basic
 // performance of the trust region algorithm.
 template <bool col1, bool col2, bool col3, bool col4>
@@ -78,11 +76,13 @@ class PowellEvaluator2 : public Evaluator {
   }
   // clang-format on
 
+  virtual ~PowellEvaluator2() {}
+
   // Implementation of Evaluator interface.
-  std::unique_ptr<SparseMatrix> CreateJacobian() const final {
+  SparseMatrix* CreateJacobian() const final {
     CHECK(col1 || col2 || col3 || col4);
-    auto dense_jacobian = std::make_unique<DenseSparseMatrix>(
-        NumResiduals(), NumEffectiveParameters());
+    DenseSparseMatrix* dense_jacobian =
+        new DenseSparseMatrix(NumResiduals(), NumEffectiveParameters());
     dense_jacobian->SetZero();
     return dense_jacobian;
   }
@@ -119,19 +119,19 @@ class PowellEvaluator2 : public Evaluator {
 
     VLOG(1) << "Cost: " << *cost;
 
-    if (residuals != nullptr) {
+    if (residuals != NULL) {
       residuals[0] = f1;
       residuals[1] = f2;
       residuals[2] = f3;
       residuals[3] = f4;
     }
 
-    if (jacobian != nullptr) {
+    if (jacobian != NULL) {
       DenseSparseMatrix* dense_jacobian;
       dense_jacobian = down_cast<DenseSparseMatrix*>(jacobian);
       dense_jacobian->SetZero();
 
-      Matrix& jacobian_matrix = *(dense_jacobian->mutable_matrix());
+      ColMajorMatrixRef jacobian_matrix = dense_jacobian->mutable_matrix();
       CHECK_EQ(jacobian_matrix.cols(), num_active_cols_);
 
       int column_index = 0;
@@ -141,7 +141,7 @@ class PowellEvaluator2 : public Evaluator {
             1.0,
             0.0,
             0.0,
-            sqrt(10.0) * 2.0 * (x1 - x4);
+            sqrt(10.0) * 2.0 * (x1 - x4) * (1.0 - x4);
         // clang-format on
       }
       if (col2) {
@@ -149,7 +149,7 @@ class PowellEvaluator2 : public Evaluator {
         jacobian_matrix.col(column_index++) <<
             10.0,
             0.0,
-            2.0*(x2 - 2.0*x3),
+            2.0*(x2 - 2.0*x3)*(1.0 - 2.0*x3),
             0.0;
         // clang-format on
       }
@@ -159,7 +159,7 @@ class PowellEvaluator2 : public Evaluator {
         jacobian_matrix.col(column_index++) <<
             0.0,
             sqrt(5.0),
-            4.0*(2.0*x3 - x2),
+            2.0*(x2 - 2.0*x3)*(x2 - 2.0),
             0.0;
         // clang-format on
       }
@@ -170,13 +170,13 @@ class PowellEvaluator2 : public Evaluator {
             0.0,
             -sqrt(5.0),
             0.0,
-            sqrt(10.0) * 2.0 * (x4 - x1);
+            sqrt(10.0) * 2.0 * (x1 - x4) * (x1 - 1.0);
         // clang-format on
       }
       VLOG(1) << "\n" << jacobian_matrix;
     }
 
-    if (gradient != nullptr) {
+    if (gradient != NULL) {
       int column_index = 0;
       if (col1) {
         gradient[column_index++] = f1 + f4 * sqrt(10.0) * 2.0 * (x1 - x4);
@@ -188,7 +188,7 @@ class PowellEvaluator2 : public Evaluator {
 
       if (col3) {
         gradient[column_index++] =
-            f2 * sqrt(5.0) + f3 * (4.0 * (2.0 * x3 - x2));
+            f2 * sqrt(5.0) + f3 * (2.0 * 2.0 * (2.0 * x3 - x2));
       }
 
       if (col4) {
@@ -240,9 +240,10 @@ void IsTrustRegionSolveSuccessful(TrustRegionStrategyType strategy_type) {
   minimizer_options.gradient_tolerance = 1e-26;
   minimizer_options.function_tolerance = 1e-26;
   minimizer_options.parameter_tolerance = 1e-26;
-  minimizer_options.evaluator =
-      std::make_unique<PowellEvaluator2<col1, col2, col3, col4>>();
-  minimizer_options.jacobian = minimizer_options.evaluator->CreateJacobian();
+  minimizer_options.evaluator.reset(
+      new PowellEvaluator2<col1, col2, col3, col4>);
+  minimizer_options.jacobian.reset(
+      minimizer_options.evaluator->CreateJacobian());
 
   TrustRegionStrategy::Options trust_region_strategy_options;
   trust_region_strategy_options.trust_region_strategy_type = strategy_type;
@@ -251,8 +252,8 @@ void IsTrustRegionSolveSuccessful(TrustRegionStrategyType strategy_type) {
   trust_region_strategy_options.max_radius = 1e20;
   trust_region_strategy_options.min_lm_diagonal = 1e-6;
   trust_region_strategy_options.max_lm_diagonal = 1e32;
-  minimizer_options.trust_region_strategy =
-      TrustRegionStrategy::Create(trust_region_strategy_options);
+  minimizer_options.trust_region_strategy.reset(
+      TrustRegionStrategy::Create(trust_region_strategy_options));
 
   TrustRegionMinimizer minimizer;
   Solver::Summary summary;
@@ -329,7 +330,7 @@ class CurveCostFunction : public CostFunction {
 
   bool Evaluate(double const* const* parameters,
                 double* residuals,
-                double** jacobians) const override {
+                double** jacobians) const {
     residuals[0] = target_length_;
 
     for (int i = 0; i < num_vertices_; ++i) {
@@ -342,12 +343,12 @@ class CurveCostFunction : public CostFunction {
       residuals[0] -= sqrt(length);
     }
 
-    if (jacobians == nullptr) {
+    if (jacobians == NULL) {
       return true;
     }
 
     for (int i = 0; i < num_vertices_; ++i) {
-      if (jacobians[i] != nullptr) {
+      if (jacobians[i] != NULL) {
         int prev = (num_vertices_ + i - 1) % num_vertices_;
         int next = (i + 1) % num_vertices_;
 
@@ -397,7 +398,7 @@ TEST(TrustRegionMinimizer, JacobiScalingTest) {
   }
 
   Problem problem;
-  problem.AddResidualBlock(new CurveCostFunction(N, 10.), nullptr, y);
+  problem.AddResidualBlock(new CurveCostFunction(N, 10.), NULL, y);
   Solver::Options options;
   options.linear_solver_type = ceres::DENSE_QR;
   Solver::Summary summary;
@@ -424,7 +425,7 @@ struct ExpCostFunctor {
 TEST(TrustRegionMinimizer, GradientToleranceConvergenceUpdatesStep) {
   double x = 5;
   Problem problem;
-  problem.AddResidualBlock(ExpCostFunctor::Create(), nullptr, &x);
+  problem.AddResidualBlock(ExpCostFunctor::Create(), NULL, &x);
   problem.SetParameterLowerBound(&x, 0, 3.0);
   Solver::Options options;
   Solver::Summary summary;
@@ -434,4 +435,5 @@ TEST(TrustRegionMinimizer, GradientToleranceConvergenceUpdatesStep) {
   EXPECT_NEAR(expected_final_cost, summary.final_cost, 1e-12);
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

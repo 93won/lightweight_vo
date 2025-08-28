@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,14 +33,12 @@
 #define CERES_INTERNAL_EVALUATOR_H_
 
 #include <map>
-#include <memory>
 #include <string>
 #include <vector>
 
 #include "ceres/context_impl.h"
 #include "ceres/execution_summary.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/types.h"
 
 namespace ceres {
@@ -56,8 +54,8 @@ class SparseMatrix;
 // The Evaluator interface offers a way to interact with a least squares cost
 // function that is useful for an optimizer that wants to minimize the least
 // squares objective. This insulates the optimizer from issues like Jacobian
-// storage, manifolds, etc.
-class CERES_NO_EXPORT Evaluator {
+// storage, parameterization, etc.
+class CERES_EXPORT_INTERNAL Evaluator {
  public:
   virtual ~Evaluator();
 
@@ -65,16 +63,14 @@ class CERES_NO_EXPORT Evaluator {
     int num_threads = 1;
     int num_eliminate_blocks = -1;
     LinearSolverType linear_solver_type = DENSE_QR;
-    SparseLinearAlgebraLibraryType sparse_linear_algebra_library_type =
-        NO_SPARSE;
     bool dynamic_sparsity = false;
     ContextImpl* context = nullptr;
     EvaluationCallback* evaluation_callback = nullptr;
   };
 
-  static std::unique_ptr<Evaluator> Create(const Options& options,
-                                           Program* program,
-                                           std::string* error);
+  static Evaluator* Create(const Options& options,
+                           Program* program,
+                           std::string* error);
 
   // Build and return a sparse matrix for storing and working with the Jacobian
   // of the objective function. The jacobian has dimensions
@@ -92,7 +88,7 @@ class CERES_NO_EXPORT Evaluator {
   // the jacobian for use with CHOLMOD, where as BlockOptimizationProblem
   // creates a BlockSparseMatrix representation of the jacobian for use in the
   // Schur complement based methods.
-  virtual std::unique_ptr<SparseMatrix> CreateJacobian() const = 0;
+  virtual SparseMatrix* CreateJacobian() const = 0;
 
   // Options struct to control Evaluator::Evaluate;
   struct EvaluateOptions {
@@ -106,10 +102,10 @@ class CERES_NO_EXPORT Evaluator {
 
   // Evaluate the cost function for the given state. Returns the cost,
   // residuals, and jacobian in the corresponding arguments. Both residuals and
-  // jacobian are optional; to avoid computing them, pass nullptr.
+  // jacobian are optional; to avoid computing them, pass NULL.
   //
-  // If non-nullptr, the Jacobian must have a suitable sparsity pattern; only
-  // the values array of the jacobian is modified.
+  // If non-NULL, the Jacobian must have a suitable sparsity pattern; only the
+  // values array of the jacobian is modified.
   //
   // state is an array of size NumParameters(), cost is a pointer to a single
   // double, and residuals is an array of doubles of size NumResiduals().
@@ -135,13 +131,13 @@ class CERES_NO_EXPORT Evaluator {
   // Make a change delta (of size NumEffectiveParameters()) to state (of size
   // NumParameters()) and store the result in state_plus_delta.
   //
-  // In the case that there are no manifolds used, this is equivalent to
+  // In the case that there are no parameterizations used, this is equivalent to
   //
   //   state_plus_delta[i] = state[i] + delta[i] ;
   //
-  // however, the mapping is more complicated in the case of manifolds
+  // however, the mapping is more complicated in the case of parameterizations
   // like quaternions. This is the same as the "Plus()" operation in
-  // manifold.h, but operating over the entire state vector for a
+  // local_parameterization.h, but operating over the entire state vector for a
   // problem.
   virtual bool Plus(const double* state,
                     const double* delta,
@@ -151,7 +147,7 @@ class CERES_NO_EXPORT Evaluator {
   virtual int NumParameters() const = 0;
 
   // This is the effective number of parameters that the optimizer may adjust.
-  // This applies when there are manifolds on some of the parameters.
+  // This applies when there are parameterizations on some of the parameters.
   virtual int NumEffectiveParameters() const = 0;
 
   // The number of residuals in the optimization problem.
@@ -162,13 +158,11 @@ class CERES_NO_EXPORT Evaluator {
   // life time issues. Further, these calls are not expected to be
   // frequent or performance sensitive.
   virtual std::map<std::string, CallStatistics> Statistics() const {
-    return {};
+    return std::map<std::string, CallStatistics>();
   }
 };
 
 }  // namespace internal
 }  // namespace ceres
-
-#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_INTERNAL_EVALUATOR_H_

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,12 +31,11 @@
 #include "ceres/inner_product_computer.h"
 
 #include <algorithm>
-#include <memory>
 
-#include "absl/log/check.h"
 #include "ceres/small_blas.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Create the CompressedRowSparseMatrix matrix that will contain the
 // inner product.
@@ -45,16 +44,22 @@ namespace ceres::internal {
 // or the lower triangular part of the product.
 //
 // num_nonzeros is the number of non-zeros in the result matrix.
-std::unique_ptr<CompressedRowSparseMatrix>
-InnerProductComputer::CreateResultMatrix(
+CompressedRowSparseMatrix* InnerProductComputer::CreateResultMatrix(
     const CompressedRowSparseMatrix::StorageType storage_type,
     const int num_nonzeros) {
-  auto matrix = std::make_unique<CompressedRowSparseMatrix>(
-      m_.num_cols(), m_.num_cols(), num_nonzeros);
+  CompressedRowSparseMatrix* matrix =
+      new CompressedRowSparseMatrix(m_.num_cols(), m_.num_cols(), num_nonzeros);
   matrix->set_storage_type(storage_type);
+
   const CompressedRowBlockStructure* bs = m_.block_structure();
-  *matrix->mutable_row_blocks() = bs->cols;
-  *matrix->mutable_col_blocks() = bs->cols;
+  const std::vector<Block>& blocks = bs->cols;
+  matrix->mutable_row_blocks()->resize(blocks.size());
+  matrix->mutable_col_blocks()->resize(blocks.size());
+  for (int i = 0; i < blocks.size(); ++i) {
+    (*(matrix->mutable_row_blocks()))[i] = blocks[i].size;
+    (*(matrix->mutable_col_blocks()))[i] = blocks[i].size;
+  }
+
   return matrix;
 }
 
@@ -70,10 +75,6 @@ int InnerProductComputer::ComputeNonzeros(
 
   row_nnz->resize(blocks.size());
   std::fill(row_nnz->begin(), row_nnz->end(), 0);
-
-  if (product_terms.empty()) {
-    return 0;
-  }
 
   // First product term.
   (*row_nnz)[product_terms[0].row] = blocks[product_terms[0].col].size;
@@ -115,26 +116,24 @@ InnerProductComputer::InnerProductComputer(const BlockSparseMatrix& m,
 //
 // product_storage_type controls the form of the output matrix. It
 // can be LOWER_TRIANGULAR or UPPER_TRIANGULAR.
-std::unique_ptr<InnerProductComputer> InnerProductComputer::Create(
+InnerProductComputer* InnerProductComputer::Create(
     const BlockSparseMatrix& m,
     CompressedRowSparseMatrix::StorageType product_storage_type) {
   return InnerProductComputer::Create(
       m, 0, m.block_structure()->rows.size(), product_storage_type);
 }
 
-std::unique_ptr<InnerProductComputer> InnerProductComputer::Create(
+InnerProductComputer* InnerProductComputer::Create(
     const BlockSparseMatrix& m,
     const int start_row_block,
     const int end_row_block,
     CompressedRowSparseMatrix::StorageType product_storage_type) {
-  CHECK(product_storage_type ==
-            CompressedRowSparseMatrix::StorageType::LOWER_TRIANGULAR ||
-        product_storage_type ==
-            CompressedRowSparseMatrix::StorageType::UPPER_TRIANGULAR);
+  CHECK(product_storage_type == CompressedRowSparseMatrix::LOWER_TRIANGULAR ||
+        product_storage_type == CompressedRowSparseMatrix::UPPER_TRIANGULAR);
   CHECK_GT(m.num_nonzeros(), 0)
       << "Congratulations, you found a bug in Ceres. Please report it.";
-  std::unique_ptr<InnerProductComputer> inner_product_computer(
-      new InnerProductComputer(m, start_row_block, end_row_block));
+  InnerProductComputer* inner_product_computer =
+      new InnerProductComputer(m, start_row_block, end_row_block);
   inner_product_computer->Init(product_storage_type);
   return inner_product_computer;
 }
@@ -156,8 +155,7 @@ void InnerProductComputer::Init(
     for (int c1 = 0; c1 < row.cells.size(); ++c1) {
       const Cell& cell1 = row.cells[c1];
       int c2_begin, c2_end;
-      if (product_storage_type ==
-          CompressedRowSparseMatrix::StorageType::LOWER_TRIANGULAR) {
+      if (product_storage_type == CompressedRowSparseMatrix::LOWER_TRIANGULAR) {
         c2_begin = 0;
         c2_end = c1 + 1;
       } else {
@@ -167,8 +165,8 @@ void InnerProductComputer::Init(
 
       for (int c2 = c2_begin; c2 < c2_end; ++c2) {
         const Cell& cell2 = row.cells[c2];
-        product_terms.emplace_back(
-            cell1.block_id, cell2.block_id, product_terms.size());
+        product_terms.push_back(InnerProductComputer::ProductTerm(
+            cell1.block_id, cell2.block_id, product_terms.size()));
       }
     }
   }
@@ -185,7 +183,7 @@ void InnerProductComputer::ComputeOffsetsAndCreateResultMatrix(
   std::vector<int> row_block_nnz;
   const int num_nonzeros = ComputeNonzeros(product_terms, &row_block_nnz);
 
-  result_ = CreateResultMatrix(product_storage_type, num_nonzeros);
+  result_.reset(CreateResultMatrix(product_storage_type, num_nonzeros));
 
   // Populate the row non-zero counts in the result matrix.
   int* crsm_rows = result_->mutable_rows();
@@ -194,10 +192,6 @@ void InnerProductComputer::ComputeOffsetsAndCreateResultMatrix(
     for (int j = 0; j < col_blocks[i].size; ++j, ++crsm_rows) {
       *(crsm_rows + 1) = *crsm_rows + row_block_nnz[i];
     }
-  }
-  result_offsets_.resize(product_terms.size());
-  if (num_nonzeros == 0) {
-    return;
   }
 
   // The following macro FILL_CRSM_COL_BLOCK is key to understanding
@@ -245,11 +239,12 @@ void InnerProductComputer::ComputeOffsetsAndCreateResultMatrix(
     }                                                      \
   }
 
+  result_offsets_.resize(product_terms.size());
   int col_nnz = 0;
   int nnz = 0;
 
   // Process the first term.
-  const InnerProductComputer::ProductTerm* current = product_terms.data();
+  const InnerProductComputer::ProductTerm* current = &product_terms[0];
   FILL_CRSM_COL_BLOCK;
 
   // Process the rest of the terms.
@@ -267,7 +262,7 @@ void InnerProductComputer::ComputeOffsetsAndCreateResultMatrix(
     if (previous->row == current->row) {
       // if the current and previous terms are in the same row block,
       // then they differ in the column block, in which case advance
-      // col_nnz by the column size of the previous term.
+      // col_nnz by the column size of the prevous term.
       col_nnz += col_blocks[previous->col].size;
     } else {
       // If we have moved to a new row-block , then col_nnz is zero,
@@ -305,8 +300,7 @@ void InnerProductComputer::Compute() {
                           rows[bs->cols[cell1.block_id].position];
 
       int c2_begin, c2_end;
-      if (storage_type ==
-          CompressedRowSparseMatrix::StorageType::LOWER_TRIANGULAR) {
+      if (storage_type == CompressedRowSparseMatrix::LOWER_TRIANGULAR) {
         c2_begin = 0;
         c2_end = c1 + 1;
       } else {
@@ -334,4 +328,5 @@ void InnerProductComputer::Compute() {
   CHECK_EQ(cursor, result_offsets_.size());
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

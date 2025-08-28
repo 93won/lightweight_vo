@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,16 +31,19 @@
 //
 // End-to-end tests for Ceres using Powell's function.
 
+#include <cmath>
+#include <cstdlib>
+
 #include "ceres/autodiff_cost_function.h"
-#include "ceres/internal/config.h"
-#include "ceres/jet.h"
 #include "ceres/problem.h"
 #include "ceres/solver.h"
 #include "ceres/test_util.h"
 #include "ceres/types.h"
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // This class implements the SystemTestProblem interface and provides
 // access to an implementation of Powell's singular function.
@@ -67,13 +70,13 @@ class PowellsFunction {
     x_[3] = 1.0;
 
     problem_.AddResidualBlock(
-        new AutoDiffCostFunction<F1, 1, 1, 1>(new F1), nullptr, &x_[0], &x_[1]);
+        new AutoDiffCostFunction<F1, 1, 1, 1>(new F1), NULL, &x_[0], &x_[1]);
     problem_.AddResidualBlock(
-        new AutoDiffCostFunction<F2, 1, 1, 1>(new F2), nullptr, &x_[2], &x_[3]);
+        new AutoDiffCostFunction<F2, 1, 1, 1>(new F2), NULL, &x_[2], &x_[3]);
     problem_.AddResidualBlock(
-        new AutoDiffCostFunction<F3, 1, 1, 1>(new F3), nullptr, &x_[1], &x_[2]);
+        new AutoDiffCostFunction<F3, 1, 1, 1>(new F3), NULL, &x_[1], &x_[2]);
     problem_.AddResidualBlock(
-        new AutoDiffCostFunction<F4, 1, 1, 1>(new F4), nullptr, &x_[0], &x_[3]);
+        new AutoDiffCostFunction<F4, 1, 1, 1>(new F4), NULL, &x_[0], &x_[3]);
 
     // Settings for the reference solution.
     options_.linear_solver_type = ceres::DENSE_QR;
@@ -84,7 +87,7 @@ class PowellsFunction {
   Problem* mutable_problem() { return &problem_; }
   Solver::Options* mutable_solver_options() { return &options_; }
 
-  static constexpr double kResidualTolerance = 1e-8;
+  static double kResidualTolerance;
 
  private:
   // Templated functions used for automatically differentiated cost
@@ -94,7 +97,7 @@ class PowellsFunction {
     template <typename T>
     bool operator()(const T* const x1, const T* const x2, T* residual) const {
       // f1 = x1 + 10 * x2;
-      *residual = x1[0] + 10.0 * x2[0];
+      *residual = *x1 + 10.0 * *x2;
       return true;
     }
   };
@@ -104,7 +107,7 @@ class PowellsFunction {
     template <typename T>
     bool operator()(const T* const x3, const T* const x4, T* residual) const {
       // f2 = sqrt(5) (x3 - x4)
-      *residual = sqrt(5.0) * (x3[0] - x4[0]);
+      *residual = sqrt(5.0) * (*x3 - *x4);
       return true;
     }
   };
@@ -112,9 +115,9 @@ class PowellsFunction {
   class F3 {
    public:
     template <typename T>
-    bool operator()(const T* const x2, const T* const x3, T* residual) const {
+    bool operator()(const T* const x2, const T* const x4, T* residual) const {
       // f3 = (x2 - 2 x3)^2
-      residual[0] = (x2[0] - 2.0 * x3[0]) * (x2[0] - 2.0 * x3[0]);
+      residual[0] = (x2[0] - 2.0 * x4[0]) * (x2[0] - 2.0 * x4[0]);
       return true;
     }
   };
@@ -134,7 +137,9 @@ class PowellsFunction {
   Solver::Options options_;
 };
 
-using PowellTest = SystemTest<PowellsFunction>;
+double PowellsFunction::kResidualTolerance = 1e-8;
+
+typedef SystemTest<PowellsFunction> PowellTest;
 
 TEST_F(PowellTest, DenseQR) {
   PowellsFunction powells_function;
@@ -181,6 +186,17 @@ TEST_F(PowellTest, SparseNormalCholeskyUsingSuiteSparse) {
 }
 #endif  // CERES_NO_SUITESPARSE
 
+#ifndef CERES_NO_CXSPARSE
+TEST_F(PowellTest, SparseNormalCholeskyUsingCXSparse) {
+  PowellsFunction powells_function;
+  Solver::Options* options = powells_function.mutable_solver_options();
+  options->linear_solver_type = SPARSE_NORMAL_CHOLESKY;
+  options->sparse_linear_algebra_library_type = CX_SPARSE;
+  RunSolverForConfigAndExpectResidualsMatch(*options,
+                                            powells_function.mutable_problem());
+}
+#endif  // CERES_NO_CXSPARSE
+
 #ifndef CERES_NO_ACCELERATE_SPARSE
 TEST_F(PowellTest, SparseNormalCholeskyUsingAccelerateSparse) {
   PowellsFunction powells_function;
@@ -203,4 +219,5 @@ TEST_F(PowellTest, SparseNormalCholeskyUsingEigenSparse) {
 }
 #endif  // CERES_USE_EIGEN_SPARSE
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

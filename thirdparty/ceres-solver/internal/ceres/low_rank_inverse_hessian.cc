@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,10 +32,13 @@
 
 #include <list>
 
-#include "absl/log/log.h"
 #include "ceres/internal/eigen.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
+
+using std::list;
 
 // The (L)BFGS algorithm explicitly requires that the secant equation:
 //
@@ -114,8 +117,8 @@ bool LowRankInverseHessian::Update(const Vector& delta_x,
   return true;
 }
 
-void LowRankInverseHessian::RightMultiplyAndAccumulate(const double* x_ptr,
-                                                       double* y_ptr) const {
+void LowRankInverseHessian::RightMultiply(const double* x_ptr,
+                                          double* y_ptr) const {
   ConstVectorRef gradient(x_ptr, num_parameters_);
   VectorRef search_direction(y_ptr, num_parameters_);
 
@@ -124,7 +127,9 @@ void LowRankInverseHessian::RightMultiplyAndAccumulate(const double* x_ptr,
   const int num_corrections = indices_.size();
   Vector alpha(num_corrections);
 
-  for (auto it = indices_.rbegin(); it != indices_.rend(); ++it) {
+  for (list<int>::const_reverse_iterator it = indices_.rbegin();
+       it != indices_.rend();
+       ++it) {
     const double alpha_i = delta_x_history_.col(*it).dot(search_direction) /
                            delta_x_dot_delta_gradient_(*it);
     search_direction -= alpha_i * delta_gradient_history_.col(*it);
@@ -156,7 +161,7 @@ void LowRankInverseHessian::RightMultiplyAndAccumulate(const double* x_ptr,
     //
     // The original origin of this rescaling trick is somewhat unclear, the
     // earliest reference appears to be Oren [1], however it is widely discussed
-    // without specific attribution in various texts including [2] (p143/178).
+    // without specific attributation in various texts including [2] (p143/178).
     //
     // [1] Oren S.S., Self-scaling variable metric (SSVM) algorithms Part II:
     //     Implementation and experiments, Management Science,
@@ -176,4 +181,5 @@ void LowRankInverseHessian::RightMultiplyAndAccumulate(const double* x_ptr,
   }
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

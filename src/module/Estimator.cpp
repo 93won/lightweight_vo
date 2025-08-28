@@ -46,7 +46,7 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         
         if (num_tracked_with_map_points > 0) {
             // Perform pose optimization if we have enough associations
-            if (false && m_config.enable_pose_optimization && num_tracked_with_map_points >= 5) {  // Temporarily disabled
+            if (m_config.enable_pose_optimization && num_tracked_with_map_points >= 5) {
                 auto opt_result = optimize_pose(m_current_frame);
                 result.success = opt_result.success;
                 result.num_inliers = opt_result.num_inliers;
@@ -147,7 +147,7 @@ std::shared_ptr<Frame> Estimator::create_frame(const cv::Mat& left_image, const 
         gray_left, gray_right,
         m_config.fx, m_config.fy, m_config.cx, m_config.cy,
         m_config.baseline,
-        m_config.distortion_coeffs
+        cv::Mat(m_config.distortion_coeffs)
     );
     
     return frame;

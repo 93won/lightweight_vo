@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2018 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,15 +33,14 @@
 
 // This include must come before any #ifndef check on Ceres compile options.
 // clang-format off
-#include "ceres/internal/config.h"
+#include "ceres/internal/port.h"
 // clang-format on
 
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-class DenseCholesky;
 class SparseCholesky;
 class SparseMatrix;
 
@@ -58,20 +57,20 @@ class SparseMatrix;
 // Definite linear systems.
 //
 // The above iterative loop is run until max_num_iterations is reached.
-class CERES_NO_EXPORT SparseIterativeRefiner {
+class CERES_EXPORT_INTERNAL IterativeRefiner {
  public:
   // max_num_iterations is the number of refinement iterations to
   // perform.
-  explicit SparseIterativeRefiner(int max_num_iterations);
+  IterativeRefiner(int max_num_iterations);
 
   // Needed for mocking.
-  virtual ~SparseIterativeRefiner();
+  virtual ~IterativeRefiner();
 
   // Given an initial estimate of the solution of lhs * x = rhs, use
   // max_num_iterations rounds of iterative refinement to improve it.
   //
-  // cholesky is assumed to contain an already computed factorization (or
-  // an approximation thereof) of lhs.
+  // sparse_cholesky is assumed to contain an already computed
+  // factorization (or approximation thereof) of lhs.
   //
   // solution is expected to contain a approximation to the solution
   // to lhs * x = rhs. It can be zero.
@@ -79,7 +78,7 @@ class CERES_NO_EXPORT SparseIterativeRefiner {
   // This method is virtual to facilitate mocking.
   virtual void Refine(const SparseMatrix& lhs,
                       const double* rhs,
-                      SparseCholesky* cholesky,
+                      SparseCholesky* sparse_cholesky,
                       double* solution);
 
  private:
@@ -91,39 +90,7 @@ class CERES_NO_EXPORT SparseIterativeRefiner {
   Vector lhs_x_solution_;
 };
 
-class CERES_NO_EXPORT DenseIterativeRefiner {
- public:
-  // max_num_iterations is the number of refinement iterations to
-  // perform.
-  explicit DenseIterativeRefiner(int max_num_iterations);
-
-  // Needed for mocking.
-  virtual ~DenseIterativeRefiner();
-
-  // Given an initial estimate of the solution of lhs * x = rhs, use
-  // max_num_iterations rounds of iterative refinement to improve it.
-  //
-  // cholesky is assumed to contain an already computed factorization (or
-  // an approximation thereof) of lhs.
-  //
-  // solution is expected to contain a approximation to the solution
-  // to lhs * x = rhs. It can be zero.
-  //
-  // This method is virtual to facilitate mocking.
-  virtual void Refine(int num_cols,
-                      const double* lhs,
-                      const double* rhs,
-                      DenseCholesky* cholesky,
-                      double* solution);
-
- private:
-  void Allocate(int num_cols);
-
-  int max_num_iterations_;
-  Vector residual_;
-  Vector correction_;
-};
-
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_ITERATIVE_REFINER_H_

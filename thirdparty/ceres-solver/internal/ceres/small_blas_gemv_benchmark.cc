@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2018 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -78,7 +78,7 @@ static void MatrixSizeArguments(benchmark::internal::Benchmark* benchmark) {
   }
 }
 
-static void BM_MatrixVectorMultiply(benchmark::State& state) {
+void BM_MatrixVectorMultiply(benchmark::State& state) {
   const int rows = state.range(0);
   const int cols = state.range(1);
   MatrixVectorMultiplyData data(rows, cols);
@@ -94,7 +94,7 @@ static void BM_MatrixVectorMultiply(benchmark::State& state) {
 
 BENCHMARK(BM_MatrixVectorMultiply)->Apply(MatrixSizeArguments);
 
-static void BM_MatrixTransposeVectorMultiply(benchmark::State& state) {
+void BM_MatrixTransposeVectorMultiply(benchmark::State& state) {
   const int rows = state.range(0);
   const int cols = state.range(1);
   MatrixVectorMultiplyData data(cols, rows);

@@ -1,5 +1,5 @@
 # Ceres Solver - A fast non-linear least squares minimizer
-# Copyright 2023 Google Inc. All rights reserved.
+# Copyright 2015 Google Inc. All rights reserved.
 # http://ceres-solver.org/
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,96 +29,38 @@
 # Author: pablo.speciale@gmail.com (Pablo Speciale)
 #
 
-#[=======================================================================[.rst:
-FindSphinx
-==========
+# Find the Sphinx documentation generator
+#
+# This modules defines
+#  SPHINX_EXECUTABLE
+#  SPHINX_FOUND
 
-Module for locating Sphinx and its components.
+find_program(SPHINX_EXECUTABLE
+             NAMES sphinx-build
+             PATHS
+               /usr/bin
+               /usr/local/bin
+               /opt/local/bin
+             DOC "Sphinx documentation generator")
 
-This modules defines the following variables:
+if (NOT SPHINX_EXECUTABLE)
+  set(_Python_VERSIONS 2.7 2.6 2.5 2.4 2.3 2.2 2.1 2.0 1.6 1.5)
 
-``Sphinx_FOUND``
-  ``TRUE`` iff Sphinx and all of its components have been found.
+  foreach (_version ${_Python_VERSIONS})
+    set(_sphinx_NAMES sphinx-build-${_version})
 
-``Sphinx_BUILD_EXECUTABLE``
-  Path to the ``sphinx-build`` tool.
-]=======================================================================]
+    find_program(SPHINX_EXECUTABLE
+                 NAMES ${_sphinx_NAMES}
+                 PATHS
+                   /usr/bin
+                   /usr/local/bin
+                   /opt/local/bin
+                 DOC "Sphinx documentation generator")
+  endforeach ()
+endif ()
 
-include (FindPackageHandleStandardArgs)
+include(FindPackageHandleStandardArgs)
 
-find_program (Sphinx_BUILD_EXECUTABLE
-  NAMES sphinx-build
-  PATHS /opt/local/bin
-  DOC "Sphinx documentation generator"
-)
+find_package_handle_standard_args(Sphinx DEFAULT_MSG SPHINX_EXECUTABLE)
 
-mark_as_advanced (Sphinx_BUILD_EXECUTABLE)
-
-if (Sphinx_BUILD_EXECUTABLE)
-  execute_process (
-    COMMAND ${Sphinx_BUILD_EXECUTABLE} --version
-    ERROR_STRIP_TRAILING_WHITESPACE
-    ERROR_VARIABLE _Sphinx_BUILD_ERROR
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    OUTPUT_VARIABLE _Sphinx_VERSION_STRING
-    RESULT_VARIABLE _Sphinx_BUILD_RESULT
-  )
-
-  if (_Sphinx_BUILD_RESULT EQUAL 0)
-    string (REGEX REPLACE "^sphinx-build[ \t]+([^ \t]+)$" "\\1" Sphinx_VERSION
-      "${_Sphinx_VERSION_STRING}")
-
-    if (Sphinx_VERSION MATCHES "[0-9]+\\.[0-9]+\\.[0-9]+")
-      set (Sphinx_VERSION_COMPONENTS 3)
-      set (Sphinx_VERSION_MAJOR ${CMAKE_MATCH_1})
-      set (Sphinx_VERSION_MINOR ${CMAKE_MATCH_2})
-      set (Sphinx_VERSION_PATCH ${CMAKE_MATCH_3})
-    endif (Sphinx_VERSION MATCHES "[0-9]+\\.[0-9]+\\.[0-9]+")
-  else (_Sphinx_BUILD_RESULT EQUAL 0)
-    message (WARNING "Could not determine sphinx-build version: ${_Sphinx_BUILD_ERROR}")
-  endif (_Sphinx_BUILD_RESULT EQUAL 0)
-
-  unset (_Sphinx_BUILD_ERROR)
-  unset (_Sphinx_BUILD_RESULT)
-  unset (_Sphinx_VERSION_STRING)
-
-  find_package (Python COMPONENTS Interpreter)
-  set (_Sphinx_BUILD_RESULT FALSE)
-
-  if (Python_Interpreter_FOUND)
-    # Check for Sphinx theme dependency for documentation
-    foreach (component IN LISTS Sphinx_FIND_COMPONENTS)
-      string (REGEX MATCH "^(.+_theme)$" theme_component "${component}")
-
-      if (NOT theme_component STREQUAL component)
-        continue ()
-      endif (NOT theme_component STREQUAL component)
-
-      execute_process (
-        COMMAND ${Python_EXECUTABLE} -c "import ${theme_component}"
-        ERROR_STRIP_TRAILING_WHITESPACE
-        ERROR_VARIABLE _Sphinx_BUILD_ERROR
-        OUTPUT_QUIET
-        RESULT_VARIABLE _Sphinx_BUILD_RESULT
-      )
-
-      if (_Sphinx_BUILD_RESULT EQUAL 0)
-        set (Sphinx_${component}_FOUND TRUE)
-      elseif (_Sphinx_BUILD_RESULT EQUAL 0)
-        message (WARNING "Could not determine whether Sphinx component '${theme_component}' is available: ${_Sphinx_BUILD_ERROR}")
-        set (Sphinx_${component}_FOUND FALSE)
-      endif (_Sphinx_BUILD_RESULT EQUAL 0)
-
-      unset (_Sphinx_BUILD_ERROR)
-      unset (_Sphinx_BUILD_RESULT)
-    endforeach (component)
-
-    unset (theme_component)
-  endif (Python_Interpreter_FOUND)
-endif (Sphinx_BUILD_EXECUTABLE)
-
-find_package_handle_standard_args (Sphinx
-  REQUIRED_VARS Sphinx_BUILD_EXECUTABLE
-  VERSION_VAR Sphinx_VERSION
-  HANDLE_COMPONENTS
-)
+mark_as_advanced(SPHINX_EXECUTABLE)

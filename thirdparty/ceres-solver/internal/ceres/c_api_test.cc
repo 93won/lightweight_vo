@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,6 +32,7 @@
 
 #include <cmath>
 
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
 // Duplicated from curve_fitting.cc.
@@ -113,20 +114,20 @@ static int exponential_residual(void* user_data,
                                 double** parameters,
                                 double* residuals,
                                 double** jacobians) {
-  auto* measurement = static_cast<double*>(user_data);
+  double* measurement = (double*)user_data;
   double x = measurement[0];
   double y = measurement[1];
   double m = parameters[0][0];
   double c = parameters[1][0];
 
   residuals[0] = y - exp(m * x + c);
-  if (jacobians == nullptr) {
+  if (jacobians == NULL) {
     return 1;
   }
-  if (jacobians[0] != nullptr) {
+  if (jacobians[0] != NULL) {
     jacobians[0][0] = -x * exp(m * x + c);  // dr/dm
   }
-  if (jacobians[1] != nullptr) {
+  if (jacobians[1] != NULL) {
     jacobians[1][0] = -exp(m * x + c);  // dr/dc
   }
   return 1;
@@ -147,8 +148,8 @@ TEST(C_API, SimpleEndToEndTest) {
         problem,
         exponential_residual,  // Cost function
         &data[2 * i],          // Points to the (x,y) measurement
-        nullptr,               // Loss function
-        nullptr,               // Loss function user data
+        NULL,                  // Loss function
+        NULL,                  // Loss function user data
         1,                     // Number of residuals
         2,                     // Number of parameter blocks
         parameter_sizes,

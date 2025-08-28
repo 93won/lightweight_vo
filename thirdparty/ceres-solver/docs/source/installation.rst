@@ -4,24 +4,34 @@
 Installation
 ============
 
+Getting the source code
+=======================
+.. _section-source:
+
+You can start with the `latest stable release
+<http://ceres-solver.org/ceres-solver-2.0.0.tar.gz>`_ . Or if you want
+the latest version, you can clone the git repository
+
+.. code-block:: bash
+
+       git clone https://ceres-solver.googlesource.com/ceres-solver
+
 .. _section-dependencies:
 
 Dependencies
 ============
 
- .. note ::
+  .. NOTE ::
 
-    Starting with version 2.2, Ceres Solver requires a **fully
-    C++17-compliant** compiler.
+    Starting with v2.0 Ceres requires a **fully C++14-compliant**
+    compiler.  In versions <= 1.14, C++11 was an optional requirement.
 
 Ceres relies on a number of open source libraries, some of which are
 optional. For details on customizing the build process, see
 :ref:`section-customizing` .
 
-- `CMake <http://www.cmake.org>`_ (**required**) 3.16 or later.
-
 - `Eigen <http://eigen.tuxfamily.org/index.php?title=Main_Page>`_
-  (**Required**) 3.3.4 or later.
+  3.3 or later **required**.
 
   .. NOTE ::
 
@@ -29,14 +39,48 @@ optional. For details on customizing the build process, see
     library. Please see the documentation for ``EIGENSPARSE`` for
     more details.
 
-- `Abseil <https://abseil.io/>`_ (**Required**) 20240116 or later.
+- `CMake <http://www.cmake.org>`_ 3.5 or later **required**.
 
-- `GoogleTest <https://github.com/google/googletest>`_ (**Optional**;
-  Required if you wish to build and run tests) 1.14.0 or later.
+- `glog <https://github.com/google/glog>`_ 0.3.1 or
+  later. **Recommended**
 
-- `SuiteSparse <http://faculty.cse.tamu.edu/davis/suitesparse.html>`_
-  (**Optional; strongly recommended for large problems**) 4.5.6 or
-  later. Needed for solving large sparse linear systems.
+  ``glog`` is used extensively throughout Ceres for logging detailed
+  information about memory allocations and time consumed in various
+  parts of the solve, internal error conditions etc. The Ceres
+  developers use it extensively to observe and analyze Ceres's
+  performance. `glog <https://github.com/google/glog>`_ allows you to
+  control its behaviour from the command line. Starting with
+  ``-logtostderr`` you can add ``-v=N`` for increasing values of ``N``
+  to get more and more verbose and detailed information about Ceres
+  internals.
+
+  Ceres also ships with a minimal replacement of ``glog`` called
+  ``miniglog`` that can be enabled with the ``MINIGLOG`` build option.
+  ``miniglog`` is supplied for platforms which do not support the full
+  version of ``glog``.
+
+  In an attempt to reduce dependencies, it may be tempting to use
+  ``miniglog`` on platforms which already support ``glog``. While
+  there is nothing preventing the user from doing so, we strongly
+  recommend against it. ``miniglog`` has worse performance than
+  ``glog`` and is much harder to control and use.
+
+  .. NOTE ::
+
+     If you are compiling ``glog`` from source, please note that
+     currently, the unit tests for ``glog`` (which are enabled by
+     default) do not compile against a default build of ``gflags`` 2.1
+     as the gflags namespace changed from ``google::`` to
+     ``gflags::``.  A patch to fix this is available from `here
+     <https://code.google.com/p/google-glog/issues/detail?id=194>`_.
+
+- `gflags <https://github.com/gflags/gflags>`_. Needed to build
+  examples and tests and usually a dependency for glog.
+
+- `SuiteSparse
+  <http://faculty.cse.tamu.edu/davis/suitesparse.html>`_. Needed for
+  solving large sparse linear systems. **Optional; strongly recomended
+  for large scale bundle adjustment**
 
   .. NOTE ::
 
@@ -46,25 +90,23 @@ optional. For details on customizing the build process, see
      found TBB version. You can customize the searched TBB location
      with the ``TBB_ROOT`` variable.
 
-- `Apple's Accelerate sparse solvers
-  <https://developer.apple.com/documentation/accelerate/sparse_solvers>`_. (**Optional**)
+- `CXSparse <http://faculty.cse.tamu.edu/davis/suitesparse.html>`_.
+  Similar to ``SuiteSparse`` but simpler and slower. CXSparse has
+  no dependencies on ``LAPACK`` and ``BLAS``. This makes for a simpler
+  build process and a smaller binary. **Optional**
 
+- `Apple's Accelerate sparse solvers <https://developer.apple.com/documentation/accelerate/sparse_solvers>`_.
   As of Xcode 9.0, Apple's Accelerate framework includes support for
-  solving sparse linear systems across macOS, iOS et al.
+  solving sparse linear systems across macOS, iOS et al. **Optional**
 
 - `BLAS <http://www.netlib.org/blas/>`_ and `LAPACK
-  <http://www.netlib.org/lapack/>`_ (**Optional but required for**
-  ``SuiteSparse``) ``LAPACK`` and ``BLAS`` routines are needed by
+  <http://www.netlib.org/lapack/>`_ routines are needed by
   ``SuiteSparse``, and optionally used by Ceres directly for some
   operations.
 
-  For best performance on ``x86`` based Linux systems we recommend
-  using `Intel MKL
-  <https://www.intel.com/content/www/us/en/develop/documentation/get-started-with-mkl-for-dpcpp/top.html>`_.
-
-  Two other good options are `ATLAS
+  On ``UNIX`` OSes other than macOS we recommend `ATLAS
   <http://math-atlas.sourceforge.net/>`_, which includes ``BLAS`` and
-  ``LAPACK`` routines and `OpenBLAS
+  ``LAPACK`` routines. It is also possible to use `OpenBLAS
   <https://github.com/xianyi/OpenBLAS>`_ . However, one needs to be
   careful to `turn off the threading
   <https://github.com/xianyi/OpenBLAS/wiki/faq#wiki-multi-threaded>`_
@@ -76,50 +118,9 @@ optional. For details on customizing the build process, see
 
   For Windows things are much more complicated. `LAPACK For
   Windows <http://icl.cs.utk.edu/lapack-for-windows/lapack/>`_
-  has detailed instructions.
+  has detailed instructions..
 
-
-- `CUDA <https://developer.nvidia.com/cuda-toolkit>`_ and `cuDSS
-  <https://developer.nvidia.com/cudss>`_ (**Optional**)
-
-  If you have an NVIDIA GPU then Ceres Solver can use it accelerate
-  the solution of the Gauss-Newton linear systems using the CMake flag
-  ``USE_CUDA``.
-
-  This support depends on two libraries from NVIDIA `CUDA` and `cuDSS`.
-
-  If ``CUDA`` is available, Ceres Solver is able to use
-  GPU acceleration to speed up ``DENSE_QR``, ``DENSE_NORMAL_CHOLESKY``
-  and ``DENSE_SCHUR`` and ``CGNR``.  This also enables ``CUDA`` based
-  mixed precision solves for ``DENSE_NORMAL_CHOLESKY`` and
-  ``DENSE_SCHUR``.
-
-  Additionally if ``cuDSS`` is also available then GPU acceleration can
-  be used for ``SPARSE_NORMAL_CHOLESKY`` and ``SPARSE_SCHUR``.
-
-.. _section-source:
-
-Getting the source code
-=======================
-
-
-You can start with the `latest stable release
-<http://ceres-solver.org/ceres-solver-2.2.0.tar.gz>`_ . Or if you want
-the latest version, you can clone the git repository
-
-.. code-block:: bash
-
-   git clone https://ceres-solver.googlesource.com/ceres-solver
-
-If your system does not have recent enough versions of `Abseil
-<https://abseil.io/>`_ and/or `GoogleTest
-<https://github.com/google/googletest>`_, then you can use the
-versions included with Ceres Solver as submodules by using the command
-
-.. code-block:: bash
-
-   git clone --recurse-submodules https://github.com/ceres-solver/ceres-solver
-
+  **Optional but required for** ``SuiteSparse``.
 
 .. _section-linux:
 
@@ -129,12 +130,11 @@ Linux
 We will use `Ubuntu <http://www.ubuntu.com>`_ as our example linux
 distribution.
 
-.. NOTE::
+  .. NOTE ::
 
-   Ceres Solver always supports the previous and current Ubuntu LTS
-   releases, currently 22.04 and 24.04 using the default Ubuntu
-   repositories and compiler toolchain. Support for earlier versions
-   is not guaranteed or maintained.
+    These instructions are for Ubuntu 18.04 and newer. On Ubuntu 16.04
+    you need to manually get a more recent version of Eigen, such as
+    3.3.7.
 
 Start by installing all the dependencies.
 
@@ -144,21 +144,21 @@ Start by installing all the dependencies.
      sudo apt-get install cmake
      # google-glog + gflags
      sudo apt-get install libgoogle-glog-dev libgflags-dev
-     # Use ATLAS for BLAS & LAPACK
+     # BLAS & LAPACK
      sudo apt-get install libatlas-base-dev
      # Eigen3
      sudo apt-get install libeigen3-dev
-     # SuiteSparse (optional)
+     # SuiteSparse and CXSparse (optional)
      sudo apt-get install libsuitesparse-dev
 
 We are now ready to build, test, and install Ceres.
 
 .. code-block:: bash
 
- tar zxf ceres-solver-2.2.0.tar.gz
+ tar zxf ceres-solver-2.0.0.tar.gz
  mkdir ceres-bin
  cd ceres-bin
- cmake ../ceres-solver-2.2.0
+ cmake ../ceres-solver-2.0.0
  make -j3
  make test
  # Optionally install Ceres, it can also be exported using CMake which
@@ -172,7 +172,7 @@ dataset [Agarwal]_.
 
 .. code-block:: bash
 
- bin/simple_bundle_adjuster ../ceres-solver-2.2.0/data/problem-16-22106-pre.txt
+ bin/simple_bundle_adjuster ../ceres-solver-2.0.0/data/problem-16-22106-pre.txt
 
 This runs Ceres for a maximum of 10 iterations using the
 ``DENSE_SCHUR`` linear solver. The output should look something like
@@ -181,63 +181,63 @@ this.
 .. code-block:: bash
 
     iter      cost      cost_change  |gradient|   |step|    tr_ratio  tr_radius  ls_iter  iter_time  total_time
-       0  4.185660e+06    0.00e+00    1.09e+08   0.00e+00   0.00e+00  1.00e+04        0    2.18e-02    6.57e-02
-       1  1.062590e+05    4.08e+06    8.99e+06   0.00e+00   9.82e-01  3.00e+04        1    5.07e-02    1.16e-01
-       2  4.992817e+04    5.63e+04    8.32e+06   3.19e+02   6.52e-01  3.09e+04        1    4.75e-02    1.64e-01
-       3  1.899774e+04    3.09e+04    1.60e+06   1.24e+02   9.77e-01  9.26e+04        1    4.74e-02    2.11e-01
-       4  1.808729e+04    9.10e+02    3.97e+05   6.39e+01   9.51e-01  2.78e+05        1    4.75e-02    2.59e-01
-       5  1.803399e+04    5.33e+01    1.48e+04   1.23e+01   9.99e-01  8.33e+05        1    4.74e-02    3.06e-01
-       6  1.803390e+04    9.02e-02    6.35e+01   8.00e-01   1.00e+00  2.50e+06        1    4.76e-02    3.54e-01
+       0  4.185660e+06    0.00e+00    1.09e+08   0.00e+00   0.00e+00  1.00e+04       0    7.59e-02    3.37e-01
+       1  1.062590e+05    4.08e+06    8.99e+06   5.36e+02   9.82e-01  3.00e+04       1    1.65e-01    5.03e-01
+       2  4.992817e+04    5.63e+04    8.32e+06   3.19e+02   6.52e-01  3.09e+04       1    1.45e-01    6.48e-01
+       3  1.899774e+04    3.09e+04    1.60e+06   1.24e+02   9.77e-01  9.26e+04       1    1.43e-01    7.92e-01
+       4  1.808729e+04    9.10e+02    3.97e+05   6.39e+01   9.51e-01  2.78e+05       1    1.45e-01    9.36e-01
+       5  1.803399e+04    5.33e+01    1.48e+04   1.23e+01   9.99e-01  8.33e+05       1    1.45e-01    1.08e+00
+       6  1.803390e+04    9.02e-02    6.35e+01   8.00e-01   1.00e+00  2.50e+06       1    1.50e-01    1.23e+00
 
-    Solver Summary (v 2.2.0-eigen-(3.4.0)-lapack-suitesparse-(7.1.0)-metis-(5.1.0)-acceleratesparse-eigensparse)
-
+    Ceres Solver v2.0.0 Solve Report
+    ----------------------------------
                                          Original                  Reduced
     Parameter blocks                        22122                    22122
     Parameters                              66462                    66462
     Residual blocks                         83718                    83718
-    Residuals                              167436                   167436
+    Residual                               167436                   167436
 
     Minimizer                        TRUST_REGION
 
     Dense linear algebra library            EIGEN
     Trust region strategy     LEVENBERG_MARQUARDT
+
                                             Given                     Used
     Linear solver                     DENSE_SCHUR              DENSE_SCHUR
     Threads                                     1                        1
-    Linear solver ordering              AUTOMATIC                 22106,16
-    Schur structure                         2,3,9                    2,3,9
+    Linear solver threads                       1                        1
+    Linear solver ordering              AUTOMATIC                22106, 16
 
     Cost:
     Initial                          4.185660e+06
     Final                            1.803390e+04
     Change                           4.167626e+06
 
-    Minimizer iterations                        7
-    Successful steps                            7
+    Minimizer iterations                        6
+    Successful steps                            6
     Unsuccessful steps                          0
 
     Time (in seconds):
-    Preprocessor                         0.043895
+    Preprocessor                            0.261
 
-      Residual only evaluation           0.029855 (7)
-      Jacobian & residual evaluation     0.120581 (7)
-      Linear solver                      0.153665 (7)
-    Minimizer                            0.339275
+      Residual evaluation                   0.082
+      Jacobian evaluation                   0.412
+      Linear solver                         0.442
+    Minimizer                               1.051
 
-    Postprocessor                        0.000540
-    Total                                0.383710
+    Postprocessor                           0.002
+    Total                                   1.357
 
-    Termination:                      CONVERGENCE (Function tolerance reached. |cost_change|/cost: 1.769759e-09 <= 1.000000e-06)
-
+    Termination:                      CONVERGENCE (Function tolerance reached. |cost_change|/cost: 1.769766e-09 <= 1.000000e-06)
 
 .. section-macos:
 
 macOS
 =====
 
-On macOS, you can either use `Homebrew <https://brew.sh/>`_
-(recommended) or `MacPorts <https://www.macports.org/>`_ to install
-Ceres Solver.
+On macOS, you can either use `Homebrew
+<https://brew.sh/>`_ (recommended) or `MacPorts
+<https://www.macports.org/>`_ to install Ceres Solver.
 
 If using `Homebrew <https://brew.sh/>`_, then
 
@@ -277,17 +277,17 @@ framework.
       brew install glog gflags
       # Eigen3
       brew install eigen
-      # SuiteSparse
+      # SuiteSparse and CXSparse
       brew install suite-sparse
 
 We are now ready to build, test, and install Ceres.
 
 .. code-block:: bash
 
-   tar zxf ceres-solver-2.2.0.tar.gz
+   tar zxf ceres-solver-2.0.0.tar.gz
    mkdir ceres-bin
    cd ceres-bin
-   cmake ../ceres-solver-2.2.0
+   cmake ../ceres-solver-2.0.0
    make -j3
    make test
    # Optionally install Ceres, it can also be exported using CMake which
@@ -295,58 +295,52 @@ We are now ready to build, test, and install Ceres.
    # documentation for the EXPORT_BUILD_DIR option for more information.
    make install
 
+Building with OpenMP on macOS
+-----------------------------
+
+Up to at least Xcode 12, OpenMP support was disabled in Apple's version of
+Clang.  However, you can install the latest version of the LLVM toolchain
+from Homebrew which does support OpenMP, and thus build Ceres with OpenMP
+support on macOS.  To do this, you must install llvm via Homebrew:
+
+.. code-block:: bash
+
+      # Install latest version of LLVM toolchain.
+      brew install llvm
+
+As the LLVM formula in Homebrew is keg-only, it will not be installed to
+``/usr/local`` to avoid conflicts with the standard Apple LLVM toolchain.
+To build Ceres with the Homebrew LLVM toolchain you should do the
+following:
+
+.. code-block:: bash
+
+   tar zxf ceres-solver-2.0.0.tar.gz
+   mkdir ceres-bin
+   cd ceres-bin
+   # Configure the local shell only (not persistent) to use the Homebrew LLVM
+   # toolchain in favour of the default Apple version.  This is taken
+   # verbatim from the instructions output by Homebrew when installing the
+   # llvm formula.
+   export LDFLAGS="-L/usr/local/opt/llvm/lib -Wl,-rpath,/usr/local/opt/llvm/lib"
+   export CPPFLAGS="-I/usr/local/opt/llvm/include"
+   export PATH="/usr/local/opt/llvm/bin:$PATH"
+   # Force CMake to use the Homebrew version of Clang and enable OpenMP.
+   cmake -DCMAKE_C_COMPILER=/usr/local/opt/llvm/bin/clang -DCMAKE_CXX_COMPILER=/usr/local/opt/llvm/bin/clang++ -DCERES_THREADING_MODEL=OPENMP ../ceres-solver-2.0.0
+   make -j3
+   make test
+   # Optionally install Ceres.  It can also be exported using CMake which
+   # allows Ceres to be used without requiring installation.  See the
+   # documentation for the EXPORT_BUILD_DIR option for more information.
+   make install
+
+Like the Linux build, you should now be able to run
+``bin/simple_bundle_adjuster``.
+
 .. _section-windows:
 
 Windows
 =======
-
-Using a Library Manager
------------------------
-
-`vcpkg <https://github.com/microsoft/vcpkg>`_ is a library manager for Microsoft
-Windows that can be used to install Ceres Solver and all its dependencies.
-
-#. Install the library manager into a top-level directory ``vcpkg/`` on Windows
-   following the `guide
-   <https://github.com/microsoft/vcpkg#quick-start-windows>`_, e.g., using
-   Visual Studio 2022 community edition, or simply run
-
-    .. code:: bat
-
-        git clone https://github.com/Microsoft/vcpkg.git
-        cd vcpkg
-        .\bootstrap-vcpkg.bat
-        .\vcpkg integrate install
-
-#. Use vcpkg to install and build Ceres and all its dependencies, e.g., for 64
-   bit Windows
-
-   .. code:: bat
-
-      vcpkg\vcpkg.exe install ceres:x64-windows
-
-   Or with optional components, e.g., SuiteSparse, using
-
-   .. code:: bat
-
-      vcpkg\vcpkg.exe install ceres[suitesparse]:x64-windows
-
-#. Integrate vcpkg packages with Visual Studio to allow it to automatically
-   find all the libraries installed by vcpkg.
-
-   .. code:: bat
-
-      vcpkg\vcpkg.exe integrate install
-
-#. To use Ceres in a CMake project, follow our :ref:`instructions
-   <section-using-ceres>`.
-
-
-Building from Source
---------------------
-
-Ceres Solver can also be built from source. For this purpose, we support Visual
-Studio 2019 and newer.
 
 .. NOTE::
 
@@ -355,13 +349,38 @@ Studio 2019 and newer.
   <https://github.com/tbennun/ceres-windows>`_ for Ceres Solver by Tal
   Ben-Nun.
 
-#. Create a top-level directory for dependencies, build, and sources somewhere,
-   e.g., ``ceres/``
+On Windows, we support building with Visual Studio 2015.2 of newer. Note
+that the Windows port is less featureful and less tested than the
+Linux or macOS versions due to the lack of an officially supported
+way of building SuiteSparse and CXSparse.  There are however a number
+of unofficial ways of building these libraries. Building on Windows
+also a bit more involved since there is no automated way to install
+dependencies.
 
+.. NOTE:: Using ``google-glog`` & ``miniglog`` with windows.h.
+
+ The windows.h header if used with GDI (Graphics Device Interface)
+ defines ``ERROR``, which conflicts with the definition of ``ERROR``
+ as a LogSeverity level in ``google-glog`` and ``miniglog``.  There
+ are at least two possible fixes to this problem:
+
+ #. Use ``google-glog`` and define ``GLOG_NO_ABBREVIATED_SEVERITIES``
+    when building Ceres and your own project, as documented `here
+    <http://google-glog.googlecode.com/svn/trunk/doc/glog.html>`__.
+    Note that this fix will not work for ``miniglog``, but use of
+    ``miniglog`` is strongly discouraged on any platform for which
+    ``google-glog`` is available (which includes Windows).
+ #. If you do not require GDI, then define ``NOGDI`` **before**
+    including windows.h.  This solution should work for both
+    ``google-glog`` and ``miniglog`` and is documented for
+    ``google-glog`` `here
+    <https://code.google.com/p/google-glog/issues/detail?id=33>`__.
+
+#. Make a toplevel directory for deps & build & src somewhere: ``ceres/``
 #. Get dependencies; unpack them as subdirectories in ``ceres/``
-   (``ceres/eigen``, ``ceres/glog``, etc.)
+   (``ceres/eigen``, ``ceres/glog``, etc)
 
-   #. ``Eigen`` 3.3.4 . Configure and optionally install Eigen. It should be
+   #. ``Eigen`` 3.3 . Configure and optionally install Eigen. It should be
       exported into the CMake package registry by default as part of the
       configure stage so installation should not be necessary.
 
@@ -375,55 +394,45 @@ Studio 2019 and newer.
       project.  If you wish to use ``SuiteSparse``, follow their
       instructions for obtaining and building it.
 
-      Alternatively, Ceres Solver supports ``SuiteSparse`` binary
-      packages available for Visual Studio 2019 and 2022 provided by
-      the `CMake support for SuiteSparse
-      <https://github.com/sergiud/SuiteSparse>`_ project that also
-      include `reference LAPACK <http://www.netlib.org/blas>`_ (and
-      BLAS). The binary packages are used by Ceres Solver for
-      continuous testing on Github.
+   #. (Experimental) ``CXSparse`` Previously CXSparse was not
+      available on Windows, there are now several ports that enable it
+      to be, including: `[1] <https://github.com/PetterS/CXSparse>`_
+      and `[2] <https://github.com/TheFrenchLeaf/CXSparse>`_.  If you
+      wish to use ``CXSparse``, follow their instructions for
+      obtaining and building it.
 
 #. Unpack the Ceres tarball into ``ceres``. For the tarball, you
    should get a directory inside ``ceres`` similar to
-   ``ceres-solver-2.2.0``. Alternately, checkout Ceres via ``git`` to
+   ``ceres-solver-2.0.0``. Alternately, checkout Ceres via ``git`` to
    get ``ceres-solver.git`` inside ``ceres``.
 
 #. Install ``CMake``,
 
-#. Create a directory ``ceres/ceres-bin`` (for an out-of-tree build)
-
-   #. If you use the above binary ``SuiteSparse`` package, make sure CMake can
-      find it, e.g., by assigning the path of the directory that contains the
-      unzipped contents to the ``CMAKE_PREFIX_PATH`` environment variable. In a
-      Windows command prompt this can be achieved as follows:
-
-      .. code:: bat
-
-        export CMAKE_PREFIX_PATH=C:/Downloads/SuiteSparse-5.11.0-cmake.1-vc16-Win64-Release-shared-gpl
+#. Make a dir ``ceres/ceres-bin`` (for an out-of-tree build)
 
 #. Run ``CMake``; select the ``ceres-solver-X.Y.Z`` or
    ``ceres-solver.git`` directory for the CMake file. Then select the
-   ``ceres-bin`` for the build directory.
+   ``ceres-bin`` for the build dir.
 
-#. Try running ``Configure`` which can fail at first because some dependencies
-   cannot be automatically located. In this case, you must set the following
-   CMake variables to the appropriate directories where you unpacked/built them:
+#. Try running ``Configure``. It won't work. It'll show a bunch of options.
+   You'll need to set:
 
    #. ``Eigen3_DIR`` (Set to directory containing ``Eigen3Config.cmake``)
    #. ``GLOG_INCLUDE_DIR_HINTS``
    #. ``GLOG_LIBRARY_DIR_HINTS``
    #. (Optional) ``gflags_DIR`` (Set to directory containing ``gflags-config.cmake``)
-   #. (SuiteSparse binary package) ``BLAS_blas_LIBRARY`` and
-      ``LAPACK_lapack_LIBRARY`` CMake variables must be `explicitly set` to
-      ``<path>/lib/blas.lib`` and ``<path>/lib/lapack.lib``, respectively, both
-      located in the unzipped package directory ``<path>``.
+   #. (Optional) ``SUITESPARSE_INCLUDE_DIR_HINTS``
+   #. (Optional) ``SUITESPARSE_LIBRARY_DIR_HINTS``
+   #. (Optional) ``CXSPARSE_INCLUDE_DIR_HINTS``
+   #. (Optional) ``CXSPARSE_LIBRARY_DIR_HINTS``
 
-   If any of the variables are not visible in the ``CMake`` GUI, create a new
-   entry for them.  We recommend using the
-   ``<NAME>_(INCLUDE/LIBRARY)_DIR_HINTS`` variables rather than setting the
-   ``<NAME>_INCLUDE_DIR`` & ``<NAME>_LIBRARY`` variables directly to keep all of
-   the validity checking, and to avoid having to specify the library files
-   manually.
+   to the appropriate directories where you unpacked/built them. If
+   any of the variables are not visible in the ``CMake`` GUI, create a
+   new entry for them.  We recommend using the
+   ``<NAME>_(INCLUDE/LIBRARY)_DIR_HINTS`` variables rather than
+   setting the ``<NAME>_INCLUDE_DIR`` & ``<NAME>_LIBRARY`` variables
+   directly to keep all of the validity checking, and to avoid having
+   to specify the library files manually.
 
 #. You may have to tweak some more settings to generate a MSVC
    project.  After each adjustment, try pressing Configure & Generate
@@ -438,15 +447,17 @@ RUN_TESTS** from the build menu.
 Like the Linux build, you should now be able to run
 ``bin/simple_bundle_adjuster``.
 
-.. note::
+Notes:
 
-    #. The default build is ``Debug``; consider switching it to ``Release`` for
-       optimal performance.
-    #. CMake puts the resulting test binaries in ``ceres-bin/examples/Debug`` by
-       default.
-    #. Without a sparse linear algebra library, only a subset of
-       solvers is usable, namely: ``DENSE_QR``, ``DENSE_SCHUR``,
-       ``CGNR``, and ``ITERATIVE_SCHUR``.
+#. The default build is Debug; consider switching it to release mode.
+#. Currently ``system_test`` is not working properly.
+#. CMake puts the resulting test binaries in ``ceres-bin/examples/Debug``
+   by default.
+#. The solvers supported on Windows are ``DENSE_QR``, ``DENSE_SCHUR``,
+   ``CGNR``, and ``ITERATIVE_SCHUR``.
+#. We're looking for someone to work with upstream ``SuiteSparse`` to
+   port their build system to something sane like ``CMake``, and get a
+   fully supported Windows port.
 
 
 .. _section-android:
@@ -545,7 +556,9 @@ need to add to your Xcode project.
 The default CMake configuration builds a bare bones version of Ceres
 Solver that only depends on Eigen (``MINIGLOG`` is compiled into Ceres
 if it is used), this should be sufficient for solving small to
-moderate sized problems.
+moderate sized problems (No ``SPARSE_SCHUR``,
+``SPARSE_NORMAL_CHOLESKY`` linear solvers and no ``CLUSTER_JACOBI``
+and ``CLUSTER_TRIDIAGONAL`` preconditioners).
 
 If you decide to use ``LAPACK`` and ``BLAS``, then you also need to
 add ``Accelerate.framework`` to your Xcode project's linking
@@ -635,14 +648,22 @@ Options controlling Ceres configuration
       terms.  Ceres requires some components that are only licensed under
       GPL/Commercial terms.
 
+#. ``CXSPARSE [Default: ON]``: By default, Ceres will link to
+   ``CXSparse`` if all its dependencies are present. Turn this ``OFF``
+   to build Ceres without ``CXSparse``.
+
+   .. NOTE::
+
+      CXSparse is licensed under the LGPL.
+
 #. ``ACCELERATESPARSE [Default: ON]``: By default, Ceres will link to
    Apple's Accelerate framework directly if a version of it is detected
    which supports solving sparse linear systems.  Note that on Apple OSs
    Accelerate usually also provides the BLAS/LAPACK implementations and
    so would be linked against irrespective of the value of ``ACCELERATESPARSE``.
 
-#. ``EIGENSPARSE [Default: ON]``: By default, Ceres will use Eigen's
-   sparse Cholesky factorization.
+#. ``EIGENSPARSE [Default: ON]``: By default, Ceres will not use
+   Eigen's sparse Cholesky factorization.
 
 #. ``GFLAGS [Default: ON]``: Turn this ``OFF`` to build Ceres without
    ``gflags``. This will also prevent some of the example code from
@@ -658,6 +679,11 @@ Options controlling Ceres configuration
    binary size/compilation time over some small (10-20%) performance
    gains in the ``SPARSE_SCHUR`` solver, you can disable some of the
    template specializations by turning this ``OFF``.
+
+#. ``CERES_THREADING_MODEL [Default: CXX_THREADS > OPENMP > NO_THREADS]``:
+   Multi-threading backend Ceres should be compiled with.  This will
+   automatically be set to only accept the available subset of threading
+   options in the CMake GUI.
 
 #. ``BUILD_SHARED_LIBS [Default: OFF]``: By default Ceres is built as
    a static library, turn this ``ON`` to instead build Ceres as a
@@ -675,8 +701,8 @@ Options controlling Ceres configuration
 
 #. ``BUILD_DOCUMENTATION [Default: OFF]``: Use this to enable building
    the documentation, requires `Sphinx <http://sphinx-doc.org/>`_ and
-   the `sphinx-rtd-theme
-   <https://pypi.org/project/sphinx-rtd-theme/>`_ package
+   the `sphinx-better-theme
+   <https://pypi.python.org/pypi/sphinx-better-theme>`_ package
    available from the Python package index. In addition, ``make
    ceres_docs`` can be used to build only the documentation.
 
@@ -839,17 +865,24 @@ The Ceres components which can be specified are:
 
 #. ``SuiteSparse``: Ceres built with SuiteSparse (``SUITESPARSE=ON``).
 
+#. ``CXSparse``: Ceres built with CXSparse (``CXSPARSE=ON``).
+
 #. ``AccelerateSparse``: Ceres built with Apple's Accelerate sparse solvers (``ACCELERATESPARSE=ON``).
 
 #. ``EigenSparse``: Ceres built with Eigen's sparse Cholesky factorization
    (``EIGENSPARSE=ON``).
 
-#. ``SparseLinearAlgebraLibrary``: Ceres built with *at least one*
-   sparse linear algebra library.  This is equivalent to
-   ``SuiteSparse`` **OR** ``AccelerateSparse`` **OR** ``EigenSparse``.
+#. ``SparseLinearAlgebraLibrary``: Ceres built with *at least one* sparse linear
+   algebra library.  This is equivalent to ``SuiteSparse`` **OR** ``CXSparse``
+   **OR** ``AccelerateSparse``  **OR** ``EigenSparse``.
 
 #. ``SchurSpecializations``: Ceres built with Schur specializations
    (``SCHUR_SPECIALIZATIONS=ON``).
+
+#. ``OpenMP``: Ceres built with OpenMP (``CERES_THREADING_MODEL=OPENMP``).
+
+#. ``Multithreading``: Ceres built with *a* multithreading library.
+   This is equivalent to (``CERES_THREAD != NO_THREADS``).
 
 To specify one/multiple Ceres components use the ``COMPONENTS`` argument to
 `find_package()
@@ -1081,7 +1114,7 @@ Version 2.0
 -----------
 
 - When using Ceres with CMake, the target name in v2.0 is
-  ``Ceres::ceres`` following modern naming conventions. The legacy
+  ``Ceres::ceres`` following modern naming convetions. The legacy
   target ``ceres`` exists for backwards compatibility, but is
   deprecated. ``CERES_INCLUDE_DIRS`` is not set any more, as the
   exported Ceres CMake target already contains the definitions of its

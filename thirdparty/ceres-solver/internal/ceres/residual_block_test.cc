@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,16 +31,17 @@
 #include "ceres/residual_block.h"
 
 #include <cstdint>
-#include <string>
-#include <vector>
 
 #include "ceres/internal/eigen.h"
-#include "ceres/manifold.h"
+#include "ceres/local_parameterization.h"
 #include "ceres/parameter_block.h"
 #include "ceres/sized_cost_function.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
+
+using std::vector;
 
 // Trivial cost function that accepts three arguments.
 class TernaryCostFunction : public CostFunction {
@@ -63,7 +64,7 @@ class TernaryCostFunction : public CostFunction {
     }
     if (jacobians) {
       for (int k = 0; k < 3; ++k) {
-        if (jacobians[k] != nullptr) {
+        if (jacobians[k] != NULL) {
           MatrixRef jacobian(
               jacobians[k], num_residuals(), parameter_block_sizes()[k]);
           jacobian.setConstant(k);
@@ -74,7 +75,7 @@ class TernaryCostFunction : public CostFunction {
   }
 };
 
-TEST(ResidualBlock, EvaluateWithNoLossFunctionOrManifolds) {
+TEST(ResidualBlock, EvaluteWithNoLossFunctionOrLocalParameterizations) {
   double scratch[64];
 
   // Prepare the parameter blocks.
@@ -87,7 +88,7 @@ TEST(ResidualBlock, EvaluateWithNoLossFunctionOrManifolds) {
   double values_z[4];
   ParameterBlock z(values_z, 4, -1);
 
-  std::vector<ParameterBlock*> parameters;
+  vector<ParameterBlock*> parameters;
   parameters.push_back(&x);
   parameters.push_back(&y);
   parameters.push_back(&z);
@@ -95,11 +96,11 @@ TEST(ResidualBlock, EvaluateWithNoLossFunctionOrManifolds) {
   TernaryCostFunction cost_function(3, 2, 3, 4);
 
   // Create the object under tests.
-  ResidualBlock residual_block(&cost_function, nullptr, parameters, -1);
+  ResidualBlock residual_block(&cost_function, NULL, parameters, -1);
 
   // Verify getters.
   EXPECT_EQ(&cost_function, residual_block.cost_function());
-  EXPECT_EQ(nullptr, residual_block.loss_function());
+  EXPECT_EQ(NULL, residual_block.loss_function());
   EXPECT_EQ(parameters[0], residual_block.parameter_blocks()[0]);
   EXPECT_EQ(parameters[1], residual_block.parameter_blocks()[1]);
   EXPECT_EQ(parameters[2], residual_block.parameter_blocks()[2]);
@@ -107,12 +108,12 @@ TEST(ResidualBlock, EvaluateWithNoLossFunctionOrManifolds) {
 
   // Verify cost-only evaluation.
   double cost;
-  residual_block.Evaluate(true, &cost, nullptr, nullptr, scratch);
+  residual_block.Evaluate(true, &cost, NULL, NULL, scratch);
   EXPECT_EQ(0.5 * (0 * 0 + 1 * 1 + 2 * 2), cost);
 
   // Verify cost and residual evaluation.
   double residuals[3];
-  residual_block.Evaluate(true, &cost, residuals, nullptr, scratch);
+  residual_block.Evaluate(true, &cost, residuals, NULL, scratch);
   EXPECT_EQ(0.5 * (0 * 0 + 1 * 1 + 2 * 2), cost);
   EXPECT_EQ(0.0, residuals[0]);
   EXPECT_EQ(1.0, residuals[1]);
@@ -150,7 +151,7 @@ TEST(ResidualBlock, EvaluateWithNoLossFunctionOrManifolds) {
   jacobian_ry.setConstant(-1.0);
   jacobian_rz.setConstant(-1.0);
 
-  jacobian_ptrs[1] = nullptr;  // Don't compute the jacobian for y.
+  jacobian_ptrs[1] = NULL;  // Don't compute the jacobian for y.
 
   residual_block.Evaluate(true, &cost, residuals, jacobian_ptrs, scratch);
   EXPECT_EQ(0.5 * (0 * 0 + 1 * 1 + 2 * 2), cost);
@@ -177,16 +178,16 @@ class LocallyParameterizedCostFunction : public SizedCostFunction<3, 2, 3, 4> {
     if (jacobians) {
       for (int k = 0; k < 3; ++k) {
         // The jacobians here are full sized, but they are transformed in the
-        // evaluator into the "local" jacobian. In the tests, the
-        // "SubsetManifold" is used, which should pick out columns from these
-        // jacobians. Put values in the jacobian that make this obvious; in
-        // particular, make the jacobians like this:
+        // evaluator into the "local" jacobian. In the tests, the "subset
+        // constant" parameterization is used, which should pick out columns
+        // from these jacobians. Put values in the jacobian that make this
+        // obvious; in particular, make the jacobians like this:
         //
         //   0 1 2 3 4 ...
         //   0 1 2 3 4 ...
         //   0 1 2 3 4 ...
         //
-        if (jacobians[k] != nullptr) {
+        if (jacobians[k] != NULL) {
           MatrixRef jacobian(
               jacobians[k], num_residuals(), parameter_block_sizes()[k]);
           for (int j = 0; j < k + 2; ++j) {
@@ -199,7 +200,7 @@ class LocallyParameterizedCostFunction : public SizedCostFunction<3, 2, 3, 4> {
   }
 };
 
-TEST(ResidualBlock, EvaluateWithManifolds) {
+TEST(ResidualBlock, EvaluteWithLocalParameterizations) {
   double scratch[64];
 
   // Prepare the parameter blocks.
@@ -212,31 +213,31 @@ TEST(ResidualBlock, EvaluateWithManifolds) {
   double values_z[4];
   ParameterBlock z(values_z, 4, -1);
 
-  std::vector<ParameterBlock*> parameters;
+  vector<ParameterBlock*> parameters;
   parameters.push_back(&x);
   parameters.push_back(&y);
   parameters.push_back(&z);
 
   // Make x have the first component fixed.
-  std::vector<int> x_fixed;
+  vector<int> x_fixed;
   x_fixed.push_back(0);
-  SubsetManifold x_manifold(2, x_fixed);
-  x.SetManifold(&x_manifold);
+  SubsetParameterization x_parameterization(2, x_fixed);
+  x.SetParameterization(&x_parameterization);
 
   // Make z have the last and last component fixed.
-  std::vector<int> z_fixed;
+  vector<int> z_fixed;
   z_fixed.push_back(2);
-  SubsetManifold z_manifold(4, z_fixed);
-  z.SetManifold(&z_manifold);
+  SubsetParameterization z_parameterization(4, z_fixed);
+  z.SetParameterization(&z_parameterization);
 
   LocallyParameterizedCostFunction cost_function;
 
   // Create the object under tests.
-  ResidualBlock residual_block(&cost_function, nullptr, parameters, -1);
+  ResidualBlock residual_block(&cost_function, NULL, parameters, -1);
 
   // Verify getters.
   EXPECT_EQ(&cost_function, residual_block.cost_function());
-  EXPECT_EQ(nullptr, residual_block.loss_function());
+  EXPECT_EQ(NULL, residual_block.loss_function());
   EXPECT_EQ(parameters[0], residual_block.parameter_blocks()[0]);
   EXPECT_EQ(parameters[1], residual_block.parameter_blocks()[1]);
   EXPECT_EQ(parameters[2], residual_block.parameter_blocks()[2]);
@@ -244,12 +245,12 @@ TEST(ResidualBlock, EvaluateWithManifolds) {
 
   // Verify cost-only evaluation.
   double cost;
-  residual_block.Evaluate(true, &cost, nullptr, nullptr, scratch);
+  residual_block.Evaluate(true, &cost, NULL, NULL, scratch);
   EXPECT_EQ(0.5 * (0 * 0 + 1 * 1 + 2 * 2), cost);
 
   // Verify cost and residual evaluation.
   double residuals[3];
-  residual_block.Evaluate(true, &cost, residuals, nullptr, scratch);
+  residual_block.Evaluate(true, &cost, residuals, NULL, scratch);
   EXPECT_EQ(0.5 * (0 * 0 + 1 * 1 + 2 * 2), cost);
   EXPECT_EQ(0.0, residuals[0]);
   EXPECT_EQ(1.0, residuals[1]);
@@ -310,7 +311,7 @@ TEST(ResidualBlock, EvaluateWithManifolds) {
   jacobian_ry.setConstant(-1.0);
   jacobian_rz.setConstant(-1.0);
 
-  jacobian_ptrs[1] = nullptr;  // Don't compute the jacobian for y.
+  jacobian_ptrs[1] = NULL;  // Don't compute the jacobian for y.
 
   residual_block.Evaluate(true, &cost, residuals, jacobian_ptrs, scratch);
   EXPECT_EQ(0.5 * (0 * 0 + 1 * 1 + 2 * 2), cost);
@@ -323,4 +324,5 @@ TEST(ResidualBlock, EvaluateWithManifolds) {
   EXPECT_EQ(expected_jacobian_rz, jacobian_rz);
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

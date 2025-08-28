@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,21 +31,21 @@
 #ifndef CERES_INTERNAL_LINE_SEARCH_PREPROCESSOR_H_
 #define CERES_INTERNAL_LINE_SEARCH_PREPROCESSOR_H_
 
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/preprocessor.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-class CERES_NO_EXPORT LineSearchPreprocessor final : public Preprocessor {
+class CERES_EXPORT_INTERNAL LineSearchPreprocessor : public Preprocessor {
  public:
+  virtual ~LineSearchPreprocessor();
   bool Preprocess(const Solver::Options& options,
                   ProblemImpl* problem,
                   PreprocessedProblem* preprocessed_problem) final;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_LINE_SEARCH_PREPROCESSOR_H_

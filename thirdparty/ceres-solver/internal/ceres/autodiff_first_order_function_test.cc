@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -44,7 +44,7 @@ class QuadraticCostFunctor {
   explicit QuadraticCostFunctor(double a) : a_(a) {}
   template <typename T>
   bool operator()(const T* const x, T* cost) const {
-    cost[0] = x[0] * x[1] + x[2] * x[3] - a_;
+    cost[0] = x[0] * x[1] + x[2] * x[3] - T(a_);
     return true;
   }
 
@@ -53,9 +53,9 @@ class QuadraticCostFunctor {
 };
 
 TEST(AutoDiffFirstOrderFunction, BilinearDifferentiationTest) {
-  std::unique_ptr<FirstOrderFunction> function =
-      std::make_unique<AutoDiffFirstOrderFunction<QuadraticCostFunctor, 4>>(
-          1.0);
+  std::unique_ptr<FirstOrderFunction> function(
+      new AutoDiffFirstOrderFunction<QuadraticCostFunctor, 4>(
+          new QuadraticCostFunctor(1.0)));
 
   double parameters[4] = {1.0, 2.0, 3.0, 4.0};
   double gradient[4];

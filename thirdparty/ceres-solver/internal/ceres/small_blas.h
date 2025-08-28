@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,13 +35,13 @@
 #ifndef CERES_INTERNAL_SMALL_BLAS_H_
 #define CERES_INTERNAL_SMALL_BLAS_H_
 
-#include "Eigen/Core"
-#include "absl/log/check.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
+#include "glog/logging.h"
 #include "small_blas_generic.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // The following three macros are used to share code and reduce
 // template junk across the various GEMM variants.
@@ -210,7 +210,7 @@ CERES_GEMM_BEGIN(MatrixMatrixMultiplyNaive) {
 
   // Process the couple columns in remainder if present.
   if (NUM_COL_C & 2) {
-    int col = NUM_COL_C & (~(span - 1));
+    int col = NUM_COL_C & (int)(~(span - 1));
     const double* pa = &A[0];
     for (int row = 0; row < NUM_ROW_C; ++row, pa += NUM_COL_A) {
       const double* pb = &B[col];
@@ -232,7 +232,7 @@ CERES_GEMM_BEGIN(MatrixMatrixMultiplyNaive) {
   }
 
   // Calculate the main part with multiples of 4.
-  int col_m = NUM_COL_C & (~(span - 1));
+  int col_m = NUM_COL_C & (int)(~(span - 1));
   for (int col = 0; col < col_m; col += span) {
     for (int row = 0; row < NUM_ROW_C; ++row) {
       const int index = (row + start_row_c) * col_stride_c + start_col_c + col;
@@ -315,7 +315,7 @@ CERES_GEMM_BEGIN(MatrixTransposeMatrixMultiplyNaive) {
 
   // Process the couple columns in remainder if present.
   if (NUM_COL_C & 2) {
-    int col = NUM_COL_C & (~(span - 1));
+    int col = NUM_COL_C & (int)(~(span - 1));
     for (int row = 0; row < NUM_ROW_C; ++row) {
       const double* pa = &A[row];
       const double* pb = &B[col];
@@ -339,7 +339,7 @@ CERES_GEMM_BEGIN(MatrixTransposeMatrixMultiplyNaive) {
   }
 
   // Process the main part with multiples of 4.
-  int col_m = NUM_COL_C & (~(span - 1));
+  int col_m = NUM_COL_C & (int)(~(span - 1));
   for (int col = 0; col < col_m; col += span) {
     for (int row = 0; row < NUM_ROW_C; ++row) {
       const int index = (row + start_row_c) * col_stride_c + start_col_c + col;
@@ -435,7 +435,7 @@ inline void MatrixVectorMultiply(const double* A,
 
   // Process the couple rows in remainder if present.
   if (NUM_ROW_A & 2) {
-    int row = NUM_ROW_A & (~(span - 1));
+    int row = NUM_ROW_A & (int)(~(span - 1));
     const double* pa1 = &A[row * NUM_COL_A];
     const double* pa2 = pa1 + NUM_COL_A;
     const double* pb = &b[0];
@@ -454,7 +454,7 @@ inline void MatrixVectorMultiply(const double* A,
   }
 
   // Calculate the main part with multiples of 4.
-  int row_m = NUM_ROW_A & (~(span - 1));
+  int row_m = NUM_ROW_A & (int)(~(span - 1));
   for (int row = 0; row < row_m; row += span) {
     // clang-format off
     MVM_mat4x1(NUM_COL_A, &A[row * NUM_COL_A], NUM_COL_A,
@@ -522,7 +522,7 @@ inline void MatrixTransposeVectorMultiply(const double* A,
 
   // Process the couple columns in remainder if present.
   if (NUM_COL_A & 2) {
-    int row = NUM_COL_A & (~(span - 1));
+    int row = NUM_COL_A & (int)(~(span - 1));
     const double* pa = &A[row];
     const double* pb = &b[0];
     double tmp1 = 0.0, tmp2 = 0.0;
@@ -543,7 +543,7 @@ inline void MatrixTransposeVectorMultiply(const double* A,
   }
 
   // Calculate the main part with multiples of 4.
-  int row_m = NUM_COL_A & (~(span - 1));
+  int row_m = NUM_COL_A & (int)(~(span - 1));
   for (int row = 0; row < row_m; row += span) {
     // clang-format off
     MTV_mat4x1(NUM_ROW_A, &A[row], NUM_COL_A,
@@ -561,6 +561,7 @@ inline void MatrixTransposeVectorMultiply(const double* A,
 #undef CERES_GEMM_STORE_SINGLE
 #undef CERES_GEMM_STORE_PAIR
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_SMALL_BLAS_H_

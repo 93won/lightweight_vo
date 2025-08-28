@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,11 +31,15 @@
 #ifndef CERES_INTERNAL_THREAD_TOKEN_PROVIDER_H_
 #define CERES_INTERNAL_THREAD_TOKEN_PROVIDER_H_
 
-#include "ceres/concurrent_queue.h"
 #include "ceres/internal/config.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 
-namespace ceres::internal {
+#ifdef CERES_USE_CXX_THREADS
+#include "ceres/concurrent_queue.h"
+#endif
+
+namespace ceres {
+namespace internal {
 
 // Helper for C++ thread number identification that is similar to
 // omp_get_thread_num() behaviour. This is necessary to support C++
@@ -43,6 +47,12 @@ namespace ceres::internal {
 // resources in the parallelized code parts.  The sequence of tokens varies from
 // 0 to num_threads - 1 that can be acquired to identify the thread in a thread
 // pool.
+//
+// If CERES_NO_THREADS is defined, Acquire() always returns 0 and Release()
+// takes no action.
+//
+// If CERES_USE_OPENMP, omp_get_thread_num() is used to Acquire() with no action
+// in Release()
 //
 //
 // Example usage pseudocode:
@@ -56,9 +66,9 @@ namespace ceres::internal {
 //    ttp.Release(token); // return token to the pool
 //  }
 //
-class CERES_NO_EXPORT ThreadTokenProvider {
+class ThreadTokenProvider {
  public:
-  explicit ThreadTokenProvider(int num_threads);
+  ThreadTokenProvider(int num_threads);
 
   // Returns the first token from the queue. The acquired value must be
   // given back by Release().
@@ -68,16 +78,20 @@ class CERES_NO_EXPORT ThreadTokenProvider {
   void Release(int thread_id);
 
  private:
+#ifdef CERES_USE_CXX_THREADS
   // This queue initially holds a sequence from 0..num_threads-1. Every
   // Acquire() call the first number is removed from here. When the token is not
   // needed anymore it shall be given back with corresponding Release()
   // call. This concurrent queue is more expensive than TBB's version, so you
   // should not acquire the thread ID on every for loop iteration.
   ConcurrentQueue<int> pool_;
-  ThreadTokenProvider(ThreadTokenProvider&) = delete;
-  ThreadTokenProvider& operator=(ThreadTokenProvider&) = delete;
+#endif
+
+  ThreadTokenProvider(ThreadTokenProvider&);
+  ThreadTokenProvider& operator=(ThreadTokenProvider&);
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_THREAD_TOKEN_PROVIDER_H_

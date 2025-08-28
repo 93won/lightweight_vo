@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -37,16 +37,15 @@
 #include <vector>
 
 #include "ceres/evaluation_callback.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class ParameterBlock;
 class ProblemImpl;
 class ResidualBlock;
 class TripletSparseMatrix;
-class ContextImpl;
 
 // A nonlinear least squares optimization problem. This is different from the
 // similarly-named "Problem" object, which offers a mutation interface for
@@ -58,8 +57,11 @@ class ContextImpl;
 // another; for example, the first stage of solving involves stripping all
 // constant parameters and residuals. This is in contrast with Problem, which is
 // not built for transformation.
-class CERES_NO_EXPORT Program {
+class CERES_EXPORT_INTERNAL Program {
  public:
+  Program();
+  explicit Program(const Program& program);
+
   // The ordered parameter and residual blocks for the program.
   const std::vector<ParameterBlock*>& parameter_blocks() const;
   const std::vector<ResidualBlock*>& residual_blocks() const;
@@ -70,9 +72,9 @@ class CERES_NO_EXPORT Program {
   // Serialize to/from the program and update states.
   //
   // NOTE: Setting the state of a parameter block can trigger the
-  // computation of the Jacobian of its manifold. If this computation fails for
-  // some reason, then this method returns false and the state of the parameter
-  // blocks cannot be trusted.
+  // computation of the Jacobian of its local parameterization. If
+  // this computation fails for some reason, then this method returns
+  // false and the state of the parameter blocks cannot be trusted.
   bool StateVectorToParameterBlocks(const double* state);
   void ParameterBlocksToStateVector(double* state) const;
 
@@ -80,16 +82,14 @@ class CERES_NO_EXPORT Program {
   void CopyParameterBlockStateToUserState();
 
   // Set the parameter block pointers to the user pointers. Since this
-  // runs parameter block set state internally, which may call manifold, this
-  // can fail. False is returned on failure.
+  // runs parameter block set state internally, which may call local
+  // parameterizations, this can fail. False is returned on failure.
   bool SetParameterBlockStatePtrsToUserStatePtrs();
 
   // Update a state vector for the program given a delta.
   bool Plus(const double* state,
             const double* delta,
-            double* state_plus_delta,
-            ContextImpl* context,
-            int num_threads) const;
+            double* state_plus_delta) const;
 
   // Set the parameter indices and offsets. This permits mapping backward
   // from a ParameterBlock* to an index in the parameter_blocks() vector. For
@@ -146,13 +146,12 @@ class CERES_NO_EXPORT Program {
   // fixed_cost will be equal to the sum of the costs of the residual
   // blocks that were removed.
   //
-  // If there was a problem, then the function will return a nullptr
+  // If there was a problem, then the function will return a NULL
   // pointer and error will contain a human readable description of
   // the problem.
-  std::unique_ptr<Program> CreateReducedProgram(
-      std::vector<double*>* removed_parameter_blocks,
-      double* fixed_cost,
-      std::string* error) const;
+  Program* CreateReducedProgram(std::vector<double*>* removed_parameter_blocks,
+                                double* fixed_cost,
+                                std::string* error) const;
 
   // See problem.h for what these do.
   int NumParameterBlocks() const;
@@ -194,8 +193,7 @@ class CERES_NO_EXPORT Program {
   friend class ProblemImpl;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_PROGRAM_H_

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -132,23 +132,27 @@
 // respectively. This is how autodiff works for functors taking multiple vector
 // valued arguments (up to 6).
 //
-// Jacobian null pointers (nullptr)
-// --------------------------------
-// In general, the functions below will accept nullptr for all or some of the
-// Jacobian parameters, meaning that those Jacobians will not be computed.
+// Jacobian NULL pointers
+// ----------------------
+// In general, the functions below will accept NULL pointers for all or some of
+// the Jacobian parameters, meaning that those Jacobians will not be computed.
 
 #ifndef CERES_PUBLIC_INTERNAL_AUTODIFF_H_
 #define CERES_PUBLIC_INTERNAL_AUTODIFF_H_
 
+#include <stddef.h>
+
 #include <array>
 #include <utility>
 
-#include "Eigen/Core"
-#include "absl/log/check.h"
 #include "ceres/internal/array_selector.h"
+#include "ceres/internal/eigen.h"
+#include "ceres/internal/fixed_array.h"
+#include "ceres/internal/parameter_dims.h"
 #include "ceres/internal/variadic_evaluate.h"
 #include "ceres/jet.h"
 #include "ceres/types.h"
+#include "glog/logging.h"
 
 // If the number of parameters exceeds this values, the corresponding jets are
 // placed on the heap. This will reduce performance by a factor of 2-5 on
@@ -161,7 +165,8 @@
 #define CERES_AUTODIFF_MAX_RESIDUALS_ON_STACK 20
 #endif
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Extends src by a 1st order perturbation for every dimension and puts it in
 // dst. The size of src is N. Since this is also used for perturbations in
@@ -193,7 +198,7 @@ struct Make1stOrderPerturbation {
 template <int N, int Offset, typename T, typename JetT>
 struct Make1stOrderPerturbation<N, N, Offset, T, JetT> {
  public:
-  static void Apply(const T* /* NOT USED */, JetT* /* NOT USED */) {}
+  static void Apply(const T* src, JetT* dst) {}
 };
 
 // Calls Make1stOrderPerturbation for every parameter block.
@@ -306,7 +311,7 @@ inline bool AutoDifferentiate(const Functor& functor,
                               int dynamic_num_outputs,
                               T* function_value,
                               T** jacobians) {
-  using JetT = Jet<T, ParameterDims::kNumParameters>;
+  typedef Jet<T, ParameterDims::kNumParameters> JetT;
   using Parameters = typename ParameterDims::Parameters;
 
   if (kNumResiduals != DYNAMIC) {
@@ -355,6 +360,7 @@ inline bool AutoDifferentiate(const Functor& functor,
   return true;
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_PUBLIC_INTERNAL_AUTODIFF_H_

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,7 +34,8 @@
 #include "ceres/internal/eigen.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 void CompareEvaluations(int expected_num_rows,
                         int expected_num_cols,
@@ -48,7 +49,7 @@ void CompareEvaluations(int expected_num_rows,
                         const double* actual_jacobian) {
   EXPECT_EQ(expected_cost, actual_cost);
 
-  if (expected_residuals != nullptr) {
+  if (expected_residuals != NULL) {
     ConstVectorRef expected_residuals_vector(expected_residuals,
                                              expected_num_rows);
     ConstVectorRef actual_residuals_vector(actual_residuals, expected_num_rows);
@@ -60,7 +61,7 @@ void CompareEvaluations(int expected_num_rows,
         << expected_residuals_vector;
   }
 
-  if (expected_gradient != nullptr) {
+  if (expected_gradient != NULL) {
     ConstVectorRef expected_gradient_vector(expected_gradient,
                                             expected_num_cols);
     ConstVectorRef actual_gradient_vector(actual_gradient, expected_num_cols);
@@ -73,7 +74,7 @@ void CompareEvaluations(int expected_num_rows,
         << expected_gradient_vector.transpose();
   }
 
-  if (expected_jacobian != nullptr) {
+  if (expected_jacobian != NULL) {
     ConstMatrixRef expected_jacobian_matrix(
         expected_jacobian, expected_num_rows, expected_num_cols);
     ConstMatrixRef actual_jacobian_matrix(
@@ -87,4 +88,5 @@ void CompareEvaluations(int expected_num_rows,
   }
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

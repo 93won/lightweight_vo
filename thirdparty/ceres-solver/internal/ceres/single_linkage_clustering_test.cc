@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,11 +30,13 @@
 
 #include "ceres/single_linkage_clustering.h"
 
-#include "absl/container/flat_hash_map.h"
+#include <unordered_map>
+
 #include "ceres/graph.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 TEST(SingleLinkageClustering, GraphHasTwoComponents) {
   WeightedGraph<int> graph;
@@ -51,7 +53,7 @@ TEST(SingleLinkageClustering, GraphHasTwoComponents) {
   graph.AddEdge(4, 5, 1.0);
 
   SingleLinkageClusteringOptions options;
-  absl::flat_hash_map<int, int> membership;
+  std::unordered_map<int, int> membership;
   ComputeSingleLinkageClustering(options, graph, &membership);
   EXPECT_EQ(membership.size(), kNumVertices);
 
@@ -80,7 +82,7 @@ TEST(SingleLinkageClustering, ComponentWithWeakLink) {
   graph.AddEdge(4, 5, 0.5);
 
   SingleLinkageClusteringOptions options;
-  absl::flat_hash_map<int, int> membership;
+  std::unordered_map<int, int> membership;
   ComputeSingleLinkageClustering(options, graph, &membership);
   EXPECT_EQ(membership.size(), kNumVertices);
 
@@ -110,7 +112,7 @@ TEST(SingleLinkageClustering, ComponentWithWeakLinkAndStrongLink) {
   graph.AddEdge(4, 5, 1.0);
 
   SingleLinkageClusteringOptions options;
-  absl::flat_hash_map<int, int> membership;
+  std::unordered_map<int, int> membership;
   ComputeSingleLinkageClustering(options, graph, &membership);
   EXPECT_EQ(membership.size(), kNumVertices);
 
@@ -120,4 +122,5 @@ TEST(SingleLinkageClustering, ComponentWithWeakLinkAndStrongLink) {
   EXPECT_EQ(membership[4], membership[5]);
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

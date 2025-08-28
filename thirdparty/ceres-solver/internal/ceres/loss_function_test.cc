@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,6 +32,7 @@
 
 #include <cstddef>
 
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
@@ -44,7 +45,7 @@ namespace {
 // callback with estimates obtained by symmetric finite differencing
 // of rho(s).
 void AssertLossFunctionIsValid(const LossFunction& loss, double s) {
-  ASSERT_GT(s, 0);
+  CHECK_GT(s, 0);
 
   // Evaluate rho(s), rho'(s) and rho''(s).
   double rho[3];
@@ -194,7 +195,7 @@ TEST(LossFunction, ScaledLoss) {
   // construction with the call to AssertLossFunctionIsValid() because Apple's
   // GCC is unable to eliminate the copy of ScaledLoss, which is not copyable.
   {
-    ScaledLoss scaled_loss(nullptr, 6, TAKE_OWNERSHIP);
+    ScaledLoss scaled_loss(NULL, 6, TAKE_OWNERSHIP);
     AssertLossFunctionIsValid(scaled_loss, 0.323);
   }
   {
@@ -264,17 +265,17 @@ TEST(LossFunction, LossFunctionWrapper) {
     EXPECT_NEAR(rho[i], rho_gold[i], 1e-12);
   }
 
-  // Set to nullptr
+  // Set to NULL
   TrivialLoss loss_function4;
-  loss_function_wrapper.Reset(nullptr, TAKE_OWNERSHIP);
+  loss_function_wrapper.Reset(NULL, TAKE_OWNERSHIP);
   loss_function_wrapper.Evaluate(s, rho);
   loss_function4.Evaluate(s, rho_gold);
   for (int i = 0; i < 3; ++i) {
     EXPECT_NEAR(rho[i], rho_gold[i], 1e-12);
   }
 
-  // Set to nullptr, not taking ownership
-  loss_function_wrapper.Reset(nullptr, DO_NOT_TAKE_OWNERSHIP);
+  // Set to NULL, not taking ownership
+  loss_function_wrapper.Reset(NULL, DO_NOT_TAKE_OWNERSHIP);
   loss_function_wrapper.Evaluate(s, rho);
   loss_function4.Evaluate(s, rho_gold);
   for (int i = 0; i < 3; ++i) {

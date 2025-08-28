@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -40,16 +40,18 @@
 // This file is generated using generate_template_specializations.py.
 
 // This include must come before any #ifndef check on Ceres compile options.
-#include "ceres/internal/config.h"
+#include "ceres/internal/port.h"
 
 #ifndef CERES_RESTRICT_SCHUR_SPECIALIZATION
 
 #include "ceres/schur_eliminator_impl.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 template class SchurEliminator<2, 3, 3>;
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_RESTRICT_SCHUR_SPECIALIZATION

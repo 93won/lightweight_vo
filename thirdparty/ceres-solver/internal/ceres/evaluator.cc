@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,10 +30,8 @@
 
 #include "ceres/evaluator.h"
 
-#include <memory>
 #include <vector>
 
-#include "absl/log/check.h"
 #include "ceres/block_evaluate_preparer.h"
 #include "ceres/block_jacobian_writer.h"
 #include "ceres/compressed_row_jacobian_writer.h"
@@ -42,60 +40,48 @@
 #include "ceres/dense_jacobian_writer.h"
 #include "ceres/dynamic_compressed_row_finalizer.h"
 #include "ceres/dynamic_compressed_row_jacobian_writer.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/program_evaluator.h"
 #include "ceres/scratch_evaluate_preparer.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-Evaluator::~Evaluator() = default;
+Evaluator::~Evaluator() {}
 
-std::unique_ptr<Evaluator> Evaluator::Create(const Evaluator::Options& options,
-                                             Program* program,
-                                             std::string* error) {
-  CHECK(options.context != nullptr);
+Evaluator* Evaluator::Create(const Evaluator::Options& options,
+                             Program* program,
+                             std::string* error) {
+  CHECK(options.context != NULL);
 
   switch (options.linear_solver_type) {
     case DENSE_QR:
     case DENSE_NORMAL_CHOLESKY:
-      return std::make_unique<
-          ProgramEvaluator<ScratchEvaluatePreparer, DenseJacobianWriter>>(
+      return new ProgramEvaluator<ScratchEvaluatePreparer, DenseJacobianWriter>(
           options, program);
     case DENSE_SCHUR:
     case SPARSE_SCHUR:
-    case ITERATIVE_SCHUR: {
-      return std::make_unique<
-          ProgramEvaluator<BlockEvaluatePreparer, BlockJacobianWriter>>(
+    case ITERATIVE_SCHUR:
+    case CGNR:
+      return new ProgramEvaluator<BlockEvaluatePreparer, BlockJacobianWriter>(
           options, program);
-    }
-    case CGNR: {
-      if (options.sparse_linear_algebra_library_type == CUDA_SPARSE) {
-        return std::make_unique<ProgramEvaluator<ScratchEvaluatePreparer,
-                                                 CompressedRowJacobianWriter>>(
-            options, program);
-      } else {
-        return std::make_unique<
-            ProgramEvaluator<BlockEvaluatePreparer, BlockJacobianWriter>>(
-            options, program);
-      }
-    }
     case SPARSE_NORMAL_CHOLESKY:
       if (options.dynamic_sparsity) {
-        return std::make_unique<
-            ProgramEvaluator<ScratchEvaluatePreparer,
-                             DynamicCompressedRowJacobianWriter,
-                             DynamicCompressedRowJacobianFinalizer>>(options,
-                                                                     program);
+        return new ProgramEvaluator<ScratchEvaluatePreparer,
+                                    DynamicCompressedRowJacobianWriter,
+                                    DynamicCompressedRowJacobianFinalizer>(
+            options, program);
       } else {
-        return std::make_unique<
-            ProgramEvaluator<BlockEvaluatePreparer, BlockJacobianWriter>>(
+        return new ProgramEvaluator<BlockEvaluatePreparer, BlockJacobianWriter>(
             options, program);
       }
 
     default:
       *error = "Invalid Linear Solver Type. Unable to create evaluator.";
-      return nullptr;
+      return NULL;
   }
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

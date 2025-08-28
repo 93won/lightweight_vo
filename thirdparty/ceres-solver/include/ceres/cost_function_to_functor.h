@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2024 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -92,10 +92,11 @@
 #include <utility>
 #include <vector>
 
-#include "absl/log/check.h"
 #include "ceres/cost_function.h"
 #include "ceres/dynamic_cost_function_to_functor.h"
+#include "ceres/internal/fixed_array.h"
 #include "ceres/internal/parameter_dims.h"
+#include "ceres/internal/port.h"
 #include "ceres/types.h"
 
 namespace ceres {
@@ -105,16 +106,12 @@ class CostFunctionToFunctor {
  public:
   // Takes ownership of cost_function.
   explicit CostFunctionToFunctor(CostFunction* cost_function)
-      : CostFunctionToFunctor{std::unique_ptr<CostFunction>{cost_function}} {}
-
-  // Takes ownership of cost_function.
-  explicit CostFunctionToFunctor(std::unique_ptr<CostFunction> cost_function)
-      : cost_functor_(std::move(cost_function)) {
-    CHECK(cost_functor_.function() != nullptr);
+      : cost_functor_(cost_function) {
+    CHECK(cost_function != nullptr);
     CHECK(kNumResiduals > 0 || kNumResiduals == DYNAMIC);
 
     const std::vector<int32_t>& parameter_block_sizes =
-        cost_functor_.function()->parameter_block_sizes();
+        cost_function->parameter_block_sizes();
     const int num_parameter_blocks = ParameterDims::kNumParameterBlocks;
     CHECK_EQ(static_cast<int>(parameter_block_sizes.size()),
              num_parameter_blocks);
@@ -122,7 +119,7 @@ class CostFunctionToFunctor {
     if (parameter_block_sizes.size() == num_parameter_blocks) {
       for (int block = 0; block < num_parameter_blocks; ++block) {
         CHECK_EQ(ParameterDims::GetDim(block), parameter_block_sizes[block])
-            << "Parameter block size mismatch. The specified static parameter "
+            << "Parameter block size missmatch. The specified static parameter "
                "block dimension does not match the one from the cost function.";
       }
     }

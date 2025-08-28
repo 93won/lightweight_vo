@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,67 +30,65 @@
 
 #include "ceres/solver_utils.h"
 
+#include <string>
+
 #include "Eigen/Core"
 #include "ceres/internal/config.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/version.h"
-#ifndef CERES_NO_CUDA
-#include "cuda_runtime.h"
-#ifndef CERES_NO_CUDSS
-#include "cudss.h"
-#endif  // CERES_NO_CUDSS
-#endif  // CERES_NO_CUDA
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-constexpr char kVersion[] =
-    // clang-format off
-  CERES_VERSION_STRING "-eigen-("
-  CERES_SEMVER_VERSION(EIGEN_WORLD_VERSION,
-                       EIGEN_MAJOR_VERSION,
-                       EIGEN_MINOR_VERSION) ")"
+// clang-format off
+#define CERES_EIGEN_VERSION                 \
+  CERES_TO_STRING(EIGEN_WORLD_VERSION) "."  \
+  CERES_TO_STRING(EIGEN_MAJOR_VERSION) "."  \
+  CERES_TO_STRING(EIGEN_MINOR_VERSION)
+// clang-format on
+
+std::string VersionString() {
+  std::string value = std::string(CERES_VERSION_STRING);
+  value += "-eigen-(" + std::string(CERES_EIGEN_VERSION) + ")";
 
 #ifdef CERES_NO_LAPACK
-  "-no_lapack"
+  value += "-no_lapack";
 #else
-  "-lapack"
+  value += "-lapack";
 #endif
 
 #ifndef CERES_NO_SUITESPARSE
-  "-suitesparse-(" CERES_SUITESPARSE_VERSION ")"
+  value += "-suitesparse-(" + std::string(CERES_SUITESPARSE_VERSION) + ")";
 #endif
 
-#if !defined(CERES_NO_EIGEN_METIS) || !defined(CERES_NO_CHOLMOD_PARTITION)
-  "-metis-(" CERES_METIS_VERSION ")"
+#ifndef CERES_NO_CXSPARSE
+  value += "-cxsparse-(" + std::string(CERES_CXSPARSE_VERSION) + ")";
 #endif
 
 #ifndef CERES_NO_ACCELERATE_SPARSE
-  "-acceleratesparse"
+  value += "-acceleratesparse";
 #endif
 
 #ifdef CERES_USE_EIGEN_SPARSE
-  "-eigensparse"
+  value += "-eigensparse";
 #endif
 
 #ifdef CERES_RESTRUCT_SCHUR_SPECIALIZATIONS
-  "-no_schur_specializations"
+  value += "-no_schur_specializations";
+#endif
+
+#ifdef CERES_USE_OPENMP
+  value += "-openmp";
+#else
+  value += "-no_openmp";
 #endif
 
 #ifdef CERES_NO_CUSTOM_BLAS
-  "-no_custom_blas"
+  value += "-no_custom_blas";
 #endif
 
-#ifndef CERES_NO_CUDA
-  "-cuda-(" CERES_TO_STRING(CUDART_VERSION) ")"
-#ifndef CERES_NO_CUDSS
-  "-cudss-(" CERES_SEMVER_VERSION(CUDSS_VERSION_MAJOR,
-                                  CUDSS_VERSION_MINOR,
-                                  CUDSS_VERSION_PATCH) ")"
-#endif // CERES_NO_CUDSS
-#endif
-  ;
-// clang-format on
+  return value;
+}
 
-std::string VersionString() { return kVersion; }
-
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

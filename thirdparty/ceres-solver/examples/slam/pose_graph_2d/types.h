@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2016 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -40,7 +40,8 @@
 #include "Eigen/Core"
 #include "normalize_angle.h"
 
-namespace ceres::examples {
+namespace ceres {
+namespace examples {
 
 // The state for each vertex in the pose graph.
 struct Pose2d {
@@ -94,6 +95,7 @@ inline std::istream& operator>>(std::istream& input, Constraint2d& constraint) {
   return input;
 }
 
-}  // namespace ceres::examples
+}  // namespace examples
+}  // namespace ceres
 
 #endif  // CERES_EXAMPLES_POSE_GRAPH_2D_TYPES_H_

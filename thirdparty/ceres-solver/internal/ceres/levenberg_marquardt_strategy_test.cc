@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,18 +32,19 @@
 
 #include <memory>
 
-#include "absl/log/check.h"
-#include "absl/log/log.h"
 #include "ceres/internal/eigen.h"
 #include "ceres/linear_solver.h"
 #include "ceres/trust_region_strategy.h"
+#include "glog/logging.h"
 #include "gmock/gmock.h"
+#include "gmock/mock-log.h"
 #include "gtest/gtest.h"
 
 using testing::_;
 using testing::AllOf;
 using testing::AnyNumber;
 using testing::HasSubstr;
+using testing::ScopedMockLog;
 
 namespace ceres {
 namespace internal {
@@ -57,6 +58,8 @@ class RegularizationCheckingLinearSolver : public DenseSparseMatrixSolver {
   RegularizationCheckingLinearSolver(const int num_cols, const double* diagonal)
       : num_cols_(num_cols), diagonal_(diagonal) {}
 
+  virtual ~RegularizationCheckingLinearSolver() {}
+
  private:
   LinearSolver::Summary SolveImpl(
       DenseSparseMatrix* A,
@@ -68,7 +71,7 @@ class RegularizationCheckingLinearSolver : public DenseSparseMatrixSolver {
       EXPECT_NEAR(per_solve_options.D[i], diagonal_[i], kTolerance)
           << i << " " << per_solve_options.D[i] << " " << diagonal_[i];
     }
-    return {};
+    return LinearSolver::Summary();
   }
 
   const int num_cols_;
@@ -84,7 +87,7 @@ TEST(LevenbergMarquardtStrategy, AcceptRejectStepRadiusScaling) {
 
   // We need a non-null pointer here, so anything should do.
   std::unique_ptr<LinearSolver> linear_solver(
-      new RegularizationCheckingLinearSolver(0, nullptr));
+      new RegularizationCheckingLinearSolver(0, NULL));
   options.linear_solver = linear_solver.get();
 
   LevenbergMarquardtStrategy lms(options);
@@ -107,9 +110,6 @@ TEST(LevenbergMarquardtStrategy, AcceptRejectStepRadiusScaling) {
   EXPECT_EQ(lms.Radius(), options.max_radius);
 }
 
-// TODO(sameeragarwal): Re-enable this once we move to absl, as absl provides
-// absl/log/scoped_mock_log.h
-/*
 TEST(LevenbergMarquardtStrategy, CorrectDiagonalToLinearSolver) {
   Matrix jacobian(2, 3);
   jacobian.setZero();
@@ -132,8 +132,8 @@ TEST(LevenbergMarquardtStrategy, CorrectDiagonalToLinearSolver) {
   diagonal[0] = options.min_lm_diagonal;
   diagonal[1] = 2.0;
   diagonal[2] = options.max_lm_diagonal;
-  for (double& diagonal_entry : diagonal) {
-    diagonal_entry = sqrt(diagonal_entry / options.initial_radius);
+  for (int i = 0; i < 3; ++i) {
+    diagonal[i] = sqrt(diagonal[i] / options.initial_radius);
   }
 
   RegularizationCheckingLinearSolver linear_solver(3, diagonal);
@@ -149,7 +149,7 @@ TEST(LevenbergMarquardtStrategy, CorrectDiagonalToLinearSolver) {
     // are versions of glog which are not in the google namespace.
     using namespace google;
 
-#if defined(GLOG_NO_ABBREVIATED_SEVERITIES)
+#if defined(_MSC_VER)
     // Use GLOG_WARNING to support MSVC if GLOG_NO_ABBREVIATED_SEVERITIES
     // is defined.
     EXPECT_CALL(log,
@@ -161,10 +161,9 @@ TEST(LevenbergMarquardtStrategy, CorrectDiagonalToLinearSolver) {
 
     TrustRegionStrategy::Summary summary =
         lms.ComputeStep(pso, &dsm, &residual, x);
-    EXPECT_EQ(summary.termination_type, LinearSolverTerminationType::FAILURE);
+    EXPECT_EQ(summary.termination_type, LINEAR_SOLVER_FAILURE);
   }
 }
-*/
 
 }  // namespace internal
 }  // namespace ceres

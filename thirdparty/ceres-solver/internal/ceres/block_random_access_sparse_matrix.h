@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,41 +33,39 @@
 
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include "absl/container/btree_set.h"
 #include "ceres/block_random_access_matrix.h"
-#include "ceres/block_sparse_matrix.h"
-#include "ceres/block_structure.h"
-#include "ceres/context_impl.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/small_blas.h"
+#include "ceres/triplet_sparse_matrix.h"
 #include "ceres/types.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // A thread safe square block sparse implementation of
-// BlockRandomAccessMatrix. Internally a BlockSparseMatrix is used
+// BlockRandomAccessMatrix. Internally a TripletSparseMatrix is used
 // for doing the actual storage. This class augments this matrix with
 // an unordered_map that allows random read/write access.
-class CERES_NO_EXPORT BlockRandomAccessSparseMatrix
+class CERES_EXPORT_INTERNAL BlockRandomAccessSparseMatrix
     : public BlockRandomAccessMatrix {
  public:
   // blocks is an array of block sizes. block_pairs is a set of
   // <row_block_id, col_block_id> pairs to identify the non-zero cells
   // of this matrix.
   BlockRandomAccessSparseMatrix(
-      const std::vector<Block>& blocks,
-      const absl::btree_set<std::pair<int, int>>& block_pairs,
-      ContextImpl* context,
-      int num_threads);
+      const std::vector<int>& blocks,
+      const std::set<std::pair<int, int>>& block_pairs);
+  BlockRandomAccessSparseMatrix(const BlockRandomAccessSparseMatrix&) = delete;
+  void operator=(const BlockRandomAccessSparseMatrix&) = delete;
 
   // The destructor is not thread safe. It assumes that no one is
   // modifying any cells when the matrix is being destroyed.
-  ~BlockRandomAccessSparseMatrix() override = default;
+  virtual ~BlockRandomAccessSparseMatrix();
 
   // BlockRandomAccessMatrix Interface.
   CellInfo* GetCell(int row_block_id,
@@ -81,50 +79,52 @@ class CERES_NO_EXPORT BlockRandomAccessSparseMatrix
   // locked.
   void SetZero() final;
 
-  // Assume that the matrix is symmetric and only one half of the matrix is
-  // stored.
+  // Assume that the matrix is symmetric and only one half of the
+  // matrix is stored.
   //
   // y += S * x
-  void SymmetricRightMultiplyAndAccumulate(const double* x, double* y) const;
+  void SymmetricRightMultiply(const double* x, double* y) const;
 
   // Since the matrix is square, num_rows() == num_cols().
-  int num_rows() const final { return bsm_->num_rows(); }
-  int num_cols() const final { return bsm_->num_cols(); }
+  int num_rows() const final { return tsm_->num_rows(); }
+  int num_cols() const final { return tsm_->num_cols(); }
 
   // Access to the underlying matrix object.
-  const BlockSparseMatrix* matrix() const { return bsm_.get(); }
-  BlockSparseMatrix* mutable_matrix() { return bsm_.get(); }
+  const TripletSparseMatrix* matrix() const { return tsm_.get(); }
+  TripletSparseMatrix* mutable_matrix() { return tsm_.get(); }
 
  private:
-  int64_t IntPairToInt64(int row, int col) const {
-    return row * kRowShift + col;
+  int64_t IntPairToLong(int row, int col) const {
+    return row * kMaxRowBlocks + col;
   }
 
-  void Int64ToIntPair(int64_t index, int* row, int* col) const {
-    *row = index / kRowShift;
-    *col = index % kRowShift;
+  void LongToIntPair(int64_t index, int* row, int* col) const {
+    *row = index / kMaxRowBlocks;
+    *col = index % kMaxRowBlocks;
   }
 
-  constexpr static int64_t kRowShift{1ll << 32};
+  const int64_t kMaxRowBlocks;
 
   // row/column block sizes.
-  const std::vector<Block> blocks_;
-  ContextImpl* context_ = nullptr;
-  const int num_threads_ = 1;
+  const std::vector<int> blocks_;
+  std::vector<int> block_positions_;
 
   // A mapping from <row_block_id, col_block_id> to the position in
-  // the values array of bsm_ where the block is stored.
-  using LayoutType = std::unordered_map<std::int64_t, CellInfo>;
+  // the values array of tsm_ where the block is stored.
+  typedef std::unordered_map<long int, CellInfo*> LayoutType;
   LayoutType layout_;
 
+  // In order traversal of contents of the matrix. This allows us to
+  // implement a matrix-vector which is 20% faster than using the
+  // iterator in the Layout object instead.
+  std::vector<std::pair<std::pair<int, int>, double*>> cell_values_;
   // The underlying matrix object which actually stores the cells.
-  std::unique_ptr<BlockSparseMatrix> bsm_;
+  std::unique_ptr<TripletSparseMatrix> tsm_;
 
   friend class BlockRandomAccessSparseMatrixTest;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_BLOCK_RANDOM_ACCESS_SPARSE_MATRIX_H_

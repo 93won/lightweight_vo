@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,31 +30,46 @@
 
 #include "ceres/normal_prior.h"
 
-#include <algorithm>
 #include <cstddef>
-#include <random>
 
 #include "ceres/internal/eigen.h"
+#include "ceres/random.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
 namespace internal {
 
+namespace {
+
+void RandomVector(Vector* v) {
+  for (int r = 0; r < v->rows(); ++r) (*v)[r] = 2 * RandDouble() - 1;
+}
+
+void RandomMatrix(Matrix* m) {
+  for (int r = 0; r < m->rows(); ++r) {
+    for (int c = 0; c < m->cols(); ++c) {
+      (*m)(r, c) = 2 * RandDouble() - 1;
+    }
+  }
+}
+
+}  // namespace
+
 TEST(NormalPriorTest, ResidualAtRandomPosition) {
-  std::mt19937 prng;
-  std::uniform_real_distribution<double> distribution(-1.0, 1.0);
-  auto randu = [&distribution, &prng] { return distribution(prng); };
+  srand(5);
+
   for (int num_rows = 1; num_rows < 5; ++num_rows) {
     for (int num_cols = 1; num_cols < 5; ++num_cols) {
       Vector b(num_cols);
-      b.setRandom();
+      RandomVector(&b);
+
       Matrix A(num_rows, num_cols);
-      A.setRandom();
+      RandomMatrix(&A);
 
-      auto* x = new double[num_cols];
-      std::generate_n(x, num_cols, randu);
+      double* x = new double[num_cols];
+      for (int i = 0; i < num_cols; ++i) x[i] = 2 * RandDouble() - 1;
 
-      auto* jacobian = new double[num_rows * num_cols];
+      double* jacobian = new double[num_rows * num_cols];
       Vector residuals(num_rows);
 
       NormalPrior prior(A, b);
@@ -77,21 +92,21 @@ TEST(NormalPriorTest, ResidualAtRandomPosition) {
 }
 
 TEST(NormalPriorTest, ResidualAtRandomPositionNullJacobians) {
-  std::mt19937 prng;
-  std::uniform_real_distribution<double> distribution(-1.0, 1.0);
-  auto randu = [&distribution, &prng] { return distribution(prng); };
+  srand(5);
+
   for (int num_rows = 1; num_rows < 5; ++num_rows) {
     for (int num_cols = 1; num_cols < 5; ++num_cols) {
       Vector b(num_cols);
-      b.setRandom();
-      Matrix A(num_rows, num_cols);
-      A.setRandom();
+      RandomVector(&b);
 
-      auto* x = new double[num_cols];
-      std::generate_n(x, num_cols, randu);
+      Matrix A(num_rows, num_cols);
+      RandomMatrix(&A);
+
+      double* x = new double[num_cols];
+      for (int i = 0; i < num_cols; ++i) x[i] = 2 * RandDouble() - 1;
 
       double* jacobians[1];
-      jacobians[0] = nullptr;
+      jacobians[0] = NULL;
 
       Vector residuals(num_rows);
 
@@ -103,7 +118,7 @@ TEST(NormalPriorTest, ResidualAtRandomPositionNullJacobians) {
           (residuals - A * (VectorRef(x, num_cols) - b)).squaredNorm();
       EXPECT_NEAR(residual_diff_norm, 0, 1e-10);
 
-      prior.Evaluate(&x, residuals.data(), nullptr);
+      prior.Evaluate(&x, residuals.data(), NULL);
       // Compare the norm of the residual
       residual_diff_norm =
           (residuals - A * (VectorRef(x, num_cols) - b)).squaredNorm();

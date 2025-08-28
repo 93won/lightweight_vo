@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,15 +36,15 @@
 #ifndef CERES_INTERNAL_BLOCK_EVALUATE_PREPARER_H_
 #define CERES_INTERNAL_BLOCK_EVALUATE_PREPARER_H_
 
-#include "ceres/internal/export.h"
 #include "ceres/scratch_evaluate_preparer.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class ResidualBlock;
 class SparseMatrix;
 
-class CERES_NO_EXPORT BlockEvaluatePreparer {
+class BlockEvaluatePreparer {
  public:
   // Using Init() instead of a constructor allows for allocating this structure
   // with new[]. This is because C++ doesn't allow passing arguments to objects
@@ -71,6 +71,7 @@ class CERES_NO_EXPORT BlockEvaluatePreparer {
   ScratchEvaluatePreparer scratch_evaluate_preparer_;
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_BLOCK_EVALUATE_PREPARER_H_

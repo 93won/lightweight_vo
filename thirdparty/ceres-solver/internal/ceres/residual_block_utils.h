@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -45,14 +45,14 @@
 
 #include <string>
 
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class ResidualBlock;
 
-// Invalidate cost, resdual and jacobian arrays (if not nullptr).
-CERES_NO_EXPORT
+// Invalidate cost, resdual and jacobian arrays (if not NULL).
 void InvalidateEvaluation(const ResidualBlock& block,
                           double* cost,
                           double* residuals,
@@ -60,22 +60,22 @@ void InvalidateEvaluation(const ResidualBlock& block,
 
 // Check if any of the arrays cost, residuals or jacobians contains an
 // NaN, return true if it does.
-CERES_NO_EXPORT
 bool IsEvaluationValid(const ResidualBlock& block,
                        double const* const* parameters,
+                       double* cost,
                        double* residuals,
                        double** jacobians);
 
 // Create a string representation of the Residual block containing the
 // value of the parameters, residuals and jacobians if present.
 // Useful for debugging output.
-CERES_NO_EXPORT
 std::string EvaluationToString(const ResidualBlock& block,
                                double const* const* parameters,
                                double* cost,
                                double* residuals,
                                double** jacobians);
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_RESIDUAL_BLOCK_UTILS_H_

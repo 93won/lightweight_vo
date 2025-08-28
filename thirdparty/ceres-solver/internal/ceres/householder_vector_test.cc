@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://code.google.com/p/ceres-solver/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,9 +31,11 @@
 #include "ceres/internal/householder_vector.h"
 
 #include "ceres/internal/eigen.h"
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 static void HouseholderTestHelper(const Vector& x) {
   const double kTolerance = 1e-14;
@@ -114,4 +116,5 @@ TEST(HouseholderVector, LastElementZero) {
   HouseholderTestHelper(x);
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

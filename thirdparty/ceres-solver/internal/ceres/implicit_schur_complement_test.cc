@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -44,9 +44,11 @@
 #include "ceres/schur_eliminator.h"
 #include "ceres/triplet_sparse_matrix.h"
 #include "ceres/types.h"
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 using testing::AssertionResult;
 
@@ -55,12 +57,13 @@ const double kEpsilon = 1e-14;
 class ImplicitSchurComplementTest : public ::testing::Test {
  protected:
   void SetUp() final {
-    auto problem = CreateLinearLeastSquaresProblemFromId(2);
+    std::unique_ptr<LinearLeastSquaresProblem> problem(
+        CreateLinearLeastSquaresProblemFromId(2));
 
-    ASSERT_TRUE(problem != nullptr);
+    CHECK(problem != nullptr);
     A_.reset(down_cast<BlockSparseMatrix*>(problem->A.release()));
-    b_ = std::move(problem->b);
-    D_ = std::move(problem->D);
+    b_.reset(problem->b.release());
+    D_.reset(problem->D.release());
 
     num_cols_ = A_->num_cols();
     num_rows_ = A_->num_rows();
@@ -73,8 +76,12 @@ class ImplicitSchurComplementTest : public ::testing::Test {
                                       Vector* solution) {
     const CompressedRowBlockStructure* bs = A_->block_structure();
     const int num_col_blocks = bs->cols.size();
-    auto blocks = Tail(bs->cols, num_col_blocks - num_eliminate_blocks_);
-    BlockRandomAccessDenseMatrix blhs(blocks, &context_, 1);
+    std::vector<int> blocks(num_col_blocks - num_eliminate_blocks_, 0);
+    for (int i = num_eliminate_blocks_; i < num_col_blocks; ++i) {
+      blocks[i - num_eliminate_blocks_] = bs->cols[i].size;
+    }
+
+    BlockRandomAccessDenseMatrix blhs(blocks);
     const int num_schur_rows = blhs.num_rows();
 
     LinearSolver::Options options;
@@ -83,9 +90,9 @@ class ImplicitSchurComplementTest : public ::testing::Test {
     ContextImpl context;
     options.context = &context;
 
-    std::unique_ptr<SchurEliminatorBase> eliminator =
-        SchurEliminatorBase::Create(options);
-    ASSERT_TRUE(eliminator != nullptr);
+    std::unique_ptr<SchurEliminatorBase> eliminator(
+        SchurEliminatorBase::Create(options));
+    CHECK(eliminator != nullptr);
     const bool kFullRankETE = true;
     eliminator->Init(num_eliminate_blocks_, kFullRankETE, bs);
 
@@ -130,38 +137,18 @@ class ImplicitSchurComplementTest : public ::testing::Test {
     ImplicitSchurComplement isc(options);
     isc.Init(*A_, D, b_.get());
 
-    const int num_f_cols = lhs.cols();
-    const int num_e_cols = num_cols_ - num_f_cols;
+    int num_sc_cols = lhs.cols();
 
-    Matrix A_dense, E, F, DE, DF;
-    A_->ToDenseMatrix(&A_dense);
-    E = A_dense.leftCols(A_->num_cols() - num_f_cols);
-    F = A_dense.rightCols(num_f_cols);
-    if (D) {
-      DE = VectorRef(D, num_e_cols).asDiagonal();
-      DF = VectorRef(D + num_e_cols, num_f_cols).asDiagonal();
-    } else {
-      DE = Matrix::Zero(num_e_cols, num_e_cols);
-      DF = Matrix::Zero(num_f_cols, num_f_cols);
-    }
-
-    // Z = (block_diagonal(F'F))^-1 F'E (E'E)^-1 E'F
-    // Here, assuming that block_diagonal(F'F) == diagonal(F'F)
-    Matrix Z_reference =
-        (F.transpose() * F + DF).diagonal().asDiagonal().inverse() *
-        F.transpose() * E * (E.transpose() * E + DE).inverse() * E.transpose() *
-        F;
-
-    for (int i = 0; i < num_f_cols; ++i) {
-      Vector x(num_f_cols);
+    for (int i = 0; i < num_sc_cols; ++i) {
+      Vector x(num_sc_cols);
       x.setZero();
       x(i) = 1.0;
 
-      Vector y(num_f_cols);
+      Vector y(num_sc_cols);
       y = lhs * x;
 
-      Vector z(num_f_cols);
-      isc.RightMultiplyAndAccumulate(x.data(), z.data());
+      Vector z(num_sc_cols);
+      isc.RightMultiply(x.data(), z.data());
 
       // The i^th column of the implicit schur complement is the same as
       // the explicit schur complement.
@@ -169,22 +156,6 @@ class ImplicitSchurComplementTest : public ::testing::Test {
         return testing::AssertionFailure()
                << "Explicit and Implicit SchurComplements differ in "
                << "column " << i << ". explicit: " << y.transpose()
-               << " implicit: " << z.transpose();
-      }
-
-      y.setZero();
-      y = Z_reference * x;
-      z.setZero();
-      isc.InversePowerSeriesOperatorRightMultiplyAccumulate(x.data(), z.data());
-
-      // The i^th column of operator Z stored implicitly is the same as its
-      // explicit version.
-      if ((y - z).norm() > kEpsilon) {
-        return testing::AssertionFailure()
-               << "Explicit and Implicit operators used to approximate the "
-                  "inversion of schur complement via power series expansion "
-                  "differ in column "
-               << i << ". explicit: " << y.transpose()
                << " implicit: " << z.transpose();
       }
     }
@@ -215,7 +186,6 @@ class ImplicitSchurComplementTest : public ::testing::Test {
     return testing::AssertionSuccess();
   }
 
-  ContextImpl context_;
   int num_rows_;
   int num_cols_;
   int num_eliminate_blocks_;
@@ -232,8 +202,9 @@ class ImplicitSchurComplementTest : public ::testing::Test {
 // We do this with and without regularization to check that the
 // support for the LM diagonal is correct.
 TEST_F(ImplicitSchurComplementTest, SchurMatrixValuesTest) {
-  EXPECT_TRUE(TestImplicitSchurComplement(nullptr));
+  EXPECT_TRUE(TestImplicitSchurComplement(NULL));
   EXPECT_TRUE(TestImplicitSchurComplement(D_.get()));
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,16 +30,15 @@
 
 #include "ceres/line_search_preprocessor.h"
 
-#include <limits>
+#include <map>
 
-#include "ceres/preprocessor.h"
 #include "ceres/problem_impl.h"
 #include "ceres/sized_cost_function.h"
 #include "ceres/solver.h"
-#include "ceres/types.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 TEST(LineSearchPreprocessor, ZeroProblem) {
   ProblemImpl problem;
@@ -78,7 +77,7 @@ class FailingCostFunction : public SizedCostFunction<1, 1> {
  public:
   bool Evaluate(double const* const* parameters,
                 double* residuals,
-                double** jacobians) const override {
+                double** jacobians) const {
     return false;
   }
 };
@@ -86,7 +85,7 @@ class FailingCostFunction : public SizedCostFunction<1, 1> {
 TEST(LineSearchPreprocessor, RemoveParameterBlocksFailed) {
   ProblemImpl problem;
   double x = 3.0;
-  problem.AddResidualBlock(new FailingCostFunction, nullptr, &x);
+  problem.AddResidualBlock(new FailingCostFunction, NULL, &x);
   problem.SetParameterBlockConstant(&x);
   Solver::Options options;
   options.minimizer_type = LINE_SEARCH;
@@ -112,7 +111,7 @@ class DummyCostFunction : public SizedCostFunction<kNumResiduals, Ns...> {
  public:
   bool Evaluate(double const* const* parameters,
                 double* residuals,
-                double** jacobians) const override {
+                double** jacobians) const {
     return true;
   }
 };
@@ -122,8 +121,8 @@ TEST(LineSearchPreprocessor, NormalOperation) {
   double x = 1.0;
   double y = 1.0;
   double z = 1.0;
-  problem.AddResidualBlock(new DummyCostFunction<1, 1, 1>, nullptr, &x, &y);
-  problem.AddResidualBlock(new DummyCostFunction<1, 1, 1>, nullptr, &y, &z);
+  problem.AddResidualBlock(new DummyCostFunction<1, 1, 1>, NULL, &x, &y);
+  problem.AddResidualBlock(new DummyCostFunction<1, 1, 1>, NULL, &y, &z);
 
   Solver::Options options;
   options.minimizer_type = LINE_SEARCH;
@@ -132,7 +131,8 @@ TEST(LineSearchPreprocessor, NormalOperation) {
   PreprocessedProblem pp;
   EXPECT_TRUE(preprocessor.Preprocess(options, &problem, &pp));
   EXPECT_EQ(pp.evaluator_options.linear_solver_type, CGNR);
-  EXPECT_TRUE(pp.evaluator.get() != nullptr);
+  EXPECT_TRUE(pp.evaluator.get() != NULL);
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

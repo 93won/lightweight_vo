@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,14 +33,16 @@
 #ifndef CERES_PUBLIC_INTERNAL_VARIADIC_EVALUATE_H_
 #define CERES_PUBLIC_INTERNAL_VARIADIC_EVALUATE_H_
 
-#include <cstddef>
+#include <stddef.h>
+
 #include <type_traits>
 #include <utility>
 
 #include "ceres/cost_function.h"
 #include "ceres/internal/parameter_dims.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // For fixed size cost functors
 template <typename Functor, typename T, int... Indices>
@@ -49,7 +51,7 @@ inline bool VariadicEvaluateImpl(const Functor& functor,
                                  T* output,
                                  std::false_type /*is_dynamic*/,
                                  std::integer_sequence<int, Indices...>) {
-  static_assert(sizeof...(Indices) > 0,
+  static_assert(sizeof...(Indices),
                 "Invalid number of parameter blocks. At least one parameter "
                 "block must be specified.");
   return functor(input[Indices]..., output);
@@ -106,29 +108,7 @@ inline bool VariadicEvaluate(const Functor& functor,
   return VariadicEvaluateImpl<ParameterDims>(functor, input, output, &functor);
 }
 
-// When differentiating dynamically sized CostFunctions, VariadicEvaluate
-// expects a functor with the signature:
-//
-// bool operator()(double const* const* parameters, double* cost) const
-//
-// However for NumericDiffFirstOrderFunction, the functor has the signature
-//
-// bool operator()(double const* parameters, double* cost) const
-//
-// This thin wrapper adapts the latter to the former.
-template <typename Functor>
-class FirstOrderFunctorAdapter {
- public:
-  explicit FirstOrderFunctorAdapter(const Functor& functor)
-      : functor_(functor) {}
-  bool operator()(double const* const* parameters, double* cost) const {
-    return functor_(*parameters, cost);
-  }
-
- private:
-  const Functor& functor_;
-};
-
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_PUBLIC_INTERNAL_VARIADIC_EVALUATE_H_

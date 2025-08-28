@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,13 +36,13 @@
 
 // This include must come before any #ifndef check on Ceres compile options.
 // clang-format off
-#include "ceres/internal/config.h"
+#include "ceres/internal/port.h"
 // clang-format on
 
-#include "ceres/internal/export.h"
 #include "ceres/linear_solver.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class CompressedRowSparseMatrix;
 
@@ -53,10 +53,12 @@ class CompressedRowSparseMatrix;
 //
 // TODO(alex): Add support for Accelerate sparse solvers:
 // https://github.com/ceres-solver/ceres-solver/issues/397
-class CERES_NO_EXPORT DynamicSparseNormalCholeskySolver
+class DynamicSparseNormalCholeskySolver
     : public CompressedRowSparseMatrixSolver {
  public:
-  explicit DynamicSparseNormalCholeskySolver(LinearSolver::Options options);
+  explicit DynamicSparseNormalCholeskySolver(
+      const LinearSolver::Options& options);
+  virtual ~DynamicSparseNormalCholeskySolver() {}
 
  private:
   LinearSolver::Summary SolveImpl(CompressedRowSparseMatrix* A,
@@ -67,15 +69,16 @@ class CERES_NO_EXPORT DynamicSparseNormalCholeskySolver
   LinearSolver::Summary SolveImplUsingSuiteSparse(CompressedRowSparseMatrix* A,
                                                   double* rhs_and_solution);
 
+  LinearSolver::Summary SolveImplUsingCXSparse(CompressedRowSparseMatrix* A,
+                                               double* rhs_and_solution);
+
   LinearSolver::Summary SolveImplUsingEigen(CompressedRowSparseMatrix* A,
                                             double* rhs_and_solution);
-
-  LinearSolver::Summary SolveImplUsingCuda(CompressedRowSparseMatrix* A,
-                                           double* rhs_and_solution);
 
   const LinearSolver::Options options_;
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_DYNAMIC_SPARSE_NORMAL_CHOLESKY_SOLVER_H_

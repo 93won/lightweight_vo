@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,23 +32,21 @@
 #define CERES_INTERNAL_TRIPLET_SPARSE_MATRIX_H_
 
 #include <memory>
-#include <random>
 #include <vector>
 
-#include "ceres/crs_matrix.h"
-#include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/sparse_matrix.h"
 #include "ceres/types.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // An implementation of the SparseMatrix interface to store and
 // manipulate sparse matrices in triplet (i,j,s) form.  This object is
 // inspired by the design of the cholmod_triplet struct used in the
 // SuiteSparse package and is memory layout compatible with it.
-class CERES_NO_EXPORT TripletSparseMatrix final : public SparseMatrix {
+class CERES_EXPORT_INTERNAL TripletSparseMatrix : public SparseMatrix {
  public:
   TripletSparseMatrix();
   TripletSparseMatrix(int num_rows, int num_cols, int max_num_nonzeros);
@@ -58,19 +56,18 @@ class CERES_NO_EXPORT TripletSparseMatrix final : public SparseMatrix {
                       const std::vector<int>& cols,
                       const std::vector<double>& values);
 
-  TripletSparseMatrix(const TripletSparseMatrix& orig);
+  explicit TripletSparseMatrix(const TripletSparseMatrix& orig);
 
   TripletSparseMatrix& operator=(const TripletSparseMatrix& rhs);
 
-  ~TripletSparseMatrix() override;
+  virtual ~TripletSparseMatrix();
 
   // Implementation of the SparseMatrix interface.
   void SetZero() final;
-  void RightMultiplyAndAccumulate(const double* x, double* y) const final;
-  void LeftMultiplyAndAccumulate(const double* x, double* y) const final;
+  void RightMultiply(const double* x, double* y) const final;
+  void LeftMultiply(const double* x, double* y) const final;
   void SquaredColumnNorm(double* x) const final;
   void ScaleColumns(const double* scale) final;
-  void ToCRSMatrix(CRSMatrix* matrix) const;
   void ToDenseMatrix(Matrix* dense_matrix) const final;
   void ToTextFile(FILE* file) const final;
   // clang-format off
@@ -118,8 +115,8 @@ class CERES_NO_EXPORT TripletSparseMatrix final : public SparseMatrix {
   // Build a sparse diagonal matrix of size num_rows x num_rows from
   // the array values. Entries of the values array are copied into the
   // sparse matrix.
-  static std::unique_ptr<TripletSparseMatrix> CreateSparseDiagonalMatrix(
-      const double* values, int num_rows);
+  static TripletSparseMatrix* CreateSparseDiagonalMatrix(const double* values,
+                                                         int num_rows);
 
   // Options struct to control the generation of random
   // TripletSparseMatrix objects.
@@ -135,12 +132,10 @@ class CERES_NO_EXPORT TripletSparseMatrix final : public SparseMatrix {
   // Create a random CompressedRowSparseMatrix whose entries are
   // normally distributed and whose structure is determined by
   // RandomMatrixOptions.
-  static std::unique_ptr<TripletSparseMatrix> CreateRandomMatrix(
-      const TripletSparseMatrix::RandomMatrixOptions& options,
-      std::mt19937& prng);
-
-  // Load a triplet sparse matrix from a text file.
-  static std::unique_ptr<TripletSparseMatrix> CreateFromTextFile(FILE* file);
+  //
+  // Caller owns the result.
+  static TripletSparseMatrix* CreateRandomMatrix(
+      const TripletSparseMatrix::RandomMatrixOptions& options);
 
  private:
   void AllocateMemory();
@@ -160,8 +155,7 @@ class CERES_NO_EXPORT TripletSparseMatrix final : public SparseMatrix {
   std::unique_ptr<double[]> values_;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_TRIPLET_SPARSE_MATRIX_H__

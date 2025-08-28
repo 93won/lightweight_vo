@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,76 +30,76 @@
 
 #include "ceres/parameter_block.h"
 
-#include "absl/log/log.h"
 #include "ceres/internal/eigen.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
 namespace internal {
 
-TEST(ParameterBlock, SetManifoldDiesOnSizeMismatch) {
+TEST(ParameterBlock, SetParameterizationDiesOnSizeMismatch) {
   double x[3] = {1.0, 2.0, 3.0};
   ParameterBlock parameter_block(x, 3, -1);
   std::vector<int> indices;
   indices.push_back(1);
-  SubsetManifold subset_wrong_size(4, indices);
-  EXPECT_DEATH_IF_SUPPORTED(parameter_block.SetManifold(&subset_wrong_size),
-                            "ambient");
+  SubsetParameterization subset_wrong_size(4, indices);
+  EXPECT_DEATH_IF_SUPPORTED(
+      parameter_block.SetParameterization(&subset_wrong_size), "global");
 }
 
-TEST(ParameterBlock, SetManifoldWithSameExistingManifold) {
+TEST(ParameterBlock, SetParameterizationWithSameExistingParameterization) {
   double x[3] = {1.0, 2.0, 3.0};
   ParameterBlock parameter_block(x, 3, -1);
   std::vector<int> indices;
   indices.push_back(1);
-  SubsetManifold subset(3, indices);
-  parameter_block.SetManifold(&subset);
-  parameter_block.SetManifold(&subset);
+  SubsetParameterization subset(3, indices);
+  parameter_block.SetParameterization(&subset);
+  parameter_block.SetParameterization(&subset);
 }
 
-TEST(ParameterBlock, SetManifoldAllowsResettingToNull) {
+TEST(ParameterBlock, SetParameterizationAllowsResettingToNull) {
   double x[3] = {1.0, 2.0, 3.0};
   ParameterBlock parameter_block(x, 3, -1);
   std::vector<int> indices;
   indices.push_back(1);
-  SubsetManifold subset(3, indices);
-  parameter_block.SetManifold(&subset);
-  EXPECT_EQ(parameter_block.manifold(), &subset);
-  parameter_block.SetManifold(nullptr);
-  EXPECT_EQ(parameter_block.manifold(), nullptr);
-  EXPECT_EQ(parameter_block.PlusJacobian(), nullptr);
+  SubsetParameterization subset(3, indices);
+  parameter_block.SetParameterization(&subset);
+  EXPECT_EQ(parameter_block.local_parameterization(), &subset);
+  parameter_block.SetParameterization(nullptr);
+  EXPECT_EQ(parameter_block.local_parameterization(), nullptr);
 }
 
-TEST(ParameterBlock, SetManifoldAllowsResettingToDifferentManifold) {
+TEST(ParameterBlock,
+     SetParameterizationAllowsResettingToDifferentParameterization) {
   double x[3] = {1.0, 2.0, 3.0};
   ParameterBlock parameter_block(x, 3, -1);
   std::vector<int> indices;
   indices.push_back(1);
-  SubsetManifold subset(3, indices);
-  parameter_block.SetManifold(&subset);
-  EXPECT_EQ(parameter_block.manifold(), &subset);
+  SubsetParameterization subset(3, indices);
+  parameter_block.SetParameterization(&subset);
+  EXPECT_EQ(parameter_block.local_parameterization(), &subset);
 
-  SubsetManifold subset_different(3, indices);
-  parameter_block.SetManifold(&subset_different);
-  EXPECT_EQ(parameter_block.manifold(), &subset_different);
+  SubsetParameterization subset_different(3, indices);
+  parameter_block.SetParameterization(&subset_different);
+  EXPECT_EQ(parameter_block.local_parameterization(), &subset_different);
 }
 
-TEST(ParameterBlock, SetManifoldAndNormalOperation) {
+TEST(ParameterBlock, SetParameterizationAndNormalOperation) {
   double x[3] = {1.0, 2.0, 3.0};
   ParameterBlock parameter_block(x, 3, -1);
   std::vector<int> indices;
   indices.push_back(1);
-  SubsetManifold subset(3, indices);
-  parameter_block.SetManifold(&subset);
+  SubsetParameterization subset(3, indices);
+  parameter_block.SetParameterization(&subset);
 
-  // Ensure the manifold plus jacobian result is correctly computed.
-  ConstMatrixRef manifold_jacobian(parameter_block.PlusJacobian(), 3, 2);
-  ASSERT_EQ(1.0, manifold_jacobian(0, 0));
-  ASSERT_EQ(0.0, manifold_jacobian(0, 1));
-  ASSERT_EQ(0.0, manifold_jacobian(1, 0));
-  ASSERT_EQ(0.0, manifold_jacobian(1, 1));
-  ASSERT_EQ(0.0, manifold_jacobian(2, 0));
-  ASSERT_EQ(1.0, manifold_jacobian(2, 1));
+  // Ensure the local parameterization jacobian result is correctly computed.
+  ConstMatrixRef local_parameterization_jacobian(
+      parameter_block.LocalParameterizationJacobian(), 3, 2);
+  ASSERT_EQ(1.0, local_parameterization_jacobian(0, 0));
+  ASSERT_EQ(0.0, local_parameterization_jacobian(0, 1));
+  ASSERT_EQ(0.0, local_parameterization_jacobian(1, 0));
+  ASSERT_EQ(0.0, local_parameterization_jacobian(1, 1));
+  ASSERT_EQ(0.0, local_parameterization_jacobian(2, 0));
+  ASSERT_EQ(1.0, local_parameterization_jacobian(2, 1));
 
   // Check that updating works as expected.
   double x_plus_delta[3];
@@ -110,47 +110,37 @@ TEST(ParameterBlock, SetManifoldAndNormalOperation) {
   ASSERT_EQ(3.3, x_plus_delta[2]);
 }
 
-struct TestManifold : public Manifold {
+struct TestParameterization : public LocalParameterization {
  public:
+  virtual ~TestParameterization() {}
   bool Plus(const double* x,
             const double* delta,
             double* x_plus_delta) const final {
     LOG(FATAL) << "Shouldn't get called.";
     return true;
   }
-
-  bool PlusJacobian(const double* x, double* jacobian) const final {
+  bool ComputeJacobian(const double* x, double* jacobian) const final {
     jacobian[0] = *x * 2;
     return true;
   }
 
-  bool Minus(const double* y, const double* x, double* y_minus_x) const final {
-    LOG(FATAL) << "Shouldn't get called";
-    return true;
-  }
-
-  bool MinusJacobian(const double* x, double* jacobian) const final {
-    jacobian[0] = *x * 2;
-    return true;
-  }
-
-  int AmbientSize() const final { return 1; }
-  int TangentSize() const final { return 1; }
+  int GlobalSize() const final { return 1; }
+  int LocalSize() const final { return 1; }
 };
 
-TEST(ParameterBlock, SetStateUpdatesPlusJacobian) {
-  TestManifold test_manifold;
+TEST(ParameterBlock, SetStateUpdatesLocalParameterizationJacobian) {
+  TestParameterization test_parameterization;
   double x[1] = {1.0};
-  ParameterBlock parameter_block(x, 1, -1, &test_manifold);
+  ParameterBlock parameter_block(x, 1, -1, &test_parameterization);
 
-  EXPECT_EQ(2.0, *parameter_block.PlusJacobian());
+  EXPECT_EQ(2.0, *parameter_block.LocalParameterizationJacobian());
 
   x[0] = 5.5;
   parameter_block.SetState(x);
-  EXPECT_EQ(11.0, *parameter_block.PlusJacobian());
+  EXPECT_EQ(11.0, *parameter_block.LocalParameterizationJacobian());
 }
 
-TEST(ParameterBlock, PlusWithNoManifold) {
+TEST(ParameterBlock, PlusWithNoLocalParameterization) {
   double x[2] = {1.0, 2.0};
   ParameterBlock parameter_block(x, 2, -1);
 
@@ -161,11 +151,12 @@ TEST(ParameterBlock, PlusWithNoManifold) {
   EXPECT_EQ(2.3, x_plus_delta[1]);
 }
 
-// Stops computing the plus_jacobian after the first time.
-class BadManifold : public Manifold {
+// Stops computing the jacobian after the first time.
+class BadLocalParameterization : public LocalParameterization {
  public:
-  BadManifold() = default;
+  BadLocalParameterization() : calls_(0) {}
 
+  virtual ~BadLocalParameterization() {}
   bool Plus(const double* x,
             const double* delta,
             double* x_plus_delta) const final {
@@ -173,7 +164,7 @@ class BadManifold : public Manifold {
     return true;
   }
 
-  bool PlusJacobian(const double* x, double* jacobian) const final {
+  bool ComputeJacobian(const double* x, double* jacobian) const final {
     if (calls_ == 0) {
       jacobian[0] = 0;
     }
@@ -181,27 +172,17 @@ class BadManifold : public Manifold {
     return true;
   }
 
-  bool Minus(const double* y, const double* x, double* y_minus_x) const final {
-    LOG(FATAL) << "Shouldn't get called";
-    return true;
-  }
-
-  bool MinusJacobian(const double* x, double* jacobian) const final {
-    jacobian[0] = *x * 2;
-    return true;
-  }
-
-  int AmbientSize() const final { return 1; }
-  int TangentSize() const final { return 1; }
+  int GlobalSize() const final { return 1; }
+  int LocalSize() const final { return 1; }
 
  private:
-  mutable int calls_{0};
+  mutable int calls_;
 };
 
-TEST(ParameterBlock, DetectBadManifold) {
+TEST(ParameterBlock, DetectBadLocalParameterization) {
   double x = 1;
-  BadManifold bad_manifold;
-  ParameterBlock parameter_block(&x, 1, -1, &bad_manifold);
+  BadLocalParameterization bad_parameterization;
+  ParameterBlock parameter_block(&x, 1, -1, &bad_parameterization);
   double y = 2;
   EXPECT_FALSE(parameter_block.SetState(&y));
 }
@@ -246,39 +227,39 @@ TEST(ParameterBlock, PlusWithBoundsConstraints) {
   EXPECT_EQ(x_plus_delta[1], -1.0);
 }
 
-TEST(ParameterBlock, ResetManifoldToNull) {
+TEST(ParameterBlock, ResetLocalParameterizationToNull) {
   double x[3] = {1.0, 2.0, 3.0};
   ParameterBlock parameter_block(x, 3, -1);
   std::vector<int> indices;
   indices.push_back(1);
-  SubsetManifold subset(3, indices);
-  parameter_block.SetManifold(&subset);
-  EXPECT_EQ(parameter_block.manifold(), &subset);
-  parameter_block.SetManifold(nullptr);
-  EXPECT_EQ(parameter_block.manifold(), nullptr);
+  SubsetParameterization subset(3, indices);
+  parameter_block.SetParameterization(&subset);
+  EXPECT_EQ(parameter_block.local_parameterization(), &subset);
+  parameter_block.SetParameterization(nullptr);
+  EXPECT_EQ(parameter_block.local_parameterization(), nullptr);
 }
 
-TEST(ParameterBlock, ResetManifoldToNotNull) {
+TEST(ParameterBlock, ResetLocalParameterizationToNotNull) {
   double x[3] = {1.0, 2.0, 3.0};
   ParameterBlock parameter_block(x, 3, -1);
   std::vector<int> indices;
   indices.push_back(1);
-  SubsetManifold subset(3, indices);
-  parameter_block.SetManifold(&subset);
-  EXPECT_EQ(parameter_block.manifold(), &subset);
+  SubsetParameterization subset(3, indices);
+  parameter_block.SetParameterization(&subset);
+  EXPECT_EQ(parameter_block.local_parameterization(), &subset);
 
-  SubsetManifold subset_different(3, indices);
-  parameter_block.SetManifold(&subset_different);
-  EXPECT_EQ(parameter_block.manifold(), &subset_different);
+  SubsetParameterization subset_different(3, indices);
+  parameter_block.SetParameterization(&subset_different);
+  EXPECT_EQ(parameter_block.local_parameterization(), &subset_different);
 }
 
-TEST(ParameterBlock, SetNullManifold) {
+TEST(ParameterBlock, SetNullLocalParameterization) {
   double x[3] = {1.0, 2.0, 3.0};
   ParameterBlock parameter_block(x, 3, -1);
-  EXPECT_EQ(parameter_block.manifold(), nullptr);
+  EXPECT_EQ(parameter_block.local_parameterization(), nullptr);
 
-  parameter_block.SetManifold(nullptr);
-  EXPECT_EQ(parameter_block.manifold(), nullptr);
+  parameter_block.SetParameterization(nullptr);
+  EXPECT_EQ(parameter_block.local_parameterization(), nullptr);
 }
 
 }  // namespace internal

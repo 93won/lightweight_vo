@@ -1,6 +1,6 @@
 
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -39,13 +39,13 @@
 
 namespace ceres {
 
-using Vec2 = Eigen::Matrix<double, 2, 1>;
-using Vec3 = Eigen::Matrix<double, 3, 1>;
-using VecX = Eigen::VectorXd;
+typedef Eigen::Matrix<double, 2, 1> Vec2;
+typedef Eigen::Matrix<double, 3, 1> Vec3;
+typedef Eigen::VectorXd VecX;
 
 class ExampleStatic {
  public:
-  using Scalar = double;
+  typedef double Scalar;
   enum {
     // Can also be Eigen::Dynamic.
     NUM_RESIDUALS = 2,
@@ -60,7 +60,7 @@ class ExampleStatic {
 
 class ExampleParametersDynamic {
  public:
-  using Scalar = double;
+  typedef double Scalar;
   enum {
     NUM_RESIDUALS = 2,
     NUM_PARAMETERS = Eigen::Dynamic,
@@ -77,7 +77,7 @@ class ExampleParametersDynamic {
 
 class ExampleResidualsDynamic {
  public:
-  using Scalar = double;
+  typedef double Scalar;
   enum {
     NUM_RESIDUALS = Eigen::Dynamic,
     NUM_PARAMETERS = 3,
@@ -94,7 +94,7 @@ class ExampleResidualsDynamic {
 
 class ExampleAllDynamic {
  public:
-  using Scalar = double;
+  typedef double Scalar;
   enum {
     NUM_RESIDUALS = Eigen::Dynamic,
     NUM_PARAMETERS = Eigen::Dynamic,
@@ -115,20 +115,12 @@ template <typename Function, typename Vector>
 void TestHelper(const Function& f, const Vector& x0) {
   Vector x = x0;
   Vec2 residuals;
-  f(x.data(), residuals.data(), nullptr);
+  f(x.data(), residuals.data(), NULL);
   EXPECT_GT(residuals.squaredNorm() / 2.0, 1e-10);
 
   TinySolver<Function> solver;
   solver.Solve(f, &x);
   EXPECT_NEAR(0.0, solver.summary.final_cost, 1e-10);
-
-  // Getter methods for residuals and jacobian should match the corresponding
-  // values evaluated at the converged parameter value.
-  Vec2 expected_residuals;
-  Eigen::Matrix<double, 2, 3> expected_jacobian;
-  f(x.data(), expected_residuals.data(), expected_jacobian.data());
-  EXPECT_TRUE(expected_residuals.isApprox(solver.Residuals()));
-  EXPECT_TRUE(expected_jacobian.isApprox(solver.Jacobian()));
 }
 
 // A test case for when the cost function is statically sized.

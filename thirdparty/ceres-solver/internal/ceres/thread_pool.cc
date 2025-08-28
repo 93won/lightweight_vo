@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2018 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,14 +28,18 @@
 //
 // Author: vitus@google.com (Michael Vitus)
 
-#include "ceres/thread_pool.h"
+// This include must come before any #ifndef check on Ceres compile options.
+#include "ceres/internal/port.h"
+
+#ifdef CERES_USE_CXX_THREADS
 
 #include <cmath>
 #include <limits>
 
-#include "ceres/internal/config.h"
+#include "ceres/thread_pool.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 namespace {
 
 // Constrain the total number of threads to the amount the hardware can support.
@@ -53,7 +57,7 @@ int ThreadPool::MaxNumThreadsAvailable() {
                                    : num_hardware_threads;
 }
 
-ThreadPool::ThreadPool() = default;
+ThreadPool::ThreadPool() {}
 
 ThreadPool::ThreadPool(int num_threads) { Resize(num_threads); }
 
@@ -79,7 +83,7 @@ void ThreadPool::Resize(int num_threads) {
       GetNumAllowedThreads(num_threads) - num_current_threads;
 
   for (int i = 0; i < create_num_threads; ++i) {
-    thread_pool_.emplace_back(&ThreadPool::ThreadMainLoop, this);
+    thread_pool_.push_back(std::thread(&ThreadPool::ThreadMainLoop, this));
   }
 }
 
@@ -101,4 +105,7 @@ void ThreadPool::ThreadMainLoop() {
 
 void ThreadPool::Stop() { task_queue_.StopWaiters(); }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
+
+#endif  // CERES_USE_CXX_THREADS

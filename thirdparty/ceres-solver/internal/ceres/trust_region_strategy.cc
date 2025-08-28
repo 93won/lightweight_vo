@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,23 +32,20 @@
 
 #include "ceres/trust_region_strategy.h"
 
-#include <memory>
-
-#include "absl/log/log.h"
 #include "ceres/dogleg_strategy.h"
 #include "ceres/levenberg_marquardt_strategy.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-TrustRegionStrategy::~TrustRegionStrategy() = default;
+TrustRegionStrategy::~TrustRegionStrategy() {}
 
-std::unique_ptr<TrustRegionStrategy> TrustRegionStrategy::Create(
-    const Options& options) {
+TrustRegionStrategy* TrustRegionStrategy::Create(const Options& options) {
   switch (options.trust_region_strategy_type) {
     case LEVENBERG_MARQUARDT:
-      return std::make_unique<LevenbergMarquardtStrategy>(options);
+      return new LevenbergMarquardtStrategy(options);
     case DOGLEG:
-      return std::make_unique<DoglegStrategy>(options);
+      return new DoglegStrategy(options);
     default:
       LOG(FATAL) << "Unknown trust region strategy: "
                  << options.trust_region_strategy_type;
@@ -56,7 +53,8 @@ std::unique_ptr<TrustRegionStrategy> TrustRegionStrategy::Create(
 
   LOG(FATAL) << "Unknown trust region strategy: "
              << options.trust_region_strategy_type;
-  return nullptr;
+  return NULL;
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

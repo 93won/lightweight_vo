@@ -187,11 +187,14 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
     // Perform optical flow tracking
     auto flow_start = std::chrono::high_resolution_clock::now();
     int window_size = Config::getInstance().getWindowSize();
+    
+    // Use OpenCV implementation (most stable and optimized)
     cv::calcOpticalFlowPyrLK(previous_frame->get_image(), current_frame->get_image(),
                             prev_pts, cur_pts, status, err,
                             cv::Size(window_size, window_size), 
                             Config::getInstance().getMaxLevel(), 
                             Config::getInstance().getTermCriteria());
+    
     auto flow_end = std::chrono::high_resolution_clock::now();
     auto flow_time = std::chrono::duration_cast<std::chrono::microseconds>(flow_end - flow_start).count() / 1000.0;
 
@@ -337,60 +340,60 @@ void FeatureTracker::reject_outliers_with_essential_matrix(std::shared_ptr<Frame
     //     }
     // }
 
-    // // Step 2: Essential matrix RANSAC (more robust for VIO)
-    // std::vector<uchar> status;
-    // if (prev_pts.size() >= 5) {  // Essential matrix needs only 5 points minimum
-    //     // Get camera intrinsic matrix from current frame
-    //     double fx, fy, cx, cy;
-    //     current_frame->get_camera_intrinsics(fx, fy, cx, cy);
-    //     cv::Mat camera_matrix = (cv::Mat_<double>(3, 3) << fx, 0, cx, 0, fy, cy, 0, 0, 1);
+    // Step 2: Essential matrix RANSAC (more robust for VIO)
+    std::vector<uchar> status;
+    if (prev_pts.size() >= 5) {  // Essential matrix needs only 5 points minimum
+        // Get camera intrinsic matrix from current frame
+        double fx, fy, cx, cy;
+        current_frame->get_camera_intrinsics(fx, fy, cx, cy);
+        cv::Mat camera_matrix = (cv::Mat_<double>(3, 3) << fx, 0, cx, 0, fy, cy, 0, 0, 1);
         
-    //     cv::Mat E = cv::findEssentialMat(prev_pts, cur_pts, camera_matrix, 
-    //                                     cv::RANSAC, 0.95, 3.0, status);  // Use larger threshold for RANSAC
+        cv::Mat E = cv::findEssentialMat(prev_pts, cur_pts, camera_matrix, 
+                                        cv::RANSAC, 0.95, 3.0, status);  // Use larger threshold for RANSAC
         
-    //     // Check if Essential Matrix was successfully computed
-    //     if (!E.empty() && E.rows == 3 && E.cols == 3) {
-    //         // Calculate epipolar constraint errors manually
-    //         std::vector<float> errors;
+        // Check if Essential Matrix was successfully computed
+        if (!E.empty() && E.rows == 3 && E.cols == 3) {
+            // Calculate epipolar constraint errors manually
+            std::vector<float> errors;
             
-    //         // Calculate epipolar constraint errors manually
-    //         for (size_t i = 0; i < prev_pts.size(); ++i) {
-    //             // Convert to normalized coordinates
-    //             cv::Point2f p1_norm = cv::Point2f((prev_pts[i].x - cx) / fx, (prev_pts[i].y - cy) / fy);
-    //             cv::Point2f p2_norm = cv::Point2f((cur_pts[i].x - cx) / fx, (cur_pts[i].y - cy) / fy);
+            // Calculate epipolar constraint errors manually
+            for (size_t i = 0; i < prev_pts.size(); ++i) {
+                // Convert to normalized coordinates
+                cv::Point2f p1_norm = cv::Point2f((prev_pts[i].x - cx) / fx, (prev_pts[i].y - cy) / fy);
+                cv::Point2f p2_norm = cv::Point2f((cur_pts[i].x - cx) / fx, (cur_pts[i].y - cy) / fy);
                 
-    //             // Calculate epipolar error: x2^T * E * x1
-    //             cv::Mat x1 = (cv::Mat_<double>(3, 1) << p1_norm.x, p1_norm.y, 1.0);
-    //             cv::Mat x2 = (cv::Mat_<double>(3, 1) << p2_norm.x, p2_norm.y, 1.0);
-    //             cv::Mat error_mat = x2.t() * E * x1;
-    //             float epipolar_error = std::abs(error_mat.at<double>(0, 0));
-    //             errors.push_back(epipolar_error);
-    //         }
+                // Calculate epipolar error: x2^T * E * x1
+                cv::Mat x1 = (cv::Mat_<double>(3, 1) << p1_norm.x, p1_norm.y, 1.0);
+                cv::Mat x2 = (cv::Mat_<double>(3, 1) << p2_norm.x, p2_norm.y, 1.0);
+                cv::Mat error_mat = x2.t() * E * x1;
+                float epipolar_error = std::abs(error_mat.at<double>(0, 0));
+                errors.push_back(epipolar_error);
+            }
             
-    //         // Use error threshold instead of status (더 정밀한 제어)
-    //         float error_threshold = 0.003f;  // Epipolar error threshold in normalized coordinates
-    //         for (size_t i = 0; i < errors.size(); ++i) {
-    //             if (errors[i] > error_threshold) {
-    //                 ransac_outliers.push_back(feature_ids[i]);
-    //                 // Check if not already marked as outlier
-    //                 if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
-    //                     outlier_features.push_back(feature_ids[i]);
-    //                 }
-    //             }
-    //         }
-    //     } else {
-    //         // Essential matrix computation failed, fall back to status-based rejection
-    //         std::cout << "[ESSENTIAL] Failed to compute Essential Matrix, using status fallback" << std::endl;
-    //         for (size_t i = 0; i < status.size(); ++i) {
-    //             if (!status[i]) {
-    //                 ransac_outliers.push_back(feature_ids[i]);
-    //                 if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
-    //                     outlier_features.push_back(feature_ids[i]);
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
+            // Use error threshold instead of status (더 정밀한 제어)
+            float error_threshold = 0.1f;  // Epipolar error threshold in normalized coordinates
+            for (size_t i = 0; i < errors.size(); ++i) {
+                if (errors[i] > error_threshold) {
+                    ransac_outliers.push_back(feature_ids[i]);
+                    // Check if not already marked as outlier
+                    if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
+                        outlier_features.push_back(feature_ids[i]);
+                    }
+                }
+            }
+        } else {
+            // Essential matrix computation failed, fall back to status-based rejection
+            std::cout << "[ESSENTIAL] Failed to compute Essential Matrix, using status fallback" << std::endl;
+            for (size_t i = 0; i < status.size(); ++i) {
+                if (!status[i]) {
+                    ransac_outliers.push_back(feature_ids[i]);
+                    if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
+                        outlier_features.push_back(feature_ids[i]);
+                    }
+                }
+            }
+        }
+    }
 
     // Step 3: Velocity consistency check (sudden direction changes)
     for (size_t i = 0; i < features_to_check.size(); ++i) {
@@ -683,4 +686,5 @@ int FeatureTracker::batch_stereo_matching_and_map_point_creation(const std::shar
     return new_map_points_created;
 }
 
+//...existing code...
 } // namespace lightweight_vio

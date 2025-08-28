@@ -1,5 +1,5 @@
 # Ceres Solver - A fast non-linear least squares minimizer
-# Copyright 2023 Google Inc. All rights reserved.
+# Copyright 2018 Google Inc. All rights reserved.
 # http://ceres-solver.org/
 #
 # Redistribution and use in source and binary forms, with or without
@@ -30,6 +30,7 @@
 #
 # These are Bazel rules to build Ceres. It's currently in Alpha state, and does
 # not support parameterization around threading choice or sparse backends.
+
 load("//:bazel/ceres.bzl", "ceres_library")
 
 ceres_library(
@@ -43,10 +44,20 @@ cc_library(
         "evaluator_test_utils.cc",
         "numeric_diff_test_utils.cc",
         "test_util.cc",
+        "gmock_gtest_all.cc",
+        "gmock_main.cc",
+        "gmock/gmock.h",
+        "gmock/mock-log.h",
+        "gtest/gtest.h",
     ]],
+    hdrs = [
+        "internal/ceres/gmock/gmock.h",
+        "internal/ceres/gmock/mock-log.h",
+        "internal/ceres/gtest/gtest.h",
+    ],
     copts = [
         "-Wno-sign-compare",
-        "-DCERES_TEST_SRCDIR_SUFFIX=\\\"_main/data/\\\"",
+        "-DCERES_TEST_SRCDIR_SUFFIX=\\\"data/\\\"",
     ],
     includes = [
         "internal",
@@ -54,14 +65,14 @@ cc_library(
     ],
     deps = [
         "//:ceres",
-        "@googletest//:gtest_main",
+        "@com_github_gflags_gflags//:gflags",
     ],
 )
 
 CERES_TESTS = [
     "array_utils",
     "autodiff_cost_function",
-    "autodiff_manifold",
+    "autodiff_local_parameterization",
     "autodiff",
     "block_jacobi_preconditioner",
     "block_random_access_dense_matrix",
@@ -79,7 +90,6 @@ CERES_TESTS = [
     "cost_function_to_functor",
     "covariance",
     "cubic_interpolation",
-    "dense_cholesky",
     "dense_linear_solver",
     "dense_sparse_matrix",
     "detect_structure",
@@ -108,6 +118,7 @@ CERES_TESTS = [
     "levenberg_marquardt_strategy",
     "line_search_minimizer",
     "line_search_preprocessor",
+    "local_parameterization",
     "loss_function",
     "minimizer",
     "normal_prior",
@@ -145,10 +156,22 @@ CERES_TESTS = [
     "visibility",
 ]
 
+TEST_COPTS = [
+    # Needed to silence GFlags complaints.
+    "-Wno-sign-compare",
+
+    # These two warnings don't work well in conjunction with GMock, and
+    # trigger incorrectly on parts of rotation_test. For now, disable them,
+    # but in the future disable these warnings only for rotation_test.
+    # TODO(keir): When the tests are macro-ified, apply these selectively.
+    "-Wno-address",
+]
+
 TEST_DEPS = [
     "//:ceres",
     "//:test_util",
-    "@eigen//:eigen",
+    "@com_gitlab_libeigen_eigen//:eigen",
+    "@com_github_gflags_gflags//:gflags",
 ]
 
 # Instantiate all the tests with a template.
@@ -156,6 +179,7 @@ TEST_DEPS = [
     name = test_name + "_test",
     timeout = "short",
     srcs = ["internal/ceres/" + test_name + "_test.cc"],
+    copts = TEST_COPTS,
     deps = TEST_DEPS,
 ) for test_name in CERES_TESTS]
 
@@ -167,8 +191,10 @@ TEST_DEPS = [
 # dependency that we'd prefer to avoid.
 [cc_test(
     name = test_filename.split("/")[-1][:-3],  # Remove .cc.
-    timeout = "long",
+    timeout = "moderate",
     srcs = [test_filename],
+    copts = TEST_COPTS,
+
     # This is the data set that is bundled for the testing.
     data = [":data/problem-16-22106-pre.txt"],
     deps = TEST_DEPS,
@@ -180,16 +206,9 @@ TEST_DEPS = [
 [cc_binary(
     name = benchmark_name,
     srcs = ["internal/ceres/" + benchmark_name + ".cc"],
-    copts = ["-mllvm -inlinehint-threshold=1000000"],
-    deps = TEST_DEPS + ["@google_benchmark//:benchmark"],
-
+    copts = TEST_COPTS,
+    deps = TEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
 ) for benchmark_name in [
-    "evaluation_benchmark",
-    "invert_psd_matrix_benchmark",
-    "schur_eliminator_benchmark",
-    "jet_operator_benchmark",
-    "dense_linear_solver_benchmark",
-    "parallel_vector_operations_benchmark",
     "small_blas_gemm_benchmark",
     "small_blas_gemv_benchmark",
 ]]

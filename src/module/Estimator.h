@@ -42,13 +42,13 @@ public:
         double quality_level = 0.01;
         double min_distance = 30.0;
         
-        // Camera parameters
-        double fx = 500.0;
-        double fy = 500.0;
-        double cx = 320.0;
-        double cy = 240.0;
-        double baseline = 0.12; // Stereo baseline in meters
-        std::vector<double> distortion_coeffs = {0.0, 0.0, 0.0, 0.0, 0.0};
+        // Camera parameters (EuRoC dataset)
+        double fx = 458.654;
+        double fy = 457.296;
+        double cx = 367.215;
+        double cy = 248.375;
+        double baseline = 0.11; // Stereo baseline in meters
+        std::vector<double> distortion_coeffs = {-0.28340811, 0.07395907, 0.00019359, 1.76187114e-05};
         
         // Pose optimization parameters
         PoseOptimizer::Config pose_optimizer_config;

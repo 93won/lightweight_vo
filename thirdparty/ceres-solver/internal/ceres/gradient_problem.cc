@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,56 +30,49 @@
 
 #include "ceres/gradient_problem.h"
 
-#include <memory>
-#include <utility>
-
-#include "absl/log/check.h"
-#include "ceres/manifold.h"
+#include "ceres/local_parameterization.h"
+#include "glog/logging.h"
 
 namespace ceres {
 
-GradientProblem::GradientProblem(std::unique_ptr<FirstOrderFunction> function)
-    : function_(std::move(function)),
-      manifold_(std::make_unique<EuclideanManifold<DYNAMIC>>(
-          function_->NumParameters())),
-      scratch_(new double[function_->NumParameters()]) {
-  CHECK(function_ != nullptr);
-}
+GradientProblem::GradientProblem(FirstOrderFunction* function)
+    : function_(function),
+      parameterization_(
+          new IdentityParameterization(function_->NumParameters())),
+      scratch_(new double[function_->NumParameters()]) {}
 
-GradientProblem::GradientProblem(std::unique_ptr<FirstOrderFunction> function,
-                                 std::unique_ptr<Manifold> manifold)
-    : function_(std::move(function)),
-      manifold_(std::move(manifold)),
+GradientProblem::GradientProblem(FirstOrderFunction* function,
+                                 LocalParameterization* parameterization)
+    : function_(function),
+      parameterization_(parameterization),
       scratch_(new double[function_->NumParameters()]) {
-  CHECK(function_ != nullptr);
-  CHECK(manifold_ != nullptr);
-  CHECK_EQ(function_->NumParameters(), manifold_->AmbientSize());
+  CHECK_EQ(function_->NumParameters(), parameterization_->GlobalSize());
 }
 
 int GradientProblem::NumParameters() const {
   return function_->NumParameters();
 }
 
-int GradientProblem::NumTangentParameters() const {
-  return manifold_->TangentSize();
+int GradientProblem::NumLocalParameters() const {
+  return parameterization_->LocalSize();
 }
 
 bool GradientProblem::Evaluate(const double* parameters,
                                double* cost,
                                double* gradient) const {
-  if (gradient == nullptr) {
-    return function_->Evaluate(parameters, cost, nullptr);
+  if (gradient == NULL) {
+    return function_->Evaluate(parameters, cost, NULL);
   }
 
   return (function_->Evaluate(parameters, cost, scratch_.get()) &&
-          manifold_->RightMultiplyByPlusJacobian(
+          parameterization_->MultiplyByJacobian(
               parameters, 1, scratch_.get(), gradient));
 }
 
 bool GradientProblem::Plus(const double* x,
                            const double* delta,
                            double* x_plus_delta) const {
-  return manifold_->Plus(x, delta, x_plus_delta);
+  return parameterization_->Plus(x, delta, x_plus_delta);
 }
 
 }  // namespace ceres

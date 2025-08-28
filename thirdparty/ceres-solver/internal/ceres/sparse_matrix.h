@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,12 +36,12 @@
 #include <cstdio>
 
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/linear_operator.h"
 #include "ceres/types.h"
 
-namespace ceres::internal {
-class ContextImpl;
+namespace ceres {
+namespace internal {
 
 // This class defines the interface for storing and manipulating
 // sparse matrices. The key property that differentiates different
@@ -64,35 +64,23 @@ class ContextImpl;
 // matrix type dependent and we are at this stage unable to come up
 // with an efficient high level interface that spans multiple sparse
 // matrix types.
-class CERES_NO_EXPORT SparseMatrix : public LinearOperator {
+class CERES_EXPORT_INTERNAL SparseMatrix : public LinearOperator {
  public:
-  ~SparseMatrix() override;
+  virtual ~SparseMatrix();
 
   // y += Ax;
-  using LinearOperator::RightMultiplyAndAccumulate;
-  void RightMultiplyAndAccumulate(const double* x,
-                                  double* y) const override = 0;
-
+  virtual void RightMultiply(const double* x, double* y) const = 0;
   // y += A'x;
-  void LeftMultiplyAndAccumulate(const double* x, double* y) const override = 0;
+  virtual void LeftMultiply(const double* x, double* y) const = 0;
 
   // In MATLAB notation sum(A.*A, 1)
   virtual void SquaredColumnNorm(double* x) const = 0;
-  virtual void SquaredColumnNorm(double* x,
-                                 ContextImpl* context,
-                                 int num_threads) const;
   // A = A * diag(scale)
   virtual void ScaleColumns(const double* scale) = 0;
-  virtual void ScaleColumns(const double* scale,
-                            ContextImpl* context,
-                            int num_threads);
 
   // A = 0. A->num_nonzeros() == 0 is true after this call. The
   // sparsity pattern is preserved.
   virtual void SetZero() = 0;
-  virtual void SetZero(ContextImpl* /*context*/, int /*num_threads*/) {
-    SetZero();
-  }
 
   // Resize and populate dense_matrix with a dense version of the
   // sparse matrix.
@@ -110,11 +98,12 @@ class CERES_NO_EXPORT SparseMatrix : public LinearOperator {
   virtual double* mutable_values() = 0;
   virtual const double* values() const = 0;
 
-  int num_rows() const override = 0;
-  int num_cols() const override = 0;
+  virtual int num_rows() const = 0;
+  virtual int num_cols() const = 0;
   virtual int num_nonzeros() const = 0;
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_SPARSE_MATRIX_H_

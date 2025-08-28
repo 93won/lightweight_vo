@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -59,8 +59,8 @@ void STLDeleteContainerPointers(ForwardIterator begin, ForwardIterator end) {
 template <class ForwardIterator>
 void STLDeleteUniqueContainerPointers(ForwardIterator begin,
                                       ForwardIterator end) {
-  std::sort(begin, end);
-  ForwardIterator new_end = std::unique(begin, end);
+  sort(begin, end);
+  ForwardIterator new_end = unique(begin, end);
   while (begin != new_end) {
     ForwardIterator temp = begin;
     ++begin;
@@ -73,7 +73,7 @@ void STLDeleteUniqueContainerPointers(ForwardIterator begin,
 // hash_set, or any other STL container which defines sensible begin(), end(),
 // and clear() methods.
 //
-// If container is nullptr, this function is a no-op.
+// If container is NULL, this function is a no-op.
 //
 // As an alternative to calling STLDeleteElements() directly, consider
 // ElementDeleter (defined below), which ensures that your container's elements

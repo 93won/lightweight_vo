@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,18 +34,26 @@
 
 #include <vector>
 
-#include "absl/log/initialize.h"
 #include "ceres/ceres.h"
+#include "glog/logging.h"
+
+using ceres::CostFunction;
+using ceres::Problem;
+using ceres::SizedCostFunction;
+using ceres::Solve;
+using ceres::Solver;
 
 // A CostFunction implementing analytically derivatives for the
 // function f(x) = 10 - x.
 class QuadraticCostFunction
-    : public ceres::SizedCostFunction<1 /* number of residuals */,
-                                      1 /* size of first parameter */> {
+    : public SizedCostFunction<1 /* number of residuals */,
+                               1 /* size of first parameter */> {
  public:
-  bool Evaluate(double const* const* parameters,
-                double* residuals,
-                double** jacobians) const override {
+  virtual ~QuadraticCostFunction() {}
+
+  virtual bool Evaluate(double const* const* parameters,
+                        double* residuals,
+                        double** jacobians) const {
     double x = parameters[0][0];
 
     // f(x) = 10 - x.
@@ -56,14 +64,14 @@ class QuadraticCostFunction
     // jacobians.
     //
     // Since the Evaluate function can be called with the jacobians
-    // pointer equal to nullptr, the Evaluate function must check to see
+    // pointer equal to NULL, the Evaluate function must check to see
     // if jacobians need to be computed.
     //
     // For this simple problem it is overkill to check if jacobians[0]
-    // is nullptr, but in general when writing more complex
+    // is NULL, but in general when writing more complex
     // CostFunctions, it is possible that Ceres may only demand the
     // derivatives w.r.t. a subset of the parameter blocks.
-    if (jacobians != nullptr && jacobians[0] != nullptr) {
+    if (jacobians != NULL && jacobians[0] != NULL) {
       jacobians[0][0] = -1;
     }
 
@@ -72,7 +80,7 @@ class QuadraticCostFunction
 };
 
 int main(int argc, char** argv) {
-  absl::InitializeLog();
+  google::InitGoogleLogging(argv[0]);
 
   // The variable to solve for with its initial value. It will be
   // mutated in place by the solver.
@@ -80,17 +88,17 @@ int main(int argc, char** argv) {
   const double initial_x = x;
 
   // Build the problem.
-  ceres::Problem problem;
+  Problem problem;
 
   // Set up the only cost function (also known as residual).
-  ceres::CostFunction* cost_function = new QuadraticCostFunction;
-  problem.AddResidualBlock(cost_function, nullptr, &x);
+  CostFunction* cost_function = new QuadraticCostFunction;
+  problem.AddResidualBlock(cost_function, NULL, &x);
 
   // Run the solver!
-  ceres::Solver::Options options;
+  Solver::Options options;
   options.minimizer_progress_to_stdout = true;
-  ceres::Solver::Summary summary;
-  ceres::Solve(options, &problem, &summary);
+  Solver::Summary summary;
+  Solve(options, &problem, &summary);
 
   std::cout << summary.BriefReport() << "\n";
   std::cout << "x : " << initial_x << " -> " << x << "\n";

@@ -5,8 +5,9 @@
 #include <ceres/ceres.h>
 #include <Eigen/Dense>
 
-#include "../factor/SE3Manifolds.h"
+#include "../factor/Parameters.h"
 #include "../factor/PnPFactors.h"
+#include "../factor/Parameters.h"
 
 namespace lightweight_vio {
 
@@ -106,9 +107,6 @@ public:
 private:
     // Configuration
     Config m_config;
-    
-    // SE3 manifold for pose parameterization
-    std::unique_ptr<factor::SE3Manifold> m_se3_manifold;
     
     /**
      * @brief Add monocular PnP observation to problem

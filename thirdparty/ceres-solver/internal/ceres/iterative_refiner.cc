@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2018 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,69 +33,43 @@
 #include <string>
 
 #include "Eigen/Core"
-#include "ceres/dense_cholesky.h"
 #include "ceres/sparse_cholesky.h"
 #include "ceres/sparse_matrix.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-SparseIterativeRefiner::SparseIterativeRefiner(const int max_num_iterations)
+IterativeRefiner::IterativeRefiner(const int max_num_iterations)
     : max_num_iterations_(max_num_iterations) {}
 
-SparseIterativeRefiner::~SparseIterativeRefiner() = default;
+IterativeRefiner::~IterativeRefiner() {}
 
-void SparseIterativeRefiner::Allocate(int num_cols) {
+void IterativeRefiner::Allocate(int num_cols) {
   residual_.resize(num_cols);
   correction_.resize(num_cols);
   lhs_x_solution_.resize(num_cols);
 }
 
-void SparseIterativeRefiner::Refine(const SparseMatrix& lhs,
-                                    const double* rhs_ptr,
-                                    SparseCholesky* cholesky,
-                                    double* solution_ptr) {
+void IterativeRefiner::Refine(const SparseMatrix& lhs,
+                              const double* rhs_ptr,
+                              SparseCholesky* sparse_cholesky,
+                              double* solution_ptr) {
   const int num_cols = lhs.num_cols();
   Allocate(num_cols);
   ConstVectorRef rhs(rhs_ptr, num_cols);
   VectorRef solution(solution_ptr, num_cols);
-  std::string ignored_message;
   for (int i = 0; i < max_num_iterations_; ++i) {
     // residual = rhs - lhs * solution
     lhs_x_solution_.setZero();
-    lhs.RightMultiplyAndAccumulate(solution_ptr, lhs_x_solution_.data());
+    lhs.RightMultiply(solution_ptr, lhs_x_solution_.data());
     residual_ = rhs - lhs_x_solution_;
     // solution += lhs^-1 residual
-    cholesky->Solve(residual_.data(), correction_.data(), &ignored_message);
+    std::string ignored_message;
+    sparse_cholesky->Solve(
+        residual_.data(), correction_.data(), &ignored_message);
     solution += correction_;
   }
 };
 
-DenseIterativeRefiner::DenseIterativeRefiner(const int max_num_iterations)
-    : max_num_iterations_(max_num_iterations) {}
-
-DenseIterativeRefiner::~DenseIterativeRefiner() = default;
-
-void DenseIterativeRefiner::Allocate(int num_cols) {
-  residual_.resize(num_cols);
-  correction_.resize(num_cols);
-}
-
-void DenseIterativeRefiner::Refine(const int num_cols,
-                                   const double* lhs_ptr,
-                                   const double* rhs_ptr,
-                                   DenseCholesky* cholesky,
-                                   double* solution_ptr) {
-  Allocate(num_cols);
-  ConstMatrixRef lhs(lhs_ptr, num_cols, num_cols);
-  ConstVectorRef rhs(rhs_ptr, num_cols);
-  VectorRef solution(solution_ptr, num_cols);
-  std::string ignored_message;
-  for (int i = 0; i < max_num_iterations_; ++i) {
-    residual_ = rhs - lhs * solution;
-    // solution += lhs^-1 residual
-    cholesky->Solve(residual_.data(), correction_.data(), &ignored_message);
-    solution += correction_;
-  }
-};
-
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

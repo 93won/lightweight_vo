@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,6 @@
 #define CERES_PUBLIC_ITERATION_CALLBACK_H_
 
 #include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
 #include "ceres/types.h"
 
 namespace ceres {
@@ -165,20 +164,22 @@ struct CERES_EXPORT IterationSummary {
 //     explicit LoggingCallback(bool log_to_stdout)
 //         : log_to_stdout_(log_to_stdout) {}
 //
+//     ~LoggingCallback() {}
+//
 //     CallbackReturnType operator()(const IterationSummary& summary) {
 //       const char* kReportRowFormat =
 //           "% 4d: f:% 8e d:% 3.2e g:% 3.2e h:% 3.2e "
 //           "rho:% 3.2e mu:% 3.2e eta:% 3.2e li:% 3d";
-//       string output = absl::StrFormat(kReportRowFormat,
-//                                       summary.iteration,
-//                                       summary.cost,
-//                                       summary.cost_change,
-//                                       summary.gradient_max_norm,
-//                                       summary.step_norm,
-//                                       summary.relative_decrease,
-//                                       summary.trust_region_radius,
-//                                       summary.eta,
-//                                       summary.linear_solver_iterations);
+//       string output = StringPrintf(kReportRowFormat,
+//                                    summary.iteration,
+//                                    summary.cost,
+//                                    summary.cost_change,
+//                                    summary.gradient_max_norm,
+//                                    summary.step_norm,
+//                                    summary.relative_decrease,
+//                                    summary.trust_region_radius,
+//                                    summary.eta,
+//                                    summary.linear_solver_iterations);
 //       if (log_to_stdout_) {
 //         cout << output << endl;
 //       } else {
@@ -193,7 +194,7 @@ struct CERES_EXPORT IterationSummary {
 //
 class CERES_EXPORT IterationCallback {
  public:
-  virtual ~IterationCallback();
+  virtual ~IterationCallback() {}
   virtual CallbackReturnType operator()(const IterationSummary& summary) = 0;
 };
 

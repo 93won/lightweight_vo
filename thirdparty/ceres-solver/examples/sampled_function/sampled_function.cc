@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,35 +31,44 @@
 // A simple example of optimizing a sampled function by using cubic
 // interpolation.
 
-#include "absl/log/initialize.h"
 #include "ceres/ceres.h"
 #include "ceres/cubic_interpolation.h"
+#include "glog/logging.h"
 
-using Interpolator = ceres::CubicInterpolator<ceres::Grid1D<double>>;
+using ceres::AutoDiffCostFunction;
+using ceres::CostFunction;
+using ceres::CubicInterpolator;
+using ceres::Grid1D;
+using ceres::Problem;
+using ceres::Solve;
+using ceres::Solver;
 
 // A simple cost functor that interfaces an interpolated table of
 // values with automatic differentiation.
 struct InterpolatedCostFunctor {
-  explicit InterpolatedCostFunctor(const Interpolator& interpolator)
-      : interpolator(interpolator) {}
+  explicit InterpolatedCostFunctor(
+      const CubicInterpolator<Grid1D<double>>& interpolator)
+      : interpolator_(interpolator) {}
 
   template <typename T>
   bool operator()(const T* x, T* residuals) const {
-    interpolator.Evaluate(*x, residuals);
+    interpolator_.Evaluate(*x, residuals);
     return true;
   }
 
-  static ceres::CostFunction* Create(const Interpolator& interpolator) {
-    return new ceres::AutoDiffCostFunction<InterpolatedCostFunctor, 1, 1>(
-        interpolator);
+  static CostFunction* Create(
+      const CubicInterpolator<Grid1D<double>>& interpolator) {
+    return new AutoDiffCostFunction<InterpolatedCostFunctor, 1, 1>(
+        new InterpolatedCostFunctor(interpolator));
   }
 
  private:
-  const Interpolator& interpolator;
+  const CubicInterpolator<Grid1D<double>>& interpolator_;
 };
 
 int main(int argc, char** argv) {
-  absl::InitializeLog();
+  google::InitGoogleLogging(argv[0]);
+
   // Evaluate the function f(x) = (x - 4.5)^2;
   const int kNumSamples = 10;
   double values[kNumSamples];
@@ -67,19 +76,18 @@ int main(int argc, char** argv) {
     values[i] = (i - 4.5) * (i - 4.5);
   }
 
-  ceres::Grid1D<double> array(values, 0, kNumSamples);
-  Interpolator interpolator(array);
+  Grid1D<double> array(values, 0, kNumSamples);
+  CubicInterpolator<Grid1D<double>> interpolator(array);
 
   double x = 1.0;
-  ceres::Problem problem;
-  ceres::CostFunction* cost_function =
-      InterpolatedCostFunctor::Create(interpolator);
-  problem.AddResidualBlock(cost_function, nullptr, &x);
+  Problem problem;
+  CostFunction* cost_function = InterpolatedCostFunctor::Create(interpolator);
+  problem.AddResidualBlock(cost_function, NULL, &x);
 
-  ceres::Solver::Options options;
+  Solver::Options options;
   options.minimizer_progress_to_stdout = true;
-  ceres::Solver::Summary summary;
-  ceres::Solve(options, &problem, &summary);
+  Solver::Summary summary;
+  Solve(options, &problem, &summary);
   std::cout << summary.BriefReport() << "\n";
   std::cout << "Expected x: 4.5. Actual x : " << x << std::endl;
   return 0;

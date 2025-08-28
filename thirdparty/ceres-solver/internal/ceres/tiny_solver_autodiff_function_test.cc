@@ -1,6 +1,6 @@
 
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,9 +31,10 @@
 
 #include "ceres/tiny_solver_autodiff_function.h"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
 
-#include "Eigen/Core"
 #include "ceres/tiny_solver.h"
 #include "ceres/tiny_solver_test_util.h"
 #include "gtest/gtest.h"
@@ -59,8 +60,8 @@ struct AutoDiffTestFunctor {
 static double const kTolerance = std::numeric_limits<double>::epsilon() * 10;
 
 TEST(TinySolverAutoDiffFunction, SimpleFunction) {
-  using AutoDiffTestFunction =
-      TinySolverAutoDiffFunction<AutoDiffTestFunctor, 2, 3>;
+  typedef TinySolverAutoDiffFunction<AutoDiffTestFunctor, 2, 3>
+      AutoDiffTestFunction;
   AutoDiffTestFunctor autodiff_test_functor;
   AutoDiffTestFunction f(autodiff_test_functor);
 
@@ -96,7 +97,7 @@ TEST(TinySolverAutoDiffFunction, SimpleFunction) {
 
 class DynamicResidualsFunctor {
  public:
-  using Scalar = double;
+  typedef double Scalar;
   enum {
     NUM_RESIDUALS = Eigen::Dynamic,
     NUM_PARAMETERS = 3,
@@ -139,7 +140,7 @@ TEST(TinySolverAutoDiffFunction, ResidualsDynamicAutoDiff) {
   EXPECT_GT(residuals.squaredNorm() / 2.0, 1e-10);
 
   TinySolver<AutoDiffCostFunctor> solver;
-  solver.Solve(f_autodiff, &x0);
+  solver.Solve(f, &x0);
   EXPECT_NEAR(0.0, solver.summary.final_cost, 1e-10);
 }
 

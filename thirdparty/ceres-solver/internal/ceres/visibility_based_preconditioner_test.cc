@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -41,11 +41,14 @@
 #include "ceres/internal/eigen.h"
 #include "ceres/linear_least_squares_problems.h"
 #include "ceres/schur_eliminator.h"
+#include "ceres/stringprintf.h"
 #include "ceres/test_util.h"
 #include "ceres/types.h"
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // TODO(sameeragarwal): Re-enable this test once serialization is
 // working again.
@@ -64,14 +67,14 @@ namespace ceres::internal {
 //   void SetUp() {
 //     string input_file = TestFileAbsolutePath("problem-6-1384-000.lsqp");
 
-//     std::unique_ptr<LinearLeastSquaresProblem> problem =
-//     CreateLinearLeastSquaresProblemFromFile(input_file));
+//     std::unique_ptr<LinearLeastSquaresProblem> problem(
+//         CHECK_NOTNULL(CreateLinearLeastSquaresProblemFromFile(input_file)));
 //     A_.reset(down_cast<BlockSparseMatrix*>(problem->A.release()));
 //     b_.reset(problem->b.release());
 //     D_.reset(problem->D.release());
 
 //     const CompressedRowBlockStructure* bs =
-//         ASSERT_TRUE(A_->block_structure()!=nullptr);
+//         CHECK_NOTNULL(A_->block_structure());
 //     const int num_col_blocks = bs->cols.size();
 
 //     num_cols_ = A_->num_cols();
@@ -93,8 +96,7 @@ namespace ceres::internal {
 //     // conditioned.
 //     VectorRef(D_.get(), num_cols_).setConstant(10.0);
 
-//     schur_complement_ =
-//     std::make_unique<BlockRandomAccessDenseMatrix>(blocks);
+//     schur_complement_.reset(new BlockRandomAccessDenseMatrix(blocks));
 //     Vector rhs(schur_complement_->num_rows());
 
 //     std::unique_ptr<SchurEliminatorBase> eliminator;
@@ -102,7 +104,7 @@ namespace ceres::internal {
 //     eliminator_options.elimination_groups = options_.elimination_groups;
 //     eliminator_options.num_threads = options_.num_threads;
 
-//     eliminator = SchurEliminatorBase::Create(eliminator_options);
+//     eliminator.reset(SchurEliminatorBase::Create(eliminator_options));
 //     eliminator->Init(num_eliminate_blocks_, bs);
 //     eliminator->Eliminate(A_.get(), b_.get(), D_.get(),
 //                           schur_complement_.get(), rhs.data());
@@ -110,7 +112,7 @@ namespace ceres::internal {
 
 //   AssertionResult IsSparsityStructureValid() {
 //     preconditioner_->InitStorage(*A_->block_structure());
-//     const absl::flat_hash_set<pair<int, int>>& cluster_pairs =
+//     const std::unordered_set<pair<int, int>, pair_hash>& cluster_pairs =
 //     get_cluster_pairs(); const vector<int>& cluster_membership =
 //     get_cluster_membership();
 
@@ -135,7 +137,7 @@ namespace ceres::internal {
 
 //   AssertionResult PreconditionerValuesMatch() {
 //     preconditioner_->Update(*A_, D_.get());
-//     const absl::flat_hash_set<pair<int, int>>& cluster_pairs =
+//     const std::unordered_set<pair<int, int>, pair_hash>& cluster_pairs =
 //     get_cluster_pairs(); const BlockRandomAccessSparseMatrix* m = get_m();
 //     Matrix preconditioner_matrix;
 //     m->matrix()->ToDenseMatrix(&preconditioner_matrix);
@@ -203,11 +205,11 @@ namespace ceres::internal {
 //     return &preconditioner_->block_pairs_;
 //   }
 
-//   const absl::flat_hash_set<pair<int, int>>& get_cluster_pairs() {
+//   const std::unordered_set<pair<int, int>, pair_hash>& get_cluster_pairs() {
 //     return preconditioner_->cluster_pairs_;
 //   }
 
-//   absl::flat_hash_set<pair<int, int>>* get_mutable_cluster_pairs()
+//   std::unordered_set<pair<int, int>, pair_hash>* get_mutable_cluster_pairs()
 //   {
 //     return &preconditioner_->cluster_pairs_;
 //   }
@@ -240,9 +242,8 @@ namespace ceres::internal {
 
 // TEST_F(VisibilityBasedPreconditionerTest, OneClusterClusterJacobi) {
 //   options_.type = CLUSTER_JACOBI;
-//   preconditioner_ =
-//       std::make_unique<VisibilityBasedPreconditioner>(
-//          *A_->block_structure(), options_);
+//   preconditioner_.reset(
+//       new VisibilityBasedPreconditioner(*A_->block_structure(), options_));
 
 //   // Override the clustering to be a single clustering containing all
 //   // the cameras.
@@ -253,7 +254,7 @@ namespace ceres::internal {
 
 //   *get_mutable_num_clusters() = 1;
 
-//   absl::flat_hash_set<pair<int, int>>& cluster_pairs =
+//   std::unordered_set<pair<int, int>, pair_hash>& cluster_pairs =
 //   *get_mutable_cluster_pairs(); cluster_pairs.clear();
 //   cluster_pairs.insert(make_pair(0, 0));
 
@@ -274,7 +275,7 @@ namespace ceres::internal {
 //     y.setZero();
 //     z.setZero();
 //     x[i] = 1.0;
-//     preconditioner_->RightMultiplyAndAccumulate(x.data(), y.data());
+//     preconditioner_->RightMultiply(x.data(), y.data());
 //     z = full_schur_complement
 //         .selfadjointView<Eigen::Upper>()
 //         .llt().solve(x);
@@ -286,9 +287,8 @@ namespace ceres::internal {
 
 // TEST_F(VisibilityBasedPreconditionerTest, ClusterJacobi) {
 //   options_.type = CLUSTER_JACOBI;
-//   preconditioner_ =
-//   std::make_unique<VisibilityBasedPreconditioner>(*A_->block_structure(),
-//   options_);
+//   preconditioner_.reset(
+//       new VisibilityBasedPreconditioner(*A_->block_structure(), options_));
 
 //   // Override the clustering to be equal number of cameras.
 //   vector<int>& cluster_membership = *get_mutable_cluster_membership();
@@ -300,7 +300,7 @@ namespace ceres::internal {
 //   }
 //   *get_mutable_num_clusters() = kNumClusters;
 
-//   absl::flat_hash_set<pair<int, int>>& cluster_pairs =
+//   std::unordered_set<pair<int, int>, pair_hash>& cluster_pairs =
 //   *get_mutable_cluster_pairs(); cluster_pairs.clear(); for (int i = 0; i <
 //   kNumClusters; ++i) {
 //     cluster_pairs.insert(make_pair(i, i));
@@ -312,9 +312,8 @@ namespace ceres::internal {
 
 // TEST_F(VisibilityBasedPreconditionerTest, ClusterTridiagonal) {
 //   options_.type = CLUSTER_TRIDIAGONAL;
-//   preconditioner_ =
-//     std::make_unique<VisibilityBasedPreconditioner>(*A_->block_structure(),
-//     options_);
+//   preconditioner_.reset(
+//       new VisibilityBasedPreconditioner(*A_->block_structure(), options_));
 //   static const int kNumClusters = 3;
 
 //   // Override the clustering to be 3 clusters.
@@ -326,7 +325,7 @@ namespace ceres::internal {
 //   *get_mutable_num_clusters() = kNumClusters;
 
 //   // Spanning forest has structure 0-1 2
-//   absl::flat_hash_set<pair<int, int>>& cluster_pairs =
+//   std::unordered_set<pair<int, int>, pair_hash>& cluster_pairs =
 //   *get_mutable_cluster_pairs(); cluster_pairs.clear(); for (int i = 0; i <
 //   kNumClusters; ++i) {
 //     cluster_pairs.insert(make_pair(i, i));
@@ -337,4 +336,5 @@ namespace ceres::internal {
 //   EXPECT_TRUE(PreconditionerValuesMatch());
 // }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

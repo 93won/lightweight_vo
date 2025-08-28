@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,8 +34,6 @@
 #include <cmath>
 
 #include "Eigen/Dense"
-#include "absl/log/check.h"
-#include "absl/log/log.h"
 #include "ceres/array_utils.h"
 #include "ceres/internal/eigen.h"
 #include "ceres/linear_least_squares_problems.h"
@@ -44,8 +42,10 @@
 #include "ceres/sparse_matrix.h"
 #include "ceres/trust_region_strategy.h"
 #include "ceres/types.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 namespace {
 const double kMaxMu = 1.0;
 const double kMinMu = 1e-8;
@@ -101,7 +101,7 @@ TrustRegionStrategy::Summary DoglegStrategy::ComputeStep(
     }
     TrustRegionStrategy::Summary summary;
     summary.num_iterations = 0;
-    summary.termination_type = LinearSolverTerminationType::SUCCESS;
+    summary.termination_type = LINEAR_SOLVER_SUCCESS;
     return summary;
   }
 
@@ -138,13 +138,11 @@ TrustRegionStrategy::Summary DoglegStrategy::ComputeStep(
   summary.num_iterations = linear_solver_summary.num_iterations;
   summary.termination_type = linear_solver_summary.termination_type;
 
-  if (linear_solver_summary.termination_type ==
-      LinearSolverTerminationType::FATAL_ERROR) {
+  if (linear_solver_summary.termination_type == LINEAR_SOLVER_FATAL_ERROR) {
     return summary;
   }
 
-  if (linear_solver_summary.termination_type !=
-      LinearSolverTerminationType::FAILURE) {
+  if (linear_solver_summary.termination_type != LINEAR_SOLVER_FAILURE) {
     switch (dogleg_type_) {
       // Interpolate the Cauchy point and the Gauss-Newton step.
       case TRADITIONAL_DOGLEG:
@@ -155,7 +153,7 @@ TrustRegionStrategy::Summary DoglegStrategy::ComputeStep(
       // Cauchy point and the (Gauss-)Newton step.
       case SUBSPACE_DOGLEG:
         if (!ComputeSubspaceModel(jacobian)) {
-          summary.termination_type = LinearSolverTerminationType::FAILURE;
+          summary.termination_type = LINEAR_SOLVER_FAILURE;
           break;
         }
         ComputeSubspaceDoglegStep(step);
@@ -176,7 +174,7 @@ TrustRegionStrategy::Summary DoglegStrategy::ComputeStep(
 void DoglegStrategy::ComputeGradient(SparseMatrix* jacobian,
                                      const double* residuals) {
   gradient_.setZero();
-  jacobian->LeftMultiplyAndAccumulate(residuals, gradient_.data());
+  jacobian->LeftMultiply(residuals, gradient_.data());
   gradient_.array() /= diagonal_.array();
 }
 
@@ -189,7 +187,7 @@ void DoglegStrategy::ComputeCauchyPoint(SparseMatrix* jacobian) {
   // The Jacobian is scaled implicitly by computing J * (D^-1 * (D^-1 * g))
   // instead of (J * D^-1) * (D^-1 * g).
   Vector scaled_gradient = (gradient_.array() / diagonal_.array()).matrix();
-  jacobian->RightMultiplyAndAccumulate(scaled_gradient.data(), Jg.data());
+  jacobian->RightMultiply(scaled_gradient.data(), Jg.data());
   alpha_ = gradient_.squaredNorm() / Jg.squaredNorm();
 }
 
@@ -482,7 +480,7 @@ bool DoglegStrategy::FindMinimumOnTrustRegionBoundary(Vector2d* minimum) const {
 
   // Find the real parts y_i of its roots (not only the real roots).
   Vector roots_real;
-  if (!FindPolynomialRoots(polynomial, &roots_real, nullptr)) {
+  if (!FindPolynomialRoots(polynomial, &roots_real, NULL)) {
     // Failed to find the roots of the polynomial, i.e. the candidate
     // solutions of the constrained problem. Report this back to the caller.
     return false;
@@ -520,7 +518,7 @@ LinearSolver::Summary DoglegStrategy::ComputeGaussNewtonStep(
     const double* residuals) {
   const int n = jacobian->num_cols();
   LinearSolver::Summary linear_solver_summary;
-  linear_solver_summary.termination_type = LinearSolverTerminationType::FAILURE;
+  linear_solver_summary.termination_type = LINEAR_SOLVER_FAILURE;
 
   // The Jacobian matrix is often quite poorly conditioned. Thus it is
   // necessary to add a diagonal matrix at the bottom to prevent the
@@ -533,7 +531,7 @@ LinearSolver::Summary DoglegStrategy::ComputeGaussNewtonStep(
   // If the solve fails, the multiplier to the diagonal is increased
   // up to max_mu_ by a factor of mu_increase_factor_ every time. If
   // the linear solver is still not successful, the strategy returns
-  // with LinearSolverTerminationType::FAILURE.
+  // with LINEAR_SOLVER_FAILURE.
   //
   // Next time when a new Gauss-Newton step is requested, the
   // multiplier starts out from the last successful solve.
@@ -584,25 +582,21 @@ LinearSolver::Summary DoglegStrategy::ComputeGaussNewtonStep(
       }
     }
 
-    if (linear_solver_summary.termination_type ==
-        LinearSolverTerminationType::FATAL_ERROR) {
+    if (linear_solver_summary.termination_type == LINEAR_SOLVER_FATAL_ERROR) {
       return linear_solver_summary;
     }
 
-    if (linear_solver_summary.termination_type ==
-            LinearSolverTerminationType::FAILURE ||
+    if (linear_solver_summary.termination_type == LINEAR_SOLVER_FAILURE ||
         !IsArrayValid(n, gauss_newton_step_.data())) {
       mu_ *= mu_increase_factor_;
       VLOG(2) << "Increasing mu " << mu_;
-      linear_solver_summary.termination_type =
-          LinearSolverTerminationType::FAILURE;
+      linear_solver_summary.termination_type = LINEAR_SOLVER_FAILURE;
       continue;
     }
     break;
   }
 
-  if (linear_solver_summary.termination_type !=
-      LinearSolverTerminationType::FAILURE) {
+  if (linear_solver_summary.termination_type != LINEAR_SOLVER_FAILURE) {
     // The scaled Gauss-Newton step is D * GN:
     //
     //     - (D^-1 J^T J D^-1)^-1 (D^-1 g)
@@ -633,7 +627,7 @@ void DoglegStrategy::StepAccepted(double step_quality) {
   reuse_ = false;
 }
 
-void DoglegStrategy::StepRejected(double /*step_quality*/) {
+void DoglegStrategy::StepRejected(double step_quality) {
   radius_ *= 0.5;
   reuse_ = true;
 }
@@ -707,13 +701,14 @@ bool DoglegStrategy::ComputeSubspaceModel(SparseMatrix* jacobian) {
 
   Vector tmp;
   tmp = (subspace_basis_.col(0).array() / diagonal_.array()).matrix();
-  jacobian->RightMultiplyAndAccumulate(tmp.data(), Jb.row(0).data());
+  jacobian->RightMultiply(tmp.data(), Jb.row(0).data());
   tmp = (subspace_basis_.col(1).array() / diagonal_.array()).matrix();
-  jacobian->RightMultiplyAndAccumulate(tmp.data(), Jb.row(1).data());
+  jacobian->RightMultiply(tmp.data(), Jb.row(1).data());
 
   subspace_B_ = Jb * Jb.transpose();
 
   return true;
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

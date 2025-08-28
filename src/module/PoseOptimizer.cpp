@@ -6,7 +6,7 @@ namespace lightweight_vio
 {
 
     PoseOptimizer::PoseOptimizer(const Config &config)
-        : m_config(config), m_se3_manifold(std::make_unique<factor::SE3Manifold>())
+        : m_config(config)
     {
     }
 
@@ -27,9 +27,9 @@ namespace lightweight_vio
         problem.AddParameterBlock(pose_params.data(), 6);
         std::cout << "[DEBUG] Parameter block added" << std::endl;
 
-        // Set SE3 manifold for pose parameterization
-        problem.SetManifold(pose_params.data(), m_se3_manifold.get());
-        std::cout << "[DEBUG] SE3 manifold set" << std::endl;
+        // Set SE3 local parameterization for pose parameterization
+        // problem.SetParameterization(pose_params.data(), m_se3_local_param.get());
+        // std::cout << "[DEBUG] SE3 local parameterization set" << std::endl;
 
         // Get camera parameters from frame
         double fx, fy, cx, cy;
@@ -49,6 +49,7 @@ namespace lightweight_vio
         // Add mono PnP observations from frame's map points
         const auto &map_points = frame->get_map_points();
         std::cout << "[DEBUG] Frame has " << map_points.size() << " map points" << std::endl;
+        
         for (size_t i = 0; i < map_points.size(); ++i)
         {
             auto mp = map_points[i];
@@ -64,150 +65,118 @@ namespace lightweight_vio
             if (i >= frame->get_features().size())
             {
                 continue;
+            }
 
-                // Get camera parameters from frame
-                double fx, fy, cx, cy;
-                frame->get_camera_intrinsics(fx, fy, cx, cy);
-                factor::CameraParameters camera_params(fx, fy, cx, cy);
+            auto feature = frame->get_features()[i];
 
-                // Add observations to the problem
-                std::vector<ObservationInfo> observations;
-                std::vector<int> feature_indices; // Track which features correspond to observations
-                int num_valid_observations = 0;
+            // Undistort the feature point
+            cv::Point2f distorted_point(feature->get_u(), feature->get_v());
+            cv::Point2f undistorted_point = frame->undistort_point(distorted_point);
+            Eigen::Vector2d observation(undistorted_point.x, undistorted_point.y);
 
-                // Outlier flags will be initialized when features are undistorted
+            // Add mono PnP observation
+            auto obs_info = add_mono_observation(
+                problem, pose_params.data(), world_point, observation, camera_params);
 
-                // Add mono PnP observations from frame's map points
-                const auto &map_points = frame->get_map_points();
-                for (size_t i = 0; i < map_points.size(); ++i)
+            if (obs_info.residual_id)
+            {
+                observations.push_back(obs_info);
+                feature_indices.push_back(i);
+                num_valid_observations++;
+            }
+        }
+
+        // Check if we have enough observations
+        std::cout << "[DEBUG] Total valid observations: " << num_valid_observations << std::endl;
+        if (num_valid_observations < 5)
+        {
+            std::cout << "[DEBUG] Not enough observations for optimization" << std::endl;
+            result.success = false;
+            result.num_inliers = 0;
+            return result;
+        }
+
+        // Setup solver options
+        ceres::Solver::Options options = setup_solver_options();
+
+        // Perform outlier detection rounds if enabled (ORB-SLAM3 style)
+        if (m_config.enable_outlier_detection)
+        {
+            for (int round = 0; round < m_config.outlier_detection_rounds; ++round)
+            {
+                // Solve
+                ceres::Solver::Summary summary;
+                ceres::Solve(options, &problem, &summary);
+
+                // Detect outliers and update frame's outlier flags
+                double *pose_data = pose_params.data();
+                detect_outliers(const_cast<double const *const *>(&pose_data),
+                                observations, feature_indices, frame);
+
+                // Remove outlier residual blocks for next iteration
+                if (round < m_config.outlier_detection_rounds - 1)
                 {
-                    auto mp = map_points[i];
-                    if (!mp || mp->is_bad())
+                    // Disable outlier residuals by setting them to level 1
+                    for (size_t i = 0; i < observations.size(); ++i)
                     {
-                        continue;
-                    }
-
-                    // Get 3D world point
-                    Eigen::Vector3d world_point = mp->get_position().cast<double>();
-
-                    // Get 2D observation from feature
-                    if (i >= frame->get_features().size())
-                    {
-                        continue;
-                    }
-
-                    auto feature = frame->get_features()[i];
-
-                    // Undistort the feature point
-                    cv::Point2f distorted_point(feature->get_u(), feature->get_v());
-                    cv::Point2f undistorted_point = frame->undistort_point(distorted_point);
-                    Eigen::Vector2d observation(undistorted_point.x, undistorted_point.y);
-
-                    // Add mono PnP observation
-                    auto obs_info = add_mono_observation(
-                        problem, pose_params.data(), world_point, observation, camera_params);
-
-                    if (obs_info.residual_id)
-                    {
-                        observations.push_back(obs_info);
-                        feature_indices.push_back(i);
-                        num_valid_observations++;
-                    }
-                }
-
-                // Check if we have enough observations
-                std::cout << "[DEBUG] Total valid observations: " << num_valid_observations << std::endl;
-                if (num_valid_observations < 5)
-                {
-                    std::cout << "[DEBUG] Not enough observations for optimization" << std::endl;
-                    result.success = false;
-                    result.num_inliers = 0;
-                    return result;
-                }
-
-                // Setup solver options
-                ceres::Solver::Options options = setup_solver_options();
-
-                // Perform outlier detection rounds if enabled (ORB-SLAM3 style)
-                if (m_config.enable_outlier_detection)
-                {
-                    for (int round = 0; round < m_config.outlier_detection_rounds; ++round)
-                    {
-                        // Solve
-                        ceres::Solver::Summary summary;
-                        ceres::Solve(options, &problem, &summary);
-
-                        // Detect outliers and update frame's outlier flags
-                        double *pose_data = pose_params.data();
-                        detect_outliers(const_cast<double const *const *>(&pose_data),
-                                        observations, feature_indices, frame);
-
-                        // Remove outlier residual blocks for next iteration
-                        if (round < m_config.outlier_detection_rounds - 1)
+                        int feature_idx = feature_indices[i];
+                        if (frame->get_outlier_flag(feature_idx))
                         {
-                            // Disable outlier residuals by setting them to level 1
-                            for (size_t i = 0; i < observations.size(); ++i)
-                            {
-                                int feature_idx = feature_indices[i];
-                                if (frame->get_outlier_flag(feature_idx))
-                                {
-                                    // Note: Ceres doesn't have SetLevel, so we'll handle this differently
-                                    // For now, we'll recreate the problem without outliers
-                                }
-                            }
+                            // Note: Ceres doesn't have SetLevel, so we'll handle this differently
+                            // For now, we'll recreate the problem without outliers
                         }
-
-                        // Update result
-                        result.final_cost = summary.final_cost;
-                        result.num_iterations += summary.iterations.size();
-                        result.success = (summary.termination_type == ceres::CONVERGENCE);
-                    }
-                }
-                else
-                {
-                    // Single solve without outlier detection
-                    ceres::Solver::Summary summary;
-                    ceres::Solve(options, &problem, &summary);
-
-                    result.success = (summary.termination_type == ceres::CONVERGENCE);
-                    result.final_cost = summary.final_cost;
-                    result.num_iterations = summary.iterations.size();
-                }
-
-                // Count final inliers/outliers
-                result.num_inliers = 0;
-                result.num_outliers = 0;
-                const auto &outlier_flags = frame->get_outlier_flags();
-                for (bool is_outlier : outlier_flags)
-                {
-                    if (is_outlier)
-                    {
-                        result.num_outliers++;
-                    }
-                    else
-                    {
-                        result.num_inliers++;
                     }
                 }
 
                 // Update result
-                result.optimized_pose = se3_tangent_to_matrix(pose_params);
-
-                // Update frame pose if optimization was successful
-                if (result.success)
-                {
-                    frame->set_Twb(result.optimized_pose);
-                }
-
-                if (m_config.print_summary)
-                {
-                    std::cout << "Pose optimization: " << result.num_inliers << " inliers, "
-                              << result.num_outliers << " outliers" << std::endl;
-                }
-
-                return result;
+                result.final_cost = summary.final_cost;
+                result.num_iterations += summary.iterations.size();
+                result.success = (summary.termination_type == ceres::CONVERGENCE);
             }
         }
+        else
+        {
+            // Single solve without outlier detection
+            ceres::Solver::Summary summary;
+            ceres::Solve(options, &problem, &summary);
+
+            result.success = (summary.termination_type == ceres::CONVERGENCE);
+            result.final_cost = summary.final_cost;
+            result.num_iterations = summary.iterations.size();
+        }
+
+        // Count final inliers/outliers
+        result.num_inliers = 0;
+        result.num_outliers = 0;
+        const auto &outlier_flags = frame->get_outlier_flags();
+        for (bool is_outlier : outlier_flags)
+        {
+            if (is_outlier)
+            {
+                result.num_outliers++;
+            }
+            else
+            {
+                result.num_inliers++;
+            }
+        }
+
+        // Update result
+        result.optimized_pose = se3_tangent_to_matrix(pose_params);
+
+        // Update frame pose if optimization was successful
+        if (result.success)
+        {
+            frame->set_Twb(result.optimized_pose);
+        }
+
+        if (m_config.print_summary)
+        {
+            std::cout << "Pose optimization: " << result.num_inliers << " inliers, "
+                      << result.num_outliers << " outliers" << std::endl;
+        }
+
+        return result;
     }
 
     // Helper function implementations moved outside optimize_pose

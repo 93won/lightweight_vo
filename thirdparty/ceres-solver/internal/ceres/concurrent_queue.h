@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2018 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,9 +36,10 @@
 #include <queue>
 #include <thread>
 
-#include "absl/log/check.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // A thread-safe multi-producer, multi-consumer queue for queueing items that
 // are typically handled asynchronously by multiple threads. The ConcurrentQueue
@@ -77,7 +78,7 @@ template <typename T>
 class ConcurrentQueue {
  public:
   // Defaults the queue to blocking on Wait calls.
-  ConcurrentQueue() = default;
+  ConcurrentQueue() : wait_(true) {}
 
   // Atomically push an element onto the queue.  If a thread was waiting for an
   // element, wake it up.
@@ -148,9 +149,10 @@ class ConcurrentQueue {
   std::queue<T> queue_;
   // If true, signals that callers of Wait will block waiting to pop an
   // element off the queue.
-  bool wait_{true};
+  bool wait_;
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_CONCURRENT_QUEUE_H_

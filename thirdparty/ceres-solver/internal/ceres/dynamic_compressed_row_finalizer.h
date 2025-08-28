@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,23 +28,24 @@
 //
 // Author: richie.stebbing@gmail.com (Richard Stebbing)
 
-#ifndef CERES_INTERNAL_DYNAMIC_COMPRESSED_ROW_FINALIZER_H_
-#define CERES_INTERNAL_DYNAMIC_COMPRESSED_ROW_FINALIZER_H_
+#ifndef CERES_INTERNAL_DYNAMIC_COMPRESED_ROW_FINALIZER_H_
+#define CERES_INTERNAL_DYNAMIC_COMPRESED_ROW_FINALIZER_H_
 
 #include "ceres/casts.h"
 #include "ceres/dynamic_compressed_row_sparse_matrix.h"
-#include "ceres/internal/export.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-struct CERES_NO_EXPORT DynamicCompressedRowJacobianFinalizer {
+struct DynamicCompressedRowJacobianFinalizer {
   void operator()(SparseMatrix* base_jacobian, int num_parameters) {
-    auto* jacobian =
+    DynamicCompressedRowSparseMatrix* jacobian =
         down_cast<DynamicCompressedRowSparseMatrix*>(base_jacobian);
     jacobian->Finalize(num_parameters);
   }
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
-#endif  // CERES_INTERNAL_DYNAMIC_COMPRESSED_ROW_FINALISER_H_
+#endif  // CERES_INTERNAL_DYNAMIC_COMPRESED_ROW_FINALISER_H_

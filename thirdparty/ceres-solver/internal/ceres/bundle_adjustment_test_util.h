@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2018 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,22 +32,29 @@
 // the generated bundle adjustment test binaries. The reason to split the
 // bundle tests into separate binaries is so the tests can get parallelized.
 
+#include <cmath>
 #include <cstdio>
-#include <memory>
+#include <cstdlib>
 #include <string>
 
-#include "absl/log/log.h"
 #include "ceres/autodiff_cost_function.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/ordered_groups.h"
 #include "ceres/problem.h"
 #include "ceres/rotation.h"
 #include "ceres/solver.h"
+#include "ceres/stringprintf.h"
 #include "ceres/test_util.h"
 #include "ceres/types.h"
+#include "gflags/gflags.h"
+#include "glog/logging.h"
+#include "gtest/gtest.h"
 
 namespace ceres {
 namespace internal {
+
+using std::string;
+using std::vector;
 
 const bool kAutomaticOrdering = true;
 const bool kUserOrdering = false;
@@ -58,13 +65,8 @@ const bool kUserOrdering = false;
 // problem is hard coded in the constructor.
 class BundleAdjustmentProblem {
  public:
-  explicit BundleAdjustmentProblem(const std::string input_file) {
-    ReadData(input_file);
-    BuildProblem();
-  }
   BundleAdjustmentProblem() {
-    const std::string input_file =
-        TestFileAbsolutePath("problem-16-22106-pre.txt");
+    const string input_file = TestFileAbsolutePath("problem-16-22106-pre.txt");
     ReadData(input_file);
     BuildProblem();
   }
@@ -80,21 +82,20 @@ class BundleAdjustmentProblem {
   Solver::Options* mutable_solver_options() { return &options_; }
 
   // clang-format off
-  int num_cameras()                const { return num_cameras_; }
-  int num_points()                 const { return num_points_; }
-  int num_observations()           const { return num_observations_; }
-  const int* point_index()         const { return point_index_; }
-  const int* camera_index()        const { return camera_index_; }
-  const double* observations()     const { return observations_; }
-  double* mutable_cameras()              { return parameters_; }
-  double* mutable_points()               { return parameters_ + 9 * num_cameras_; }
-  const Solver::Options& options() const { return options_; }
+  int num_cameras()            const { return num_cameras_; }
+  int num_points()             const { return num_points_; }
+  int num_observations()       const { return num_observations_; }
+  const int* point_index()     const { return point_index_; }
+  const int* camera_index()    const { return camera_index_; }
+  const double* observations() const { return observations_; }
+  double* mutable_cameras()          { return parameters_; }
+  double* mutable_points()           { return parameters_ + 9 * num_cameras_; }
   // clang-format on
 
-  static constexpr double kResidualTolerance = 1e-4;
+  static double kResidualTolerance;
 
  private:
-  void ReadData(const std::string& filename) {
+  void ReadData(const string& filename) {
     FILE* fptr = fopen(filename.c_str(), "r");
 
     if (!fptr) {
@@ -148,11 +149,10 @@ class BundleAdjustmentProblem {
       // point_index()[i] respectively.
       double* camera = cameras + 9 * camera_index_[i];
       double* point = points + 3 * point_index()[i];
-      problem_.AddResidualBlock(cost_function, nullptr, camera, point);
+      problem_.AddResidualBlock(cost_function, NULL, camera, point);
     }
 
-    options_.linear_solver_ordering =
-        std::make_shared<ParameterBlockOrdering>();
+    options_.linear_solver_ordering.reset(new ParameterBlockOrdering);
 
     // The points come before the cameras.
     for (int i = 0; i < num_points_; ++i) {
@@ -240,7 +240,8 @@ class BundleAdjustmentProblem {
   double* parameters_;
 };
 
-using BundleAdjustmentTest = SystemTest<BundleAdjustmentProblem>;
+double BundleAdjustmentProblem::kResidualTolerance = 1e-4;
+typedef SystemTest<BundleAdjustmentProblem> BundleAdjustmentTest;
 
 }  // namespace internal
 }  // namespace ceres

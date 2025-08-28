@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -40,9 +40,11 @@
 #include "ceres/internal/eigen.h"
 #include "ceres/linear_least_squares_problems.h"
 #include "ceres/triplet_sparse_matrix.h"
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 static void CompareMatrices(const SparseMatrix* a, const SparseMatrix* b) {
   EXPECT_EQ(a->num_rows(), b->num_rows());
@@ -58,8 +60,8 @@ static void CompareMatrices(const SparseMatrix* a, const SparseMatrix* b) {
     Vector y_a = Vector::Zero(num_rows);
     Vector y_b = Vector::Zero(num_rows);
 
-    a->RightMultiplyAndAccumulate(x.data(), y_a.data());
-    b->RightMultiplyAndAccumulate(x.data(), y_b.data());
+    a->RightMultiply(x.data(), y_a.data());
+    b->RightMultiply(x.data(), y_b.data());
 
     EXPECT_EQ((y_a - y_b).norm(), 0);
   }
@@ -68,13 +70,13 @@ static void CompareMatrices(const SparseMatrix* a, const SparseMatrix* b) {
 class DenseSparseMatrixTest : public ::testing::Test {
  protected:
   void SetUp() final {
-    std::unique_ptr<LinearLeastSquaresProblem> problem =
-        CreateLinearLeastSquaresProblemFromId(1);
+    std::unique_ptr<LinearLeastSquaresProblem> problem(
+        CreateLinearLeastSquaresProblemFromId(1));
 
-    ASSERT_TRUE(problem != nullptr);
+    CHECK(problem != nullptr);
 
     tsm.reset(down_cast<TripletSparseMatrix*>(problem->A.release()));
-    dsm = std::make_unique<DenseSparseMatrix>(*tsm);
+    dsm.reset(new DenseSparseMatrix(*tsm));
 
     num_rows = tsm->num_rows();
     num_cols = tsm->num_cols();
@@ -87,7 +89,7 @@ class DenseSparseMatrixTest : public ::testing::Test {
   std::unique_ptr<DenseSparseMatrix> dsm;
 };
 
-TEST_F(DenseSparseMatrixTest, RightMultiplyAndAccumulate) {
+TEST_F(DenseSparseMatrixTest, RightMultiply) {
   CompareMatrices(tsm.get(), dsm.get());
 
   // Try with a not entirely zero vector to verify column interactions, which
@@ -99,13 +101,13 @@ TEST_F(DenseSparseMatrixTest, RightMultiplyAndAccumulate) {
   Vector b1 = Vector::Zero(num_rows);
   Vector b2 = Vector::Zero(num_rows);
 
-  tsm->RightMultiplyAndAccumulate(a.data(), b1.data());
-  dsm->RightMultiplyAndAccumulate(a.data(), b2.data());
+  tsm->RightMultiply(a.data(), b1.data());
+  dsm->RightMultiply(a.data(), b2.data());
 
   EXPECT_EQ((b1 - b2).norm(), 0);
 }
 
-TEST_F(DenseSparseMatrixTest, LeftMultiplyAndAccumulate) {
+TEST_F(DenseSparseMatrixTest, LeftMultiply) {
   for (int i = 0; i < num_rows; ++i) {
     Vector a = Vector::Zero(num_rows);
     a(i) = 1.0;
@@ -113,8 +115,8 @@ TEST_F(DenseSparseMatrixTest, LeftMultiplyAndAccumulate) {
     Vector b1 = Vector::Zero(num_cols);
     Vector b2 = Vector::Zero(num_cols);
 
-    tsm->LeftMultiplyAndAccumulate(a.data(), b1.data());
-    dsm->LeftMultiplyAndAccumulate(a.data(), b2.data());
+    tsm->LeftMultiply(a.data(), b1.data());
+    dsm->LeftMultiply(a.data(), b2.data());
 
     EXPECT_EQ((b1 - b2).norm(), 0);
   }
@@ -128,8 +130,8 @@ TEST_F(DenseSparseMatrixTest, LeftMultiplyAndAccumulate) {
   Vector b1 = Vector::Zero(num_cols);
   Vector b2 = Vector::Zero(num_cols);
 
-  tsm->LeftMultiplyAndAccumulate(a.data(), b1.data());
-  dsm->LeftMultiplyAndAccumulate(a.data(), b2.data());
+  tsm->LeftMultiply(a.data(), b1.data());
+  dsm->LeftMultiply(a.data(), b2.data());
 
   EXPECT_EQ((b1 - b2).norm(), 0);
 }
@@ -164,4 +166,5 @@ TEST_F(DenseSparseMatrixTest, ToDenseMatrix) {
   EXPECT_EQ((tsm_dense - dsm_dense).norm(), 0.0);
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

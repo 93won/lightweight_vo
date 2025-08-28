@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,7 +34,8 @@
 
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 const double kTolerance = 1e-9;
 
@@ -173,4 +174,5 @@ TEST(IsClose, BothParametersZero) {
   EXPECT_NEAR(relative_error, 0.0, kTolerance);
   EXPECT_NEAR(absolute_error, 0.0, kTolerance);
 }
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

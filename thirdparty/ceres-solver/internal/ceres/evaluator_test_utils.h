@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,12 +31,13 @@
 //
 // Test utils used for evaluation testing.
 
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Fixed sized struct for storing an evaluation.
-struct CERES_NO_EXPORT ExpectedEvaluation {
+struct ExpectedEvaluation {
   int num_rows;
   int num_cols;
   double cost;
@@ -46,15 +47,16 @@ struct CERES_NO_EXPORT ExpectedEvaluation {
 };
 
 // Compare two evaluations.
-CERES_NO_EXPORT void CompareEvaluations(int expected_num_rows,
-                                        int expected_num_cols,
-                                        double expected_cost,
-                                        const double* expected_residuals,
-                                        const double* expected_gradient,
-                                        const double* expected_jacobian,
-                                        const double actual_cost,
-                                        const double* actual_residuals,
-                                        const double* actual_gradient,
-                                        const double* actual_jacobian);
+CERES_EXPORT_INTERNAL void CompareEvaluations(int expected_num_rows,
+                                              int expected_num_cols,
+                                              double expected_cost,
+                                              const double* expected_residuals,
+                                              const double* expected_gradient,
+                                              const double* expected_jacobian,
+                                              const double actual_cost,
+                                              const double* actual_residuals,
+                                              const double* actual_gradient,
+                                              const double* actual_jacobian);
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

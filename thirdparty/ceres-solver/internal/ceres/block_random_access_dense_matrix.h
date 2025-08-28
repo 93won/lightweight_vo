@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,12 +35,10 @@
 #include <vector>
 
 #include "ceres/block_random_access_matrix.h"
-#include "ceres/block_structure.h"
-#include "ceres/context_impl.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // A square block random accessible matrix with the same row and
 // column block structure. All cells are stored in the same single
@@ -48,20 +46,22 @@ namespace ceres::internal {
 // num_rows x num_cols.
 //
 // This class is NOT thread safe. Since all n^2 cells are stored,
-// GetCell never returns nullptr for any (row_block_id, col_block_id)
+// GetCell never returns NULL for any (row_block_id, col_block_id)
 // pair.
 //
 // ReturnCell is a nop.
-class CERES_NO_EXPORT BlockRandomAccessDenseMatrix
+class CERES_EXPORT_INTERNAL BlockRandomAccessDenseMatrix
     : public BlockRandomAccessMatrix {
  public:
   // blocks is a vector of block sizes. The resulting matrix has
   // blocks.size() * blocks.size() cells.
-  explicit BlockRandomAccessDenseMatrix(std::vector<Block> blocks,
-                                        ContextImpl* context,
-                                        int num_threads);
+  explicit BlockRandomAccessDenseMatrix(const std::vector<int>& blocks);
+  BlockRandomAccessDenseMatrix(const BlockRandomAccessDenseMatrix&) = delete;
+  void operator=(const BlockRandomAccessDenseMatrix&) = delete;
 
-  ~BlockRandomAccessDenseMatrix() override = default;
+  // The destructor is not thread safe. It assumes that no one is
+  // modifying any cells when the matrix is being destroyed.
+  virtual ~BlockRandomAccessDenseMatrix();
 
   // BlockRandomAccessMatrix interface.
   CellInfo* GetCell(int row_block_id,
@@ -71,6 +71,8 @@ class CERES_NO_EXPORT BlockRandomAccessDenseMatrix
                     int* row_stride,
                     int* col_stride) final;
 
+  // This is not a thread safe method, it assumes that no cell is
+  // locked.
   void SetZero() final;
 
   // Since the matrix is square with the same row and column block
@@ -83,16 +85,13 @@ class CERES_NO_EXPORT BlockRandomAccessDenseMatrix
   double* mutable_values() { return values_.get(); }
 
  private:
-  std::vector<Block> blocks_;
-  ContextImpl* context_ = nullptr;
-  int num_threads_ = -1;
-  int num_rows_ = -1;
+  int num_rows_;
+  std::vector<int> block_layout_;
   std::unique_ptr<double[]> values_;
   std::unique_ptr<CellInfo[]> cell_infos_;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_BLOCK_RANDOM_ACCESS_DENSE_MATRIX_H_

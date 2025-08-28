@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,96 +36,52 @@
 
 #include <cstddef>
 #include <map>
-#include <memory>
 #include <string>
 #include <vector>
 
-#include "absl/log/check.h"
 #include "ceres/block_sparse_matrix.h"
 #include "ceres/casts.h"
 #include "ceres/compressed_row_sparse_matrix.h"
 #include "ceres/context_impl.h"
 #include "ceres/dense_sparse_matrix.h"
 #include "ceres/execution_summary.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/triplet_sparse_matrix.h"
 #include "ceres/types.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-enum class LinearSolverTerminationType {
+enum LinearSolverTerminationType {
   // Termination criterion was met.
-  SUCCESS,
+  LINEAR_SOLVER_SUCCESS,
 
   // Solver ran for max_num_iterations and terminated before the
   // termination tolerance could be satisfied.
-  NO_CONVERGENCE,
+  LINEAR_SOLVER_NO_CONVERGENCE,
 
   // Solver was terminated due to numerical problems, generally due to
   // the linear system being poorly conditioned.
-  FAILURE,
+  LINEAR_SOLVER_FAILURE,
 
   // Solver failed with a fatal error that cannot be recovered from,
   // e.g. CHOLMOD ran out of memory when computing the symbolic or
   // numeric factorization or an underlying library was called with
   // the wrong arguments.
-  FATAL_ERROR
+  LINEAR_SOLVER_FATAL_ERROR
 };
-
-inline std::ostream& operator<<(std::ostream& s,
-                                LinearSolverTerminationType type) {
-  switch (type) {
-    case LinearSolverTerminationType::SUCCESS:
-      s << "LINEAR_SOLVER_SUCCESS";
-      break;
-    case LinearSolverTerminationType::NO_CONVERGENCE:
-      s << "LINEAR_SOLVER_NO_CONVERGENCE";
-      break;
-    case LinearSolverTerminationType::FAILURE:
-      s << "LINEAR_SOLVER_FAILURE";
-      break;
-    case LinearSolverTerminationType::FATAL_ERROR:
-      s << "LINEAR_SOLVER_FATAL_ERROR";
-      break;
-    default:
-      s << "UNKNOWN LinearSolverTerminationType";
-  }
-  return s;
-}
 
 // This enum controls the fill-reducing ordering a sparse linear
 // algebra library should use before computing a sparse factorization
 // (usually Cholesky).
-//
-// TODO(sameeragarwal): Add support for nested dissection
-enum class OrderingType {
+enum OrderingType {
   NATURAL,  // Do not re-order the matrix. This is useful when the
             // matrix has been ordered using a fill-reducing ordering
             // already.
-
-  AMD,  // Use the Approximate Minimum Degree algorithm to re-order
-        // the matrix.
-
-  NESDIS,  // Use the Nested Dissection algorithm to re-order the matrix.
+  AMD       // Use the Approximate Minimum Degree algorithm to re-order
+            // the matrix.
 };
-
-inline std::ostream& operator<<(std::ostream& s, OrderingType type) {
-  switch (type) {
-    case OrderingType::NATURAL:
-      s << "NATURAL";
-      break;
-    case OrderingType::AMD:
-      s << "AMD";
-      break;
-    case OrderingType::NESDIS:
-      s << "NESDIS";
-      break;
-    default:
-      s << "UNKNOWN OrderingType";
-  }
-  return s;
-}
 
 class LinearOperator;
 
@@ -145,7 +101,7 @@ class LinearOperator;
 // The Options struct configures the LinearSolver object for its
 // lifetime. The PerSolveOptions struct is used to specify options for
 // a particular Solve call.
-class CERES_NO_EXPORT LinearSolver {
+class CERES_EXPORT_INTERNAL LinearSolver {
  public:
   struct Options {
     LinearSolverType type = SPARSE_NORMAL_CHOLESKY;
@@ -154,9 +110,9 @@ class CERES_NO_EXPORT LinearSolver {
     DenseLinearAlgebraLibraryType dense_linear_algebra_library_type = EIGEN;
     SparseLinearAlgebraLibraryType sparse_linear_algebra_library_type =
         SUITE_SPARSE;
-    OrderingType ordering_type = OrderingType::NATURAL;
 
     // See solver.h for information about these flags.
+    bool use_postordering = false;
     bool dynamic_sparsity = false;
     bool use_explicit_schur_complement = false;
 
@@ -164,23 +120,6 @@ class CERES_NO_EXPORT LinearSolver {
     // parameter only makes sense for iterative solvers like CG.
     int min_num_iterations = 1;
     int max_num_iterations = 1;
-
-    // Maximum number of iterations performed by SCHUR_POWER_SERIES_EXPANSION.
-    // This value controls the maximum number of iterations whether it is used
-    // as a preconditioner or just to initialize the solution for
-    // ITERATIVE_SCHUR.
-    int max_num_spse_iterations = 5;
-
-    // Use SCHUR_POWER_SERIES_EXPANSION to initialize the solution for
-    // ITERATIVE_SCHUR. This option can be set true regardless of what
-    // preconditioner is being used.
-    bool use_spse_initialization = false;
-
-    // When use_spse_initialization is true, this parameter along with
-    // max_num_spse_iterations controls the number of
-    // SCHUR_POWER_SERIES_EXPANSION iterations performed for initialization. It
-    // is not used to control the preconditioner.
-    double spse_tolerance = 0.1;
 
     // If possible, how many threads can the solver use.
     int num_threads = 1;
@@ -320,8 +259,7 @@ class CERES_NO_EXPORT LinearSolver {
   struct Summary {
     double residual_norm = -1.0;
     int num_iterations = -1;
-    LinearSolverTerminationType termination_type =
-        LinearSolverTerminationType::FAILURE;
+    LinearSolverTerminationType termination_type = LINEAR_SOLVER_FAILURE;
     std::string message;
   };
 
@@ -346,11 +284,11 @@ class CERES_NO_EXPORT LinearSolver {
   // issues. Further, this calls are not expected to be frequent or
   // performance sensitive.
   virtual std::map<std::string, CallStatistics> Statistics() const {
-    return {};
+    return std::map<std::string, CallStatistics>();
   }
 
   // Factory
-  static std::unique_ptr<LinearSolver> Create(const Options& options);
+  static LinearSolver* Create(const Options& options);
 };
 
 // This templated subclass of LinearSolver serves as a base class for
@@ -363,11 +301,12 @@ class CERES_NO_EXPORT LinearSolver {
 template <typename MatrixType>
 class TypedLinearSolver : public LinearSolver {
  public:
-  LinearSolver::Summary Solve(
+  virtual ~TypedLinearSolver() {}
+  virtual LinearSolver::Summary Solve(
       LinearOperator* A,
       const double* b,
       const LinearSolver::PerSolveOptions& per_solve_options,
-      double* x) override {
+      double* x) {
     ScopedExecutionTimer total_time("LinearSolver::Solve", &execution_summary_);
     CHECK(A != nullptr);
     CHECK(b != nullptr);
@@ -375,7 +314,7 @@ class TypedLinearSolver : public LinearSolver {
     return SolveImpl(down_cast<MatrixType*>(A), b, per_solve_options, x);
   }
 
-  std::map<std::string, CallStatistics> Statistics() const override {
+  virtual std::map<std::string, CallStatistics> Statistics() const {
     return execution_summary_.statistics();
   }
 
@@ -389,17 +328,16 @@ class TypedLinearSolver : public LinearSolver {
   ExecutionSummary execution_summary_;
 };
 
-// Linear solvers that depend on access to the low level structure of
+// Linear solvers that depend on acccess to the low level structure of
 // a SparseMatrix.
 // clang-format off
-using BlockSparseMatrixSolver = TypedLinearSolver<BlockSparseMatrix>;                  // NOLINT
-using CompressedRowSparseMatrixSolver = TypedLinearSolver<CompressedRowSparseMatrix>;  // NOLINT
-using DenseSparseMatrixSolver = TypedLinearSolver<DenseSparseMatrix>;                  // NOLINT
-using TripletSparseMatrixSolver = TypedLinearSolver<TripletSparseMatrix>;              // NOLINT
+typedef TypedLinearSolver<BlockSparseMatrix>         BlockSparseMatrixSolver;          // NOLINT
+typedef TypedLinearSolver<CompressedRowSparseMatrix> CompressedRowSparseMatrixSolver;  // NOLINT
+typedef TypedLinearSolver<DenseSparseMatrix>         DenseSparseMatrixSolver;          // NOLINT
+typedef TypedLinearSolver<TripletSparseMatrix>       TripletSparseMatrixSolver;        // NOLINT
 // clang-format on
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_LINEAR_SOLVER_H_

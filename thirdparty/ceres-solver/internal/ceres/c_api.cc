@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,25 +35,23 @@
 #include "ceres/c_api.h"
 
 #include <iostream>
-#include <memory>
 #include <string>
 #include <vector>
 
-// #include "absl/log/initialize.h"
 #include "ceres/cost_function.h"
 #include "ceres/loss_function.h"
 #include "ceres/problem.h"
 #include "ceres/solver.h"
 #include "ceres/types.h"  // for std
+#include "glog/logging.h"
 
 using ceres::Problem;
 
 void ceres_init() {
-  // TODO(sameeragarwal): This is currently broken, because if I include this,
-  // then I need to link absl::log_initialize into c_api_test, since
-  // Ceres::ceres does not link into it.
-  //
-  // absl::InitializeLog();
+  // This is not ideal, but it's not clear what to do if there is no gflags and
+  // no access to command line arguments.
+  char message[] = "<unknown>";
+  google::InitGoogleLogging(message);
 }
 
 ceres_problem_t* ceres_create_problem() {
@@ -66,7 +64,7 @@ void ceres_free_problem(ceres_problem_t* problem) {
 
 // This cost function wraps a C-level function pointer from the user, to bridge
 // between C and C++.
-class CERES_NO_EXPORT CallbackCostFunction final : public ceres::CostFunction {
+class CallbackCostFunction : public ceres::CostFunction {
  public:
   CallbackCostFunction(ceres_cost_function_t cost_function,
                        void* user_data,
@@ -79,6 +77,8 @@ class CERES_NO_EXPORT CallbackCostFunction final : public ceres::CostFunction {
       mutable_parameter_block_sizes()->push_back(parameter_block_sizes[i]);
     }
   }
+
+  virtual ~CallbackCostFunction() {}
 
   bool Evaluate(double const* const* parameters,
                 double* residuals,
@@ -94,7 +94,7 @@ class CERES_NO_EXPORT CallbackCostFunction final : public ceres::CostFunction {
 
 // This loss function wraps a C-level function pointer from the user, to bridge
 // between C and C++.
-class CallbackLossFunction final : public ceres::LossFunction {
+class CallbackLossFunction : public ceres::LossFunction {
  public:
   explicit CallbackLossFunction(ceres_loss_function_t loss_function,
                                 void* user_data)
@@ -146,31 +146,30 @@ ceres_residual_block_id_t* ceres_problem_add_residual_block(
     int num_parameter_blocks,
     int* parameter_block_sizes,
     double** parameters) {
-  auto* ceres_problem = reinterpret_cast<Problem*>(problem);
+  Problem* ceres_problem = reinterpret_cast<Problem*>(problem);
 
-  auto callback_cost_function =
-      std::make_unique<CallbackCostFunction>(cost_function,
-                                             cost_function_data,
-                                             num_residuals,
-                                             num_parameter_blocks,
-                                             parameter_block_sizes);
+  ceres::CostFunction* callback_cost_function =
+      new CallbackCostFunction(cost_function,
+                               cost_function_data,
+                               num_residuals,
+                               num_parameter_blocks,
+                               parameter_block_sizes);
 
-  std::unique_ptr<ceres::LossFunction> callback_loss_function;
-  if (loss_function != nullptr) {
-    callback_loss_function = std::make_unique<CallbackLossFunction>(
-        loss_function, loss_function_data);
+  ceres::LossFunction* callback_loss_function = NULL;
+  if (loss_function != NULL) {
+    callback_loss_function =
+        new CallbackLossFunction(loss_function, loss_function_data);
   }
 
   std::vector<double*> parameter_blocks(parameters,
                                         parameters + num_parameter_blocks);
   return reinterpret_cast<ceres_residual_block_id_t*>(
-      ceres_problem->AddResidualBlock(callback_cost_function.release(),
-                                      callback_loss_function.release(),
-                                      parameter_blocks));
+      ceres_problem->AddResidualBlock(
+          callback_cost_function, callback_loss_function, parameter_blocks));
 }
 
 void ceres_solve(ceres_problem_t* c_problem) {
-  auto* problem = reinterpret_cast<Problem*>(c_problem);
+  Problem* problem = reinterpret_cast<Problem*>(c_problem);
 
   // TODO(keir): Obviously, this way of setting options won't scale or last.
   // Instead, figure out a way to specify some of the options without

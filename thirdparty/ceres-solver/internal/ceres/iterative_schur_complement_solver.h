@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,13 +33,13 @@
 
 #include <memory>
 
-#include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/linear_solver.h"
 #include "ceres/types.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class BlockSparseMatrix;
 class ImplicitSchurComplement;
@@ -52,7 +52,7 @@ class Preconditioner;
 // The algorithm used by this solver was developed in a series of
 // papers - "Agarwal et al, Bundle Adjustment in the Large, ECCV 2010"
 // and "Wu et al, Multicore Bundle Adjustment, submitted to CVPR
-// 2011" at the University of Washington.
+// 2011" at the Univeristy of Washington.
 //
 // The key idea is that one can run Conjugate Gradients on the Schur
 // Complement system without explicitly forming the Schur Complement
@@ -69,15 +69,15 @@ class Preconditioner;
 // a proof of this fact and others related to this solver please see
 // the section on Domain Decomposition Methods in Saad's book
 // "Iterative Methods for Sparse Linear Systems".
-class CERES_NO_EXPORT IterativeSchurComplementSolver final
+class CERES_EXPORT_INTERNAL IterativeSchurComplementSolver
     : public BlockSparseMatrixSolver {
  public:
-  explicit IterativeSchurComplementSolver(LinearSolver::Options options);
+  explicit IterativeSchurComplementSolver(const LinearSolver::Options& options);
   IterativeSchurComplementSolver(const IterativeSchurComplementSolver&) =
       delete;
   void operator=(const IterativeSchurComplementSolver&) = delete;
 
-  ~IterativeSchurComplementSolver() override;
+  virtual ~IterativeSchurComplementSolver();
 
  private:
   LinearSolver::Summary SolveImpl(BlockSparseMatrix* A,
@@ -93,8 +93,7 @@ class CERES_NO_EXPORT IterativeSchurComplementSolver final
   Vector reduced_linear_system_solution_;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_ITERATIVE_SCHUR_COMPLEMENT_SOLVER_H_

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,17 +35,14 @@
 #define CERES_INTERNAL_BLOCK_SPARSE_MATRIX_H_
 
 #include <memory>
-#include <random>
 
 #include "ceres/block_structure.h"
-#include "ceres/compressed_row_sparse_matrix.h"
-#include "ceres/context_impl.h"
-#include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/sparse_matrix.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class TripletSparseMatrix;
 
@@ -57,7 +54,7 @@ class TripletSparseMatrix;
 //
 //   internal/ceres/block_structure.h
 //
-class CERES_NO_EXPORT BlockSparseMatrix final : public SparseMatrix {
+class CERES_EXPORT_INTERNAL BlockSparseMatrix : public SparseMatrix {
  public:
   // Construct a block sparse matrix with a fully initialized
   // CompressedRowBlockStructure objected. The matrix takes over
@@ -65,64 +62,33 @@ class CERES_NO_EXPORT BlockSparseMatrix final : public SparseMatrix {
   //
   // TODO(sameeragarwal): Add a function which will validate legal
   // CompressedRowBlockStructure objects.
-  explicit BlockSparseMatrix(CompressedRowBlockStructure* block_structure,
-                             bool use_page_locked_memory = false);
-  ~BlockSparseMatrix();
+  explicit BlockSparseMatrix(CompressedRowBlockStructure* block_structure);
 
+  BlockSparseMatrix();
   BlockSparseMatrix(const BlockSparseMatrix&) = delete;
   void operator=(const BlockSparseMatrix&) = delete;
 
-  // Implementation of SparseMatrix interface.
-  void SetZero() override final;
-  void SetZero(ContextImpl* context, int num_threads) override final;
-  void RightMultiplyAndAccumulate(const double* x, double* y) const final;
-  void RightMultiplyAndAccumulate(const double* x,
-                                  double* y,
-                                  ContextImpl* context,
-                                  int num_threads) const final;
-  void LeftMultiplyAndAccumulate(const double* x, double* y) const final;
-  void LeftMultiplyAndAccumulate(const double* x,
-                                 double* y,
-                                 ContextImpl* context,
-                                 int num_threads) const final;
-  void SquaredColumnNorm(double* x) const final;
-  void SquaredColumnNorm(double* x,
-                         ContextImpl* context,
-                         int num_threads) const final;
-  void ScaleColumns(const double* scale) final;
-  void ScaleColumns(const double* scale,
-                    ContextImpl* context,
-                    int num_threads) final;
+  virtual ~BlockSparseMatrix();
 
-  // Convert to CompressedRowSparseMatrix
-  std::unique_ptr<CompressedRowSparseMatrix> ToCompressedRowSparseMatrix()
-      const;
-  // Create CompressedRowSparseMatrix corresponding to transposed matrix
-  std::unique_ptr<CompressedRowSparseMatrix>
-  ToCompressedRowSparseMatrixTranspose() const;
-  // Copy values to CompressedRowSparseMatrix that has compatible structure
-  void UpdateCompressedRowSparseMatrix(
-      CompressedRowSparseMatrix* crs_matrix) const;
-  // Copy values to CompressedRowSparseMatrix that has structure of transposed
-  // matrix
-  void UpdateCompressedRowSparseMatrixTranspose(
-      CompressedRowSparseMatrix* crs_matrix) const;
+  // Implementation of SparseMatrix interface.
+  void SetZero() final;
+  void RightMultiply(const double* x, double* y) const final;
+  void LeftMultiply(const double* x, double* y) const final;
+  void SquaredColumnNorm(double* x) const final;
+  void ScaleColumns(const double* scale) final;
   void ToDenseMatrix(Matrix* dense_matrix) const final;
   void ToTextFile(FILE* file) const final;
-
-  void AddTransposeBlockStructure();
 
   // clang-format off
   int num_rows()         const final { return num_rows_;     }
   int num_cols()         const final { return num_cols_;     }
   int num_nonzeros()     const final { return num_nonzeros_; }
-  const double* values() const final { return values_; }
-  double* mutable_values()     final { return values_; }
+  const double* values() const final { return values_.get(); }
+  double* mutable_values()     final { return values_.get(); }
   // clang-format on
 
   void ToTripletSparseMatrix(TripletSparseMatrix* matrix) const;
   const CompressedRowBlockStructure* block_structure() const;
-  const CompressedRowBlockStructure* transpose_block_structure() const;
 
   // Append the contents of m to the bottom of this matrix. m must
   // have the same column blocks structure as this matrix.
@@ -131,7 +97,7 @@ class CERES_NO_EXPORT BlockSparseMatrix final : public SparseMatrix {
   // Delete the bottom delta_rows_blocks.
   void DeleteRowBlocks(int delta_row_blocks);
 
-  static std::unique_ptr<BlockSparseMatrix> CreateDiagonalMatrix(
+  static BlockSparseMatrix* CreateDiagonalMatrix(
       const double* diagonal, const std::vector<Block>& column_blocks);
 
   struct RandomMatrixOptions {
@@ -156,23 +122,18 @@ class CERES_NO_EXPORT BlockSparseMatrix final : public SparseMatrix {
   // Create a random BlockSparseMatrix whose entries are normally
   // distributed and whose structure is determined by
   // RandomMatrixOptions.
-  static std::unique_ptr<BlockSparseMatrix> CreateRandomMatrix(
-      const RandomMatrixOptions& options,
-      std::mt19937& prng,
-      bool use_page_locked_memory = false);
+  //
+  // Caller owns the result.
+  static BlockSparseMatrix* CreateRandomMatrix(
+      const RandomMatrixOptions& options);
 
  private:
-  double* AllocateValues(int size);
-  void FreeValues(double*& values);
-
-  const bool use_page_locked_memory_;
   int num_rows_;
   int num_cols_;
   int num_nonzeros_;
   int max_num_nonzeros_;
-  double* values_;
+  std::unique_ptr<double[]> values_;
   std::unique_ptr<CompressedRowBlockStructure> block_structure_;
-  std::unique_ptr<CompressedRowBlockStructure> transpose_block_structure_;
 };
 
 // A number of algorithms like the SchurEliminator do not need
@@ -181,10 +142,10 @@ class CERES_NO_EXPORT BlockSparseMatrix final : public SparseMatrix {
 //
 // BlockSparseDataMatrix a struct that carries these two bits of
 // information
-class CERES_NO_EXPORT BlockSparseMatrixData {
+class BlockSparseMatrixData {
  public:
-  explicit BlockSparseMatrixData(const BlockSparseMatrix& m)
-      : block_structure_(m.block_structure()), values_(m.values()) {};
+  BlockSparseMatrixData(const BlockSparseMatrix& m)
+      : block_structure_(m.block_structure()), values_(m.values()){};
 
   BlockSparseMatrixData(const CompressedRowBlockStructure* block_structure,
                         const double* values)
@@ -200,11 +161,7 @@ class CERES_NO_EXPORT BlockSparseMatrixData {
   const double* values_;
 };
 
-std::unique_ptr<CompressedRowBlockStructure> CreateTranspose(
-    const CompressedRowBlockStructure& bs);
-
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_BLOCK_SPARSE_MATRIX_H_

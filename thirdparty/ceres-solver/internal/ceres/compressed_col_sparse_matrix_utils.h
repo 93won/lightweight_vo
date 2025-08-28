@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,14 +31,12 @@
 #ifndef CERES_INTERNAL_COMPRESSED_COL_SPARSE_MATRIX_UTILS_H_
 #define CERES_INTERNAL_COMPRESSED_COL_SPARSE_MATRIX_UTILS_H_
 
-#include <algorithm>
 #include <vector>
 
-#include "ceres/block_structure.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Extract the block sparsity pattern of the scalar compressed columns
 // matrix and return it in compressed column form. The compressed
@@ -50,19 +48,19 @@ namespace ceres::internal {
 // and column block j, then it is expected that A contains at least
 // one non-zero entry corresponding to the top left entry of c_ij,
 // as that entry is used to detect the presence of a non-zero c_ij.
-CERES_NO_EXPORT void CompressedColumnScalarMatrixToBlockMatrix(
+CERES_EXPORT_INTERNAL void CompressedColumnScalarMatrixToBlockMatrix(
     const int* scalar_rows,
     const int* scalar_cols,
-    const std::vector<Block>& row_blocks,
-    const std::vector<Block>& col_blocks,
+    const std::vector<int>& row_blocks,
+    const std::vector<int>& col_blocks,
     std::vector<int>* block_rows,
     std::vector<int>* block_cols);
 
 // Given a set of blocks and a permutation of these blocks, compute
 // the corresponding "scalar" ordering, where the scalar ordering of
 // size sum(blocks).
-CERES_NO_EXPORT void BlockOrderingToScalarOrdering(
-    const std::vector<Block>& blocks,
+CERES_EXPORT_INTERNAL void BlockOrderingToScalarOrdering(
+    const std::vector<int>& blocks,
     const std::vector<int>& block_ordering,
     std::vector<int>* scalar_ordering);
 
@@ -141,8 +139,7 @@ void SolveRTRWithSparseRHS(IntegerType num_cols,
   SolveUpperTriangularInPlace(num_cols, rows, cols, values, solution);
 }
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_COMPRESSED_COL_SPARSE_MATRIX_UTILS_H_

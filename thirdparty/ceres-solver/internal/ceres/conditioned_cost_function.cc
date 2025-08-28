@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,10 +34,10 @@
 
 #include <cstddef>
 
-#include "absl/log/check.h"
 #include "ceres/internal/eigen.h"
 #include "ceres/stl_util.h"
 #include "ceres/types.h"
+#include "glog/logging.h"
 
 namespace ceres {
 
@@ -98,7 +98,7 @@ bool ConditionedCostFunction::Evaluate(double const* const* parameters,
       double** conditioner_derivative_pointer2 =
           &conditioner_derivative_pointer;
       if (!jacobians) {
-        conditioner_derivative_pointer2 = nullptr;
+        conditioner_derivative_pointer2 = NULL;
       }
 
       double unconditioned_residual = residuals[r];

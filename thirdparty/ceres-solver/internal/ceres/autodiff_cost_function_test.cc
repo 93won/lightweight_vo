@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2024 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,8 @@
 #include "ceres/cost_function.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class BinaryScalarCost {
  public:
@@ -56,7 +57,7 @@ TEST(AutodiffCostFunction, BilinearDifferentiationTest) {
       new AutoDiffCostFunction<BinaryScalarCost, 1, 2, 2>(
           new BinaryScalarCost(1.0));
 
-  auto** parameters = new double*[2];
+  double** parameters = new double*[2];
   parameters[0] = new double[2];
   parameters[1] = new double[2];
 
@@ -66,7 +67,7 @@ TEST(AutodiffCostFunction, BilinearDifferentiationTest) {
   parameters[1][0] = 3;
   parameters[1][1] = 4;
 
-  auto** jacobians = new double*[2];
+  double** jacobians = new double*[2];
   jacobians[0] = new double[2];
   jacobians[1] = new double[2];
 
@@ -125,8 +126,8 @@ TEST(AutodiffCostFunction, ManyParameterAutodiffInstantiates) {
                                1,
                                1>(new TenParameterCost);
 
-  auto** parameters = new double*[10];
-  auto** jacobians = new double*[10];
+  double** parameters = new double*[10];
+  double** jacobians = new double*[10];
   for (int i = 0; i < 10; ++i) {
     parameters[i] = new double[1];
     parameters[i][0] = i;
@@ -178,24 +179,5 @@ TEST(AutoDiffCostFunction, PartiallyFilledResidualShouldFailEvaluation) {
   EXPECT_FALSE(IsArrayValid(2, residuals));
 }
 
-TEST(AutodiffCostFunction, ArgumentForwarding) {
-  // No narrowing conversion warning should be emitted
-  auto cost_function1 =
-      std::make_unique<AutoDiffCostFunction<BinaryScalarCost, 1, 2, 2>>(1);
-  auto cost_function2 =
-      std::make_unique<AutoDiffCostFunction<BinaryScalarCost, 1, 2, 2>>(2.0);
-  // Default constructible functor
-  auto cost_function3 =
-      std::make_unique<AutoDiffCostFunction<OnlyFillsOneOutputFunctor, 1, 1>>();
-}
-
-TEST(AutodiffCostFunction, UniquePtrCtor) {
-  auto cost_function1 =
-      std::make_unique<AutoDiffCostFunction<BinaryScalarCost, 1, 2, 2>>(
-          std::make_unique<BinaryScalarCost>(1));
-  auto cost_function2 =
-      std::make_unique<AutoDiffCostFunction<BinaryScalarCost, 1, 2, 2>>(
-          std::make_unique<BinaryScalarCost>(2.0));
-}
-
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

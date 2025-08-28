@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2018 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -27,7 +27,6 @@
 // POSSIBILITY OF SUCH DAMAGE.
 //
 // Author: jodebo_beck@gmx.de (Johannes Beck)
-//         sergiu.deitsch@gmail.com (Sergiu Deitsch)
 //
 // Algorithms to be used together with integer_sequence, like computing the sum
 // or the exclusive scan (sometimes called exclusive prefix sum) at compile
@@ -38,9 +37,70 @@
 
 #include <utility>
 
-#include "ceres/jet_fwd.h"
+namespace ceres {
+namespace internal {
 
-namespace ceres::internal {
+// Implementation of calculating the sum of an integer sequence.
+// Recursively instantiate SumImpl and calculate the sum of the N first
+// numbers. This reduces the number of instantiations and speeds up
+// compilation.
+//
+// Examples:
+// 1) integer_sequence<int, 5>:
+//   Value = 5
+//
+// 2) integer_sequence<int, 4, 2>:
+//   Value = 4 + 2 + SumImpl<integer_sequence<int>>::Value
+//   Value = 4 + 2 + 0
+//
+// 3) integer_sequence<int, 2, 1, 4>:
+//   Value = 2 + 1 + SumImpl<integer_sequence<int, 4>>::Value
+//   Value = 2 + 1 + 4
+template <typename Seq>
+struct SumImpl;
+
+// Strip of and sum the first number.
+template <typename T, T N, T... Ns>
+struct SumImpl<std::integer_sequence<T, N, Ns...>> {
+  static constexpr T Value =
+      N + SumImpl<std::integer_sequence<T, Ns...>>::Value;
+};
+
+// Strip of and sum the first two numbers.
+template <typename T, T N1, T N2, T... Ns>
+struct SumImpl<std::integer_sequence<T, N1, N2, Ns...>> {
+  static constexpr T Value =
+      N1 + N2 + SumImpl<std::integer_sequence<T, Ns...>>::Value;
+};
+
+// Strip of and sum the first four numbers.
+template <typename T, T N1, T N2, T N3, T N4, T... Ns>
+struct SumImpl<std::integer_sequence<T, N1, N2, N3, N4, Ns...>> {
+  static constexpr T Value =
+      N1 + N2 + N3 + N4 + SumImpl<std::integer_sequence<T, Ns...>>::Value;
+};
+
+// Only one number is left. 'Value' is just that number ('recursion' ends).
+template <typename T, T N>
+struct SumImpl<std::integer_sequence<T, N>> {
+  static constexpr T Value = N;
+};
+
+// No number is left. 'Value' is the identity element (for sum this is zero).
+template <typename T>
+struct SumImpl<std::integer_sequence<T>> {
+  static constexpr T Value = T(0);
+};
+
+// Calculate the sum of an integer sequence. The resulting sum will be stored in
+// 'Value'.
+template <typename Seq>
+class Sum {
+  using T = typename Seq::value_type;
+
+ public:
+  static constexpr T Value = SumImpl<Seq>::Value;
+};
 
 // Implementation of calculating an exclusive scan (exclusive prefix sum) of an
 // integer sequence. Exclusive means that the i-th input element is not included
@@ -104,96 +164,7 @@ class ExclusiveScanT {
 template <typename Seq>
 using ExclusiveScan = typename ExclusiveScanT<Seq>::Type;
 
-// Removes all elements from a integer sequence corresponding to specified
-// ValueToRemove.
-//
-// This type should not be used directly but instead RemoveValue.
-template <typename T, T ValueToRemove, typename... Sequence>
-struct RemoveValueImpl;
-
-// Final filtered sequence
-template <typename T, T ValueToRemove, T... Values>
-struct RemoveValueImpl<T,
-                       ValueToRemove,
-                       std::integer_sequence<T, Values...>,
-                       std::integer_sequence<T>> {
-  using type = std::integer_sequence<T, Values...>;
-};
-
-// Found a matching value
-template <typename T, T ValueToRemove, T... Head, T... Tail>
-struct RemoveValueImpl<T,
-                       ValueToRemove,
-                       std::integer_sequence<T, Head...>,
-                       std::integer_sequence<T, ValueToRemove, Tail...>>
-    : RemoveValueImpl<T,
-                      ValueToRemove,
-                      std::integer_sequence<T, Head...>,
-                      std::integer_sequence<T, Tail...>> {};
-
-// Move one element from the tail to the head
-template <typename T, T ValueToRemove, T... Head, T MiddleValue, T... Tail>
-struct RemoveValueImpl<T,
-                       ValueToRemove,
-                       std::integer_sequence<T, Head...>,
-                       std::integer_sequence<T, MiddleValue, Tail...>>
-    : RemoveValueImpl<T,
-                      ValueToRemove,
-                      std::integer_sequence<T, Head..., MiddleValue>,
-                      std::integer_sequence<T, Tail...>> {};
-
-// Start recursion by splitting the integer sequence into two separate ones
-template <typename T, T ValueToRemove, T... Tail>
-struct RemoveValueImpl<T, ValueToRemove, std::integer_sequence<T, Tail...>>
-    : RemoveValueImpl<T,
-                      ValueToRemove,
-                      std::integer_sequence<T>,
-                      std::integer_sequence<T, Tail...>> {};
-
-// RemoveValue takes an integer Sequence of arbitrary type and removes all
-// elements matching ValueToRemove.
-//
-// In contrast to RemoveValueImpl, this implementation deduces the value type
-// eliminating the need to specify it explicitly.
-//
-// As an example, RemoveValue<std::integer_sequence<int, 1, 2, 3>, 4>::type will
-// not transform the type of the original sequence. However,
-// RemoveValue<std::integer_sequence<int, 0, 0, 2>, 2>::type will generate a new
-// sequence of type std::integer_sequence<int, 0, 0> by removing the value 2.
-template <typename Sequence, typename Sequence::value_type ValueToRemove>
-struct RemoveValue
-    : RemoveValueImpl<typename Sequence::value_type, ValueToRemove, Sequence> {
-};
-
-// Convenience template alias for RemoveValue.
-template <typename Sequence, typename Sequence::value_type ValueToRemove>
-using RemoveValue_t = typename RemoveValue<Sequence, ValueToRemove>::type;
-
-// Returns true if all elements of Values are equal to HeadValue.
-//
-// Returns true if Values is empty.
-template <typename T, T HeadValue, T... Values>
-inline constexpr bool AreAllEqual_v = ((HeadValue == Values) && ...);
-
-// Predicate determining whether an integer sequence is either empty or all
-// values are equal.
-template <typename Sequence>
-struct IsEmptyOrAreAllEqual;
-
-// Empty case.
-template <typename T>
-struct IsEmptyOrAreAllEqual<std::integer_sequence<T>> : std::true_type {};
-
-// General case for sequences containing at least one value.
-template <typename T, T HeadValue, T... Values>
-struct IsEmptyOrAreAllEqual<std::integer_sequence<T, HeadValue, Values...>>
-    : std::integral_constant<bool, AreAllEqual_v<T, HeadValue, Values...>> {};
-
-// Convenience variable template for IsEmptyOrAreAllEqual.
-template <class Sequence>
-inline constexpr bool IsEmptyOrAreAllEqual_v =
-    IsEmptyOrAreAllEqual<Sequence>::value;
-
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_PUBLIC_INTERNAL_INTEGER_SEQUENCE_ALGORITHM_H_

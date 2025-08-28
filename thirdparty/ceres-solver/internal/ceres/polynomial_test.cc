@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,13 +35,15 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
-#include <vector>
 
 #include "ceres/function_sample.h"
 #include "ceres/test_util.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
+
+using std::vector;
 
 namespace {
 
@@ -86,8 +88,8 @@ Vector SortVector(const Vector& in) {
 }
 
 // Run a test with the polynomial defined by the N real roots in roots_real.
-// If use_real is false, nullptr is passed as the real argument to
-// FindPolynomialRoots. If use_imaginary is false, nullptr is passed as the
+// If use_real is false, NULL is passed as the real argument to
+// FindPolynomialRoots. If use_imaginary is false, NULL is passed as the
 // imaginary argument to FindPolynomialRoots.
 template <int N>
 void RunPolynomialTestRealRoots(const double (&real_roots)[N],
@@ -100,8 +102,8 @@ void RunPolynomialTestRealRoots(const double (&real_roots)[N],
   for (int i = 0; i < N; ++i) {
     poly = AddRealRoot(poly, real_roots[i]);
   }
-  Vector* const real_ptr = use_real ? &real : nullptr;
-  Vector* const imaginary_ptr = use_imaginary ? &imaginary : nullptr;
+  Vector* const real_ptr = use_real ? &real : NULL;
+  Vector* const imaginary_ptr = use_imaginary ? &imaginary : NULL;
   bool success = FindPolynomialRoots(poly, real_ptr, imaginary_ptr);
 
   EXPECT_EQ(success, true);
@@ -313,7 +315,7 @@ TEST(Polymomial, ConstantInterpolatingPolynomial) {
   Vector true_polynomial(1);
   true_polynomial << 1.0;
 
-  std::vector<FunctionSample> samples;
+  vector<FunctionSample> samples;
   FunctionSample sample;
   sample.x = 1.0;
   sample.value = 1.0;
@@ -329,7 +331,7 @@ TEST(Polynomial, LinearInterpolatingPolynomial) {
   Vector true_polynomial(2);
   true_polynomial << 2.0, -1.0;
 
-  std::vector<FunctionSample> samples;
+  vector<FunctionSample> samples;
   FunctionSample sample;
   sample.x = 1.0;
   sample.value = 1.0;
@@ -347,7 +349,7 @@ TEST(Polynomial, QuadraticInterpolatingPolynomial) {
   Vector true_polynomial(3);
   true_polynomial << 2.0, 3.0, 2.0;
 
-  std::vector<FunctionSample> samples;
+  vector<FunctionSample> samples;
   {
     FunctionSample sample;
     sample.x = 1.0;
@@ -375,7 +377,7 @@ TEST(Polynomial, DeficientCubicInterpolatingPolynomial) {
   Vector true_polynomial(4);
   true_polynomial << 0.0, 2.0, 3.0, 2.0;
 
-  std::vector<FunctionSample> samples;
+  vector<FunctionSample> samples;
   {
     FunctionSample sample;
     sample.x = 1.0;
@@ -405,7 +407,7 @@ TEST(Polynomial, CubicInterpolatingPolynomialFromValues) {
   Vector true_polynomial(4);
   true_polynomial << 1.0, 2.0, 3.0, 2.0;
 
-  std::vector<FunctionSample> samples;
+  vector<FunctionSample> samples;
   {
     FunctionSample sample;
     sample.x = 1.0;
@@ -448,7 +450,7 @@ TEST(Polynomial, CubicInterpolatingPolynomialFromValuesAndOneGradient) {
   true_polynomial << 1.0, 2.0, 3.0, 2.0;
   Vector true_gradient_polynomial = DifferentiatePolynomial(true_polynomial);
 
-  std::vector<FunctionSample> samples;
+  vector<FunctionSample> samples;
   {
     FunctionSample sample;
     sample.x = 1.0;
@@ -485,7 +487,7 @@ TEST(Polynomial, CubicInterpolatingPolynomialFromValuesAndGradients) {
   true_polynomial << 1.0, 2.0, 3.0, 2.0;
   Vector true_gradient_polynomial = DifferentiatePolynomial(true_polynomial);
 
-  std::vector<FunctionSample> samples;
+  vector<FunctionSample> samples;
   {
     FunctionSample sample;
     sample.x = -3.0;
@@ -510,4 +512,5 @@ TEST(Polynomial, CubicInterpolatingPolynomialFromValuesAndGradients) {
   EXPECT_NEAR((true_polynomial - polynomial).norm(), 0.0, 1e-14);
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,7 +33,8 @@
 #include "ceres/internal/eigen.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 static constexpr bool kFullRank = true;
 static constexpr bool kRankDeficient = false;
@@ -108,4 +109,5 @@ TEST(InvertPSDMatrix, DynamicRankDeficient5x5) {
               10 * std::numeric_limits<double>::epsilon());
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

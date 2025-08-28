@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -42,16 +42,11 @@
 #include <array>
 #include <map>
 #include <memory>
+#include <unordered_set>
 #include <vector>
 
-#include "absl/container/btree_map.h"
-#include "absl/container/flat_hash_set.h"
-#include "absl/log/check.h"
 #include "ceres/context_impl.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
 #include "ceres/internal/port.h"
-#include "ceres/manifold.h"
 #include "ceres/problem.h"
 #include "ceres/types.h"
 
@@ -60,6 +55,7 @@ namespace ceres {
 class CostFunction;
 class EvaluationCallback;
 class LossFunction;
+class LocalParameterization;
 struct CRSMatrix;
 
 namespace internal {
@@ -67,12 +63,12 @@ namespace internal {
 class Program;
 class ResidualBlock;
 
-class CERES_NO_EXPORT ProblemImpl {
+class CERES_EXPORT_INTERNAL ProblemImpl {
  public:
-  using ParameterMap = absl::btree_map<double*, ParameterBlock*>;
-  using ResidualBlockSet = absl::flat_hash_set<ResidualBlock*>;
-  using CostFunctionRefCount = absl::btree_map<CostFunction*, int>;
-  using LossFunctionRefCount = absl::btree_map<LossFunction*, int>;
+  typedef std::map<double*, ParameterBlock*> ParameterMap;
+  typedef std::unordered_set<ResidualBlock*> ResidualBlockSet;
+  typedef std::map<CostFunction*, int> CostFunctionRefCount;
+  typedef std::map<LossFunction*, int> LossFunctionRefCount;
 
   ProblemImpl();
   explicit ProblemImpl(const Problem::Options& options);
@@ -100,7 +96,9 @@ class CERES_NO_EXPORT ProblemImpl {
   }
 
   void AddParameterBlock(double* values, int size);
-  void AddParameterBlock(double* values, int size, Manifold* manifold);
+  void AddParameterBlock(double* values,
+                         int size,
+                         LocalParameterization* local_parameterization);
 
   void RemoveResidualBlock(ResidualBlock* residual_block);
   void RemoveParameterBlock(const double* values);
@@ -109,9 +107,9 @@ class CERES_NO_EXPORT ProblemImpl {
   void SetParameterBlockVariable(double* values);
   bool IsParameterBlockConstant(const double* values) const;
 
-  void SetManifold(double* values, Manifold* manifold);
-  const Manifold* GetManifold(const double* values) const;
-  bool HasManifold(const double* values) const;
+  void SetParameterization(double* values,
+                           LocalParameterization* local_parameterization);
+  const LocalParameterization* GetParameterization(const double* values) const;
 
   void SetParameterLowerBound(double* values, int index, double lower_bound);
   void SetParameterUpperBound(double* values, int index, double upper_bound);
@@ -136,10 +134,10 @@ class CERES_NO_EXPORT ProblemImpl {
   int NumResidualBlocks() const;
   int NumResiduals() const;
 
-  int ParameterBlockSize(const double* values) const;
-  int ParameterBlockTangentSize(const double* values) const;
+  int ParameterBlockSize(const double* parameter_block) const;
+  int ParameterBlockLocalSize(const double* parameter_block) const;
 
-  bool HasParameterBlock(const double* values) const;
+  bool HasParameterBlock(const double* parameter_block) const;
 
   void GetParameterBlocks(std::vector<double*>* parameter_blocks) const;
   void GetResidualBlocks(std::vector<ResidualBlockId>* residual_blocks) const;
@@ -167,16 +165,10 @@ class CERES_NO_EXPORT ProblemImpl {
     return residual_block_set_;
   }
 
-  const Problem::Options& options() const { return options_; }
-
   ContextImpl* context() { return context_impl_; }
 
  private:
   ParameterBlock* InternalAddParameterBlock(double* values, int size);
-  void InternalSetManifold(double* values,
-                           ParameterBlock* parameter_block,
-                           Manifold* manifold);
-
   void InternalRemoveResidualBlock(ResidualBlock* residual_block);
 
   // Delete the arguments in question. These differ from the Remove* functions
@@ -202,15 +194,13 @@ class CERES_NO_EXPORT ProblemImpl {
   // The actual parameter and residual blocks.
   std::unique_ptr<internal::Program> program_;
 
-  // TODO(sameeragarwal): Unify the shared object handling across object types.
-  // Right now we are using vectors for Manifold objects and reference counting
-  // for CostFunctions and LossFunctions. Ideally this should be done uniformly.
-
-  // When removing parameter blocks, manifolds have ambiguous
+  // When removing parameter blocks, parameterizations have ambiguous
   // ownership. Instead of scanning the entire problem to see if the
-  // manifold is shared with other parameter blocks, buffer
+  // parameterization is shared with other parameter blocks, buffer
   // them until destruction.
-  std::vector<Manifold*> manifolds_to_delete_;
+  //
+  // TODO(keir): See if it makes sense to use sets instead.
+  std::vector<LocalParameterization*> local_parameterizations_to_delete_;
 
   // For each cost function and loss function in the problem, a count
   // of the number of residual blocks that refer to them. When the
@@ -222,7 +212,5 @@ class CERES_NO_EXPORT ProblemImpl {
 
 }  // namespace internal
 }  // namespace ceres
-
-#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_PUBLIC_PROBLEM_IMPL_H_

@@ -1,5 +1,5 @@
 /* Ceres Solver - A fast non-linear least squares minimizer
- * Copyright 2023 Google Inc. All rights reserved.
+ * Copyright 2019 Google Inc. All rights reserved.
  * http://ceres-solver.org/
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,7 +39,7 @@
 #define CERES_PUBLIC_C_API_H_
 
 // clang-format off
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/internal/disable_warnings.h"
 // clang-format on
 

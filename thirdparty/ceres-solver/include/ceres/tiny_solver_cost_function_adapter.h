@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,8 +32,8 @@
 #define CERES_PUBLIC_TINY_SOLVER_COST_FUNCTION_ADAPTER_H_
 
 #include "Eigen/Core"
-#include "absl/log/check.h"
 #include "ceres/cost_function.h"
+#include "glog/logging.h"
 
 namespace ceres {
 
@@ -75,7 +75,7 @@ template <int kNumResiduals = Eigen::Dynamic,
           int kNumParameters = Eigen::Dynamic>
 class TinySolverCostFunctionAdapter {
  public:
-  using Scalar = double;
+  typedef double Scalar;
   enum ComponentSizeType {
     NUM_PARAMETERS = kNumParameters,
     NUM_RESIDUALS = kNumResiduals
@@ -85,7 +85,7 @@ class TinySolverCostFunctionAdapter {
   // fixed-size Eigen types.
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  explicit TinySolverCostFunctionAdapter(const CostFunction& cost_function)
+  TinySolverCostFunctionAdapter(const CostFunction& cost_function)
       : cost_function_(cost_function) {
     CHECK_EQ(cost_function_.parameter_block_sizes().size(), 1)
         << "Only CostFunctions with exactly one parameter blocks are allowed.";
@@ -108,7 +108,7 @@ class TinySolverCostFunctionAdapter {
                   double* residuals,
                   double* jacobian) const {
     if (!jacobian) {
-      return cost_function_.Evaluate(&parameters, residuals, nullptr);
+      return cost_function_.Evaluate(&parameters, residuals, NULL);
     }
 
     double* jacobians[1] = {row_major_jacobian_.data()};

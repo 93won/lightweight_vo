@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,23 +31,22 @@
 #ifndef CERES_INTERNAL_PARAMETER_BLOCK_ORDERING_H_
 #define CERES_INTERNAL_PARAMETER_BLOCK_ORDERING_H_
 
-#include <memory>
 #include <vector>
 
 #include "ceres/graph.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/ordered_groups.h"
 #include "ceres/types.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class Program;
 class ParameterBlock;
 
 // Uses an approximate independent set ordering to order the parameter
-// blocks of a problem so that it is suitable for use with Schur-
-// complement-based solvers. The output variable ordering contains an
+// blocks of a problem so that it is suitable for use with Schur
+// complement based solvers. The output variable ordering contains an
 // ordering of the parameter blocks and the return value is size of
 // the independent set or the number of e_blocks (see
 // schur_complement_solver.h for an explanation). Constant parameters
@@ -58,20 +57,20 @@ class ParameterBlock;
 // ordering = [independent set,
 //             complement of the independent set,
 //             fixed blocks]
-CERES_NO_EXPORT int ComputeSchurOrdering(
+CERES_EXPORT_INTERNAL int ComputeSchurOrdering(
     const Program& program, std::vector<ParameterBlock*>* ordering);
 
 // Same as above, except that ties while computing the independent set
 // ordering are resolved in favour of the order in which the parameter
 // blocks occur in the program.
-CERES_NO_EXPORT int ComputeStableSchurOrdering(
+CERES_EXPORT_INTERNAL int ComputeStableSchurOrdering(
     const Program& program, std::vector<ParameterBlock*>* ordering);
 
 // Use an approximate independent set ordering to decompose the
 // parameter blocks of a problem in a sequence of independent
 // sets. The ordering covers all the non-constant parameter blocks in
 // the program.
-CERES_NO_EXPORT void ComputeRecursiveIndependentSetOrdering(
+CERES_EXPORT_INTERNAL void ComputeRecursiveIndependentSetOrdering(
     const Program& program, ParameterBlockOrdering* ordering);
 
 // Builds a graph on the parameter blocks of a Problem, whose
@@ -79,16 +78,15 @@ CERES_NO_EXPORT void ComputeRecursiveIndependentSetOrdering(
 // vertex corresponds to a parameter block in the Problem except for
 // parameter blocks that are marked constant. An edge connects two
 // parameter blocks, if they co-occur in a residual block.
-CERES_NO_EXPORT std::unique_ptr<Graph<ParameterBlock*>> CreateHessianGraph(
+CERES_EXPORT_INTERNAL Graph<ParameterBlock*>* CreateHessianGraph(
     const Program& program);
 
 // Iterate over each of the groups in order of their priority and fill
 // summary with their sizes.
-CERES_NO_EXPORT void OrderingToGroupSizes(
+CERES_EXPORT_INTERNAL void OrderingToGroupSizes(
     const ParameterBlockOrdering* ordering, std::vector<int>* group_sizes);
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_PARAMETER_BLOCK_ORDERING_H_

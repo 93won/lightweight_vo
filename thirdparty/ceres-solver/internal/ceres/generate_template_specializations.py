@@ -1,5 +1,5 @@
 # Ceres Solver - A fast non-linear least squares minimizer
-# Copyright 2023 Google Inc. All rights reserved.
+# Copyright 2015 Google Inc. All rights reserved.
 # http://ceres-solver.org/
 #
 # Redistribution and use in source and binary forms, with or without
@@ -85,9 +85,9 @@ def SuffixForSize(size):
   return str(size)
 
 def SpecializationFilename(prefix, row_block_size, e_block_size, f_block_size):
-  return "_".join([prefix] + list(map(SuffixForSize, (row_block_size,
+  return "_".join([prefix] + map(SuffixForSize, (row_block_size,
                                                  e_block_size,
-                                                 f_block_size))))
+                                                 f_block_size)))
 
 def GenerateFactoryConditional(row_block_size, e_block_size, f_block_size):
   conditionals = []
@@ -144,7 +144,7 @@ def Specialize(name, data):
     f.write(data["FACTORY_FOOTER"])
 
 QUERY_HEADER = """// Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without

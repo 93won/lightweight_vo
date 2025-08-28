@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,8 +35,8 @@
 
 #include <utility>
 
-#include "absl/log/check.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
+#include "glog/logging.h"
 
 namespace ceres {
 
@@ -121,7 +121,7 @@ template <class Collection>
 void InsertOrDie(Collection* const collection,
                  const typename Collection::value_type::first_type& key,
                  const typename Collection::value_type::second_type& data) {
-  using value_type = typename Collection::value_type;
+  typedef typename Collection::value_type value_type;
   CHECK(collection->insert(value_type(key, data)).second)
       << "duplicate key: " << key;
 }

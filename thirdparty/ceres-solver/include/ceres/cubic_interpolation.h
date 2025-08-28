@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2025 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,11 +31,9 @@
 #ifndef CERES_PUBLIC_CUBIC_INTERPOLATION_H_
 #define CERES_PUBLIC_CUBIC_INTERPOLATION_H_
 
-#include <type_traits>
-
 #include "Eigen/Core"
-#include "absl/log/check.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
+#include "glog/logging.h"
 
 namespace ceres {
 
@@ -61,8 +59,8 @@ namespace ceres {
 // http://en.wikipedia.org/wiki/Cubic_Hermite_spline
 // http://en.wikipedia.org/wiki/Bicubic_interpolation
 //
-// f if not nullptr will contain the interpolated function values.
-// dfdx if not nullptr will contain the interpolated derivative values.
+// f if not NULL will contain the interpolated function values.
+// dfdx if not NULL will contain the interpolated derivative values.
 template <int kDataDimension>
 void CubicHermiteSpline(const Eigen::Matrix<double, kDataDimension, 1>& p0,
                         const Eigen::Matrix<double, kDataDimension, 1>& p1,
@@ -71,7 +69,7 @@ void CubicHermiteSpline(const Eigen::Matrix<double, kDataDimension, 1>& p0,
                         const double x,
                         double* f,
                         double* dfdx) {
-  using VType = Eigen::Matrix<double, kDataDimension, 1>;
+  typedef Eigen::Matrix<double, kDataDimension, 1> VType;
   const VType a = 0.5 * (-p0 + 3.0 * p1 - 3.0 * p2 + p3);
   const VType b = 0.5 * (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3);
   const VType c = 0.5 * (-p0 + p2);
@@ -81,12 +79,12 @@ void CubicHermiteSpline(const Eigen::Matrix<double, kDataDimension, 1>& p0,
   // derivative.
 
   // f = ax^3 + bx^2 + cx + d
-  if (f != nullptr) {
+  if (f != NULL) {
     Eigen::Map<VType>(f, kDataDimension) = d + x * (c + x * (b + x * a));
   }
 
   // dfdx = 3ax^2 + 2bx + c
-  if (dfdx != nullptr) {
+  if (dfdx != NULL) {
     Eigen::Map<VType>(dfdx, kDataDimension) = c + x * (2.0 * b + 3.0 * a * x);
   }
 }
@@ -145,7 +143,7 @@ class CubicInterpolator {
   // The following two Evaluate overloads are needed for interfacing
   // with automatic differentiation. The first is for when a scalar
   // evaluation is done, and the second one is for when Jets are used.
-  void Evaluate(const double& x, double* f) const { Evaluate(x, f, nullptr); }
+  void Evaluate(const double& x, double* f) const { Evaluate(x, f, NULL); }
 
   template <typename JetT>
   void Evaluate(const JetT& x, JetT* f) const {
@@ -173,7 +171,7 @@ class CubicInterpolator {
 //
 // The function being provided can be vector valued, in which case
 // kDataDimension > 1. The dimensional slices of the function maybe
-// interleaved, or they maybe stacked, i.e., if the function has
+// interleaved, or they maybe stacked, i.e, if the function has
 // kDataDimension = 2, if kInterleaved = true, then it is stored as
 //
 //   f01, f02, f11, f12 ....
@@ -192,18 +190,15 @@ struct Grid1D {
     CHECK_LT(begin, end);
   }
 
-  template <typename U>
-  EIGEN_STRONG_INLINE void GetValue(const int n, U* f) const {
-    static_assert(std::is_convertible_v<T, U>,
-                  "Grid1D::GetValue output type U must be convertible to T");
-    const int idx = (std::min)((std::max)(begin_, n), end_ - 1) - begin_;
+  EIGEN_STRONG_INLINE void GetValue(const int n, double* f) const {
+    const int idx = std::min(std::max(begin_, n), end_ - 1) - begin_;
     if (kInterleaved) {
       for (int i = 0; i < kDataDimension; ++i) {
-        f[i] = static_cast<U>(data_[kDataDimension * idx + i]);
+        f[i] = static_cast<double>(data_[kDataDimension * idx + i]);
       }
     } else {
       for (int i = 0; i < kDataDimension; ++i) {
-        f[i] = static_cast<U>(data_[i * num_values_ + idx]);
+        f[i] = static_cast<double>(data_[i * num_values_ + idx]);
       }
     }
   }
@@ -322,10 +317,10 @@ class BiCubicInterpolator {
     // Interpolate vertically the interpolated value from each row and
     // compute the derivative along the columns.
     CubicHermiteSpline<Grid::DATA_DIMENSION>(f0, f1, f2, f3, r - row, f, dfdr);
-    if (dfdc != nullptr) {
+    if (dfdc != NULL) {
       // Interpolate vertically the derivative along the columns.
       CubicHermiteSpline<Grid::DATA_DIMENSION>(
-          df0dc, df1dc, df2dc, df3dc, r - row, dfdc, nullptr);
+          df0dc, df1dc, df2dc, df3dc, r - row, dfdc, NULL);
     }
   }
 
@@ -333,7 +328,7 @@ class BiCubicInterpolator {
   // with automatic differentiation. The first is for when a scalar
   // evaluation is done, and the second one is for when Jets are used.
   void Evaluate(const double& r, const double& c, double* f) const {
-    Evaluate(r, c, f, nullptr, nullptr);
+    Evaluate(r, c, f, NULL, NULL);
   }
 
   template <typename JetT>
@@ -354,7 +349,7 @@ class BiCubicInterpolator {
 
 // An object that implements an infinite two dimensional grid needed
 // by the BiCubicInterpolator where the source of the function values
-// is a grid of type T on the grid
+// is an grid of type T on the grid
 //
 //   [(row_start,   col_start), ..., (row_start,   col_end - 1)]
 //   [                          ...                            ]
@@ -367,13 +362,13 @@ class BiCubicInterpolator {
 // The function being provided can be vector valued, in which case
 // kDataDimension > 1. The data maybe stored in row or column major
 // format and the various dimensional slices of the function maybe
-// interleaved, or they maybe stacked, i.e., if the function has
+// interleaved, or they maybe stacked, i.e, if the function has
 // kDataDimension = 2, is stored in row-major format and if
 // kInterleaved = true, then it is stored as
 //
 //   f001, f002, f011, f012, ...
 //
-// A commonly occurring example are color images (RGB) where the three
+// A commonly occuring example are color images (RGB) where the three
 // channels are stored interleaved.
 //
 // If kInterleaved = false, then it is stored as
@@ -405,25 +400,22 @@ struct Grid2D {
     CHECK_LT(col_begin, col_end);
   }
 
-  template <typename U>
-  EIGEN_STRONG_INLINE void GetValue(const int r, const int c, U* f) const {
-    static_assert(std::is_convertible_v<T, U>,
-                  "Grid2D::GetValue output type U must be convertible to T");
+  EIGEN_STRONG_INLINE void GetValue(const int r, const int c, double* f) const {
     const int row_idx =
-        (std::min)((std::max)(row_begin_, r), row_end_ - 1) - row_begin_;
+        std::min(std::max(row_begin_, r), row_end_ - 1) - row_begin_;
     const int col_idx =
-        (std::min)((std::max)(col_begin_, c), col_end_ - 1) - col_begin_;
+        std::min(std::max(col_begin_, c), col_end_ - 1) - col_begin_;
 
     const int n = (kRowMajor) ? num_cols_ * row_idx + col_idx
                               : num_rows_ * col_idx + row_idx;
 
     if (kInterleaved) {
       for (int i = 0; i < kDataDimension; ++i) {
-        f[i] = static_cast<U>(data_[kDataDimension * n + i]);
+        f[i] = static_cast<double>(data_[kDataDimension * n + i]);
       }
     } else {
       for (int i = 0; i < kDataDimension; ++i) {
-        f[i] = static_cast<U>(data_[i * num_values_ + n]);
+        f[i] = static_cast<double>(data_[i * num_values_ + n]);
       }
     }
   }

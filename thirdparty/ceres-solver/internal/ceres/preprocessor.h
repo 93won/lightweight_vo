@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -37,9 +37,8 @@
 
 #include "ceres/coordinate_descent_minimizer.h"
 #include "ceres/evaluator.h"
-#include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/iteration_callback.h"
 #include "ceres/linear_solver.h"
 #include "ceres/minimizer.h"
@@ -47,7 +46,8 @@
 #include "ceres/program.h"
 #include "ceres/solver.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 struct PreprocessedProblem;
 
@@ -67,10 +67,10 @@ struct PreprocessedProblem;
 //
 // The output of the Preprocessor is stored in a PreprocessedProblem
 // object.
-class CERES_NO_EXPORT Preprocessor {
+class CERES_EXPORT_INTERNAL Preprocessor {
  public:
   // Factory.
-  static std::unique_ptr<Preprocessor> Create(MinimizerType minimizer_type);
+  static Preprocessor* Create(MinimizerType minimizer_type);
   virtual ~Preprocessor();
   virtual bool Preprocess(const Solver::Options& options,
                           ProblemImpl* problem,
@@ -79,8 +79,8 @@ class CERES_NO_EXPORT Preprocessor {
 
 // A PreprocessedProblem is the result of running the Preprocessor on
 // a Problem and Solver::Options object.
-struct CERES_NO_EXPORT PreprocessedProblem {
-  PreprocessedProblem() = default;
+struct PreprocessedProblem {
+  PreprocessedProblem() : fixed_cost(0.0) {}
 
   std::string error;
   Solver::Options options;
@@ -100,7 +100,7 @@ struct CERES_NO_EXPORT PreprocessedProblem {
 
   std::vector<double*> removed_parameter_blocks;
   Vector reduced_parameters;
-  double fixed_cost{0.0};
+  double fixed_cost;
 };
 
 // Common functions used by various preprocessors.
@@ -108,17 +108,14 @@ struct CERES_NO_EXPORT PreprocessedProblem {
 // If the user has specified a num_threads > the maximum number of threads
 // available from the compiled threading model, bound the number of threads
 // to the maximum.
-CERES_NO_EXPORT
 void ChangeNumThreadsIfNeeded(Solver::Options* options);
 
 // Extract the effective parameter vector from the preprocessed
 // problem and setup bits of the Minimizer::Options object that are
 // common to all Preprocessors.
-CERES_NO_EXPORT
 void SetupCommonMinimizerOptions(PreprocessedProblem* pp);
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_PREPROCESSOR_H_

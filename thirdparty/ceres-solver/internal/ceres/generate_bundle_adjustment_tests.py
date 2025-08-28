@@ -1,5 +1,5 @@
 # Ceres Solver - A fast non-linear least squares minimizer
-# Copyright 2023 Google Inc. All rights reserved.
+# Copyright 2018 Google Inc. All rights reserved.
 # http://ceres-solver.org/
 #
 # Redistribution and use in source and binary forms, with or without
@@ -41,38 +41,27 @@ SINGLE_THREADED = "1"
 MULTI_THREADED = "4"
 THREAD_CONFIGS = [SINGLE_THREADED, MULTI_THREADED]
 
-DENSE_SOLVER_CONFIGS = [
-    # Linear solver  Dense backend
-    ('DENSE_SCHUR',  'EIGEN'),
-    ('DENSE_SCHUR',  'LAPACK'),
-    ('DENSE_SCHUR',  'CUDA'),
-]
-
-SPARSE_SOLVER_CONFIGS = [
-    # Linear solver            Sparse backend
-    ('SPARSE_NORMAL_CHOLESKY', 'SUITE_SPARSE'),
-    ('SPARSE_NORMAL_CHOLESKY', 'EIGEN_SPARSE'),
-    ('SPARSE_NORMAL_CHOLESKY', 'ACCELERATE_SPARSE'),
-    ('SPARSE_NORMAL_CHOLESKY', 'CUDA_SPARSE'),
-    ('SPARSE_SCHUR',           'SUITE_SPARSE'),
-    ('SPARSE_SCHUR',           'EIGEN_SPARSE'),
-    ('SPARSE_SCHUR',           'ACCELERATE_SPARSE'),
-    ('SPARSE_SCHUR',           'CUDA_SPARSE')
-]
-
-ITERATIVE_SOLVER_CONFIGS = [
-    # Linear solver            Sparse backend      Preconditioner
-    ('ITERATIVE_SCHUR',        'NO_SPARSE',        'JACOBI'),
-    ('ITERATIVE_SCHUR',        'NO_SPARSE',        'SCHUR_JACOBI'),
-    ('ITERATIVE_SCHUR',        'NO_SPARSE',        'SCHUR_POWER_SERIES_EXPANSION'),
-    ('ITERATIVE_SCHUR',        'SUITE_SPARSE',     'CLUSTER_JACOBI'),
-    ('ITERATIVE_SCHUR',        'EIGEN_SPARSE',     'CLUSTER_JACOBI'),
-    ('ITERATIVE_SCHUR',        'ACCELERATE_SPARSE','CLUSTER_JACOBI'),
-    ('ITERATIVE_SCHUR',        'CUDA_SPARSE',      'CLUSTER_JACOBI'),
-    ('ITERATIVE_SCHUR',        'SUITE_SPARSE',     'CLUSTER_TRIDIAGONAL'),
-    ('ITERATIVE_SCHUR',        'EIGEN_SPARSE',     'CLUSTER_TRIDIAGONAL'),
-    ('ITERATIVE_SCHUR',        'ACCELERATE_SPARSE','CLUSTER_TRIDIAGONAL'),
-    ('ITERATIVE_SCHUR',        'CUDA_SPARSE',      'CLUSTER_TRIDIAGONAL'),
+SOLVER_CONFIGS = [
+  # Linear solver            Sparse backend      Preconditioner
+  ('DENSE_SCHUR',            'NO_SPARSE',        'IDENTITY'),
+  ('ITERATIVE_SCHUR',        'NO_SPARSE',        'JACOBI'),
+  ('ITERATIVE_SCHUR',        'NO_SPARSE',        'SCHUR_JACOBI'),
+  ('ITERATIVE_SCHUR',        'SUITE_SPARSE',     'CLUSTER_JACOBI'),
+  ('ITERATIVE_SCHUR',        'EIGEN_SPARSE',     'CLUSTER_JACOBI'),
+  ('ITERATIVE_SCHUR',        'CX_SPARSE',        'CLUSTER_JACOBI'),
+  ('ITERATIVE_SCHUR',        'ACCELERATE_SPARSE','CLUSTER_JACOBI'),
+  ('ITERATIVE_SCHUR',        'SUITE_SPARSE',     'CLUSTER_TRIDIAGONAL'),
+  ('ITERATIVE_SCHUR',        'EIGEN_SPARSE',     'CLUSTER_TRIDIAGONAL'),
+  ('ITERATIVE_SCHUR',        'CX_SPARSE',        'CLUSTER_TRIDIAGONAL'),
+  ('ITERATIVE_SCHUR',        'ACCELERATE_SPARSE','CLUSTER_TRIDIAGONAL'),
+  ('SPARSE_NORMAL_CHOLESKY', 'SUITE_SPARSE',     'IDENTITY'),
+  ('SPARSE_NORMAL_CHOLESKY', 'EIGEN_SPARSE',     'IDENTITY'),
+  ('SPARSE_NORMAL_CHOLESKY', 'CX_SPARSE',        'IDENTITY'),
+  ('SPARSE_NORMAL_CHOLESKY', 'ACCELERATE_SPARSE','IDENTITY'),
+  ('SPARSE_SCHUR',           'SUITE_SPARSE',     'IDENTITY'),
+  ('SPARSE_SCHUR',           'EIGEN_SPARSE',     'IDENTITY'),
+  ('SPARSE_SCHUR',           'CX_SPARSE',        'IDENTITY'),
+  ('SPARSE_SCHUR',           'ACCELERATE_SPARSE','IDENTITY'),
 ]
 
 FILENAME_SHORTENING_MAP = dict(
@@ -80,27 +69,23 @@ FILENAME_SHORTENING_MAP = dict(
   ITERATIVE_SCHUR='iterschur',
   SPARSE_NORMAL_CHOLESKY='sparsecholesky',
   SPARSE_SCHUR='sparseschur',
-  EIGEN='eigen',
-  LAPACK='lapack',
-  CUDA='cuda',
   NO_SPARSE='',  # Omit sparse reference entirely for dense tests.
   SUITE_SPARSE='suitesparse',
   EIGEN_SPARSE='eigensparse',
+  CX_SPARSE='cxsparse',
   ACCELERATE_SPARSE='acceleratesparse',
-  CUDA_SPARSE='cudasparse',
   IDENTITY='identity',
   JACOBI='jacobi',
   SCHUR_JACOBI='schurjacobi',
   CLUSTER_JACOBI='clustjacobi',
   CLUSTER_TRIDIAGONAL='clusttri',
-  SCHUR_POWER_SERIES_EXPANSION='spse',
   kAutomaticOrdering='auto',
   kUserOrdering='user',
 )
 
 COPYRIGHT_HEADER = (
 """// Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2018 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -138,34 +123,28 @@ COPYRIGHT_HEADER = (
 
 BUNDLE_ADJUSTMENT_TEST_TEMPLATE = (COPYRIGHT_HEADER + """
 
-#include "ceres/bundle_adjustment_test_util.h"
-#include "ceres/internal/config.h"
-#include "ceres/problem.h"
-#include "ceres/solver.h"
-#include "ceres/types.h"
-#include "gtest/gtest.h"
-
+#include "bundle_adjustment_test_util.h"
 %(preprocessor_conditions_begin)s
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 TEST_F(BundleAdjustmentTest,
        %(test_class_name)s) {  // NOLINT
   BundleAdjustmentProblem bundle_adjustment_problem;
   Solver::Options* options = bundle_adjustment_problem.mutable_solver_options();
-  options->eta = 0.01;
   options->num_threads = %(num_threads)s;
   options->linear_solver_type = %(linear_solver)s;
-  options->dense_linear_algebra_library_type = %(dense_backend)s;
   options->sparse_linear_algebra_library_type = %(sparse_backend)s;
   options->preconditioner_type = %(preconditioner)s;
   if (%(ordering)s) {
-    options->linear_solver_ordering = nullptr;
+    options->linear_solver_ordering.reset();
   }
   Problem* problem = bundle_adjustment_problem.mutable_problem();
   RunSolverForConfigAndExpectResidualsMatch(*options, problem);
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 %(preprocessor_conditions_end)s""")
 
 def camelcasify(token):
@@ -174,7 +153,6 @@ def camelcasify(token):
 
 
 def generate_bundle_test(linear_solver,
-                         dense_backend,
                          sparse_backend,
                          preconditioner,
                          ordering,
@@ -186,10 +164,6 @@ def generate_bundle_test(linear_solver,
   if linear_solver != 'ITERATIVE_SCHUR':
     preconditioner_tag = ''
 
-  dense_backend_tag = dense_backend
-  if linear_solver != 'DENSE_SCHUR':
-    dense_backend_tag=''
-
   # Omit references to the sparse backend when one is not in use.
   sparse_backend_tag = sparse_backend
   if sparse_backend == 'NO_SPARSE':
@@ -198,7 +172,6 @@ def generate_bundle_test(linear_solver,
   # Use a double underscore; otherwise the names are harder to understand.
   test_class_name = '_'.join(filter(lambda x: x, [
       camelcasify(linear_solver),
-      camelcasify(dense_backend_tag),
       camelcasify(sparse_backend_tag),
       camelcasify(preconditioner_tag),
       ordering[1:],  # Strip 'k'
@@ -207,7 +180,6 @@ def generate_bundle_test(linear_solver,
   # Initial template parameters (augmented more below).
   template_parameters = dict(
           linear_solver=linear_solver,
-          dense_backend=dense_backend,
           sparse_backend=sparse_backend,
           preconditioner=preconditioner,
           ordering=ordering,
@@ -220,27 +192,20 @@ def generate_bundle_test(linear_solver,
   if sparse_backend == 'SUITE_SPARSE':
     preprocessor_conditions_begin.append('#ifndef CERES_NO_SUITESPARSE')
     preprocessor_conditions_end.insert(0, '#endif  // CERES_NO_SUITESPARSE')
+  elif sparse_backend == 'CX_SPARSE':
+    preprocessor_conditions_begin.append('#ifndef CERES_NO_CXSPARSE')
+    preprocessor_conditions_end.insert(0, '#endif  // CERES_NO_CXSPARSE')
   elif sparse_backend == 'ACCELERATE_SPARSE':
     preprocessor_conditions_begin.append('#ifndef CERES_NO_ACCELERATE_SPARSE')
     preprocessor_conditions_end.insert(0, '#endif  // CERES_NO_ACCELERATE_SPARSE')
   elif sparse_backend == 'EIGEN_SPARSE':
     preprocessor_conditions_begin.append('#ifdef CERES_USE_EIGEN_SPARSE')
     preprocessor_conditions_end.insert(0, '#endif  // CERES_USE_EIGEN_SPARSE')
-  elif sparse_backend == 'CUDA_SPARSE':
-    preprocessor_conditions_begin.append('#ifndef CERES_NO_CUDA')
-    preprocessor_conditions_end.insert(0, '#endif  // CERES_NO_CUDA')
-    if linear_solver == 'SPARSE_SCHUR' or linear_solver == 'SPARSE_NORMAL_CHOLESKY' or (
-            linear_solver == 'ITERATIVE_SCHUR' and (
-            preconditioner == 'CLUSTER_JACOBI' or preconditioner == 'CLUSTER_TRIDIAGONAL')):
-      preprocessor_conditions_begin.append('#ifndef CERES_NO_CUDSS')
-      preprocessor_conditions_end.insert(0, '#endif  // CERES_NO_CUDSS')
 
-  if dense_backend == "LAPACK":
-    preprocessor_conditions_begin.append('#ifndef CERES_NO_LAPACK')
-    preprocessor_conditions_end.insert(0, '#endif  // CERES_NO_LAPACK')
-  elif dense_backend == "CUDA":
-    preprocessor_conditions_begin.append('#ifndef CERES_NO_CUDA')
-    preprocessor_conditions_end.insert(0, '#endif  // CERES_NO_CUDA')
+  # Accumulate appropriate #ifdef/#ifndefs for threading conditions.
+  if thread_config == MULTI_THREADED:
+    preprocessor_conditions_begin.append('#ifndef CERES_NO_THREADS')
+    preprocessor_conditions_end.insert(0, '#endif  // CERES_NO_THREADS')
 
   # If there are #ifdefs, put newlines around them.
   if preprocessor_conditions_begin:
@@ -258,12 +223,10 @@ def generate_bundle_test(linear_solver,
   # Substitute variables into the test template, and write the result to a file.
   filename_tag = '_'.join(FILENAME_SHORTENING_MAP.get(x) for x in [
       linear_solver,
-      dense_backend_tag,
       sparse_backend_tag,
       preconditioner_tag,
       ordering]
       if FILENAME_SHORTENING_MAP.get(x))
-
   if (thread_config == MULTI_THREADED):
     filename_tag += '_threads'
 
@@ -273,7 +236,7 @@ def generate_bundle_test(linear_solver,
     fd.write(BUNDLE_ADJUSTMENT_TEST_TEMPLATE % template_parameters)
 
   # All done.
-  print('Generated', filename)
+  print 'Generated', filename
 
   return filename
 
@@ -281,36 +244,15 @@ def generate_bundle_test(linear_solver,
 if __name__ == '__main__':
   # Iterate over all the possible configurations and generate the tests.
   generated_files = []
-
-  for ordering in ORDERINGS:
-    for thread_config in THREAD_CONFIGS:
-      for linear_solver, dense_backend in DENSE_SOLVER_CONFIGS:
+  for linear_solver, sparse_backend, preconditioner in SOLVER_CONFIGS:
+    for ordering in ORDERINGS:
+      for thread_config in THREAD_CONFIGS:
         generated_files.append(
             generate_bundle_test(linear_solver,
-                                 dense_backend,
-                                 'NO_SPARSE',
-                                 'IDENTITY',
-                                 ordering,
-                                 thread_config))
-
-      for linear_solver, sparse_backend, in SPARSE_SOLVER_CONFIGS:
-        generated_files.append(
-            generate_bundle_test(linear_solver,
-                                 'EIGEN',
-                                 sparse_backend,
-                                 'IDENTITY',
-                                 ordering,
-                                 thread_config))
-
-      for linear_solver, sparse_backend, preconditioner, in ITERATIVE_SOLVER_CONFIGS:
-        generated_files.append(
-            generate_bundle_test(linear_solver,
-                                 'EIGEN',
                                  sparse_backend,
                                  preconditioner,
                                  ordering,
                                  thread_config))
-
 
   # Generate the CMakeLists.txt as well.
   with open('generated_bundle_adjustment_tests/CMakeLists.txt', 'w') as fd:

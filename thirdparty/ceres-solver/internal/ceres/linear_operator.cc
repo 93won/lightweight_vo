@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,34 +30,10 @@
 
 #include "ceres/linear_operator.h"
 
-#include "absl/log/log.h"
+namespace ceres {
+namespace internal {
 
-namespace ceres::internal {
+LinearOperator::~LinearOperator() {}
 
-void LinearOperator::RightMultiplyAndAccumulate(const double* x,
-                                                double* y,
-                                                ContextImpl* context,
-                                                int num_threads) const {
-  (void)context;
-  if (num_threads != 1) {
-    VLOG(3) << "Parallel right product is not supported by linear operator "
-               "implementation";
-  }
-  RightMultiplyAndAccumulate(x, y);
-}
-
-void LinearOperator::LeftMultiplyAndAccumulate(const double* x,
-                                               double* y,
-                                               ContextImpl* context,
-                                               int num_threads) const {
-  (void)context;
-  if (num_threads != 1) {
-    VLOG(3) << "Parallel left product is not supported by linear operator "
-               "implementation";
-  }
-  LeftMultiplyAndAccumulate(x, y);
-}
-
-LinearOperator::~LinearOperator() = default;
-
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

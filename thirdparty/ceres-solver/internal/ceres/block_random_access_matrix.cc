@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,8 +30,10 @@
 
 #include "ceres/block_random_access_matrix.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-BlockRandomAccessMatrix::~BlockRandomAccessMatrix() = default;
+BlockRandomAccessMatrix::~BlockRandomAccessMatrix() {}
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

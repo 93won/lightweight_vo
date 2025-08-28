@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,30 +35,27 @@
 #include <ctime>
 #include <memory>
 #include <sstream>
-#include <utility>
 
 #include "Eigen/SparseCore"
-#include "absl/log/log.h"
-#include "absl/log/vlog_is_on.h"
 #include "ceres/compressed_row_sparse_matrix.h"
-#include "ceres/event_logger.h"
-#include "ceres/internal/config.h"
+#include "ceres/cxsparse.h"
 #include "ceres/internal/eigen.h"
 #include "ceres/linear_solver.h"
 #include "ceres/suitesparse.h"
 #include "ceres/triplet_sparse_matrix.h"
 #include "ceres/types.h"
-#include "cuda_sparse_cholesky.h"
+#include "ceres/wall_time.h"
 
 #ifdef CERES_USE_EIGEN_SPARSE
 #include "Eigen/SparseCholesky"
 #endif
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 DynamicSparseNormalCholeskySolver::DynamicSparseNormalCholeskySolver(
-    LinearSolver::Options options)
-    : options_(std::move(options)) {}
+    const LinearSolver::Options& options)
+    : options_(options) {}
 
 LinearSolver::Summary DynamicSparseNormalCholeskySolver::SolveImpl(
     CompressedRowSparseMatrix* A,
@@ -67,18 +64,18 @@ LinearSolver::Summary DynamicSparseNormalCholeskySolver::SolveImpl(
     double* x) {
   const int num_cols = A->num_cols();
   VectorRef(x, num_cols).setZero();
-  A->LeftMultiplyAndAccumulate(b, x);
+  A->LeftMultiply(b, x);
 
   if (per_solve_options.D != nullptr) {
     // Temporarily append a diagonal block to the A matrix, but undo
     // it before returning the matrix to the user.
     std::unique_ptr<CompressedRowSparseMatrix> regularizer;
     if (!A->col_blocks().empty()) {
-      regularizer = CompressedRowSparseMatrix::CreateBlockDiagonalMatrix(
-          per_solve_options.D, A->col_blocks());
+      regularizer.reset(CompressedRowSparseMatrix::CreateBlockDiagonalMatrix(
+          per_solve_options.D, A->col_blocks()));
     } else {
-      regularizer = std::make_unique<CompressedRowSparseMatrix>(
-          per_solve_options.D, num_cols);
+      regularizer.reset(
+          new CompressedRowSparseMatrix(per_solve_options.D, num_cols));
     }
     A->AppendRows(*regularizer);
   }
@@ -88,11 +85,11 @@ LinearSolver::Summary DynamicSparseNormalCholeskySolver::SolveImpl(
     case SUITE_SPARSE:
       summary = SolveImplUsingSuiteSparse(A, x);
       break;
+    case CX_SPARSE:
+      summary = SolveImplUsingCXSparse(A, x);
+      break;
     case EIGEN_SPARSE:
       summary = SolveImplUsingEigen(A, x);
-      break;
-    case CUDA_SPARSE:
-      summary = SolveImplUsingCuda(A, x);
       break;
     default:
       LOG(FATAL) << "Unsupported sparse linear algebra library for "
@@ -114,7 +111,7 @@ LinearSolver::Summary DynamicSparseNormalCholeskySolver::SolveImplUsingEigen(
 
   LinearSolver::Summary summary;
   summary.num_iterations = 0;
-  summary.termination_type = LinearSolverTerminationType::FATAL_ERROR;
+  summary.termination_type = LINEAR_SOLVER_FATAL_ERROR;
   summary.message =
       "SPARSE_NORMAL_CHOLESKY cannot be used with EIGEN_SPARSE "
       "because Ceres was not built with support for "
@@ -126,20 +123,19 @@ LinearSolver::Summary DynamicSparseNormalCholeskySolver::SolveImplUsingEigen(
 
   EventLogger event_logger("DynamicSparseNormalCholeskySolver::Eigen::Solve");
 
-  Eigen::Map<Eigen::SparseMatrix<double, Eigen::RowMajor>> a(
-      A->num_rows(),
-      A->num_cols(),
-      A->num_nonzeros(),
-      A->mutable_rows(),
-      A->mutable_cols(),
-      A->mutable_values());
+  Eigen::MappedSparseMatrix<double, Eigen::RowMajor> a(A->num_rows(),
+                                                       A->num_cols(),
+                                                       A->num_nonzeros(),
+                                                       A->mutable_rows(),
+                                                       A->mutable_cols(),
+                                                       A->mutable_values());
 
   Eigen::SparseMatrix<double> lhs = a.transpose() * a;
   Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
 
   LinearSolver::Summary summary;
   summary.num_iterations = 1;
-  summary.termination_type = LinearSolverTerminationType::SUCCESS;
+  summary.termination_type = LINEAR_SOLVER_SUCCESS;
   summary.message = "Success.";
 
   solver.analyzePattern(lhs);
@@ -151,7 +147,7 @@ LinearSolver::Summary DynamicSparseNormalCholeskySolver::SolveImplUsingEigen(
 
   event_logger.AddEvent("Analyze");
   if (solver.info() != Eigen::Success) {
-    summary.termination_type = LinearSolverTerminationType::FATAL_ERROR;
+    summary.termination_type = LINEAR_SOLVER_FATAL_ERROR;
     summary.message = "Eigen failure. Unable to find symbolic factorization.";
     return summary;
   }
@@ -159,7 +155,7 @@ LinearSolver::Summary DynamicSparseNormalCholeskySolver::SolveImplUsingEigen(
   solver.factorize(lhs);
   event_logger.AddEvent("Factorize");
   if (solver.info() != Eigen::Success) {
-    summary.termination_type = LinearSolverTerminationType::FAILURE;
+    summary.termination_type = LINEAR_SOLVER_FAILURE;
     summary.message = "Eigen failure. Unable to find numeric factorization.";
     return summary;
   }
@@ -168,7 +164,7 @@ LinearSolver::Summary DynamicSparseNormalCholeskySolver::SolveImplUsingEigen(
   VectorRef(rhs_and_solution, lhs.cols()) = solver.solve(rhs);
   event_logger.AddEvent("Solve");
   if (solver.info() != Eigen::Success) {
-    summary.termination_type = LinearSolverTerminationType::FAILURE;
+    summary.termination_type = LINEAR_SOLVER_FAILURE;
     summary.message = "Eigen failure. Unable to do triangular solve.";
     return summary;
   }
@@ -177,16 +173,66 @@ LinearSolver::Summary DynamicSparseNormalCholeskySolver::SolveImplUsingEigen(
 #endif  // CERES_USE_EIGEN_SPARSE
 }
 
+LinearSolver::Summary DynamicSparseNormalCholeskySolver::SolveImplUsingCXSparse(
+    CompressedRowSparseMatrix* A, double* rhs_and_solution) {
+#ifdef CERES_NO_CXSPARSE
+
+  LinearSolver::Summary summary;
+  summary.num_iterations = 0;
+  summary.termination_type = LINEAR_SOLVER_FATAL_ERROR;
+  summary.message =
+      "SPARSE_NORMAL_CHOLESKY cannot be used with CX_SPARSE "
+      "because Ceres was not built with support for CXSparse. "
+      "This requires enabling building with -DCXSPARSE=ON.";
+
+  return summary;
+
+#else
+  EventLogger event_logger(
+      "DynamicSparseNormalCholeskySolver::CXSparse::Solve");
+
+  LinearSolver::Summary summary;
+  summary.num_iterations = 1;
+  summary.termination_type = LINEAR_SOLVER_SUCCESS;
+  summary.message = "Success.";
+
+  CXSparse cxsparse;
+
+  // Wrap the augmented Jacobian in a compressed sparse column matrix.
+  cs_di a_transpose = cxsparse.CreateSparseMatrixTransposeView(A);
+
+  // Compute the normal equations. J'J delta = J'f and solve them
+  // using a sparse Cholesky factorization. Notice that when compared
+  // to SuiteSparse we have to explicitly compute the transpose of Jt,
+  // and then the normal equations before they can be
+  // factorized. CHOLMOD/SuiteSparse on the other hand can just work
+  // off of Jt to compute the Cholesky factorization of the normal
+  // equations.
+  cs_di* a = cxsparse.TransposeMatrix(&a_transpose);
+  cs_di* lhs = cxsparse.MatrixMatrixMultiply(&a_transpose, a);
+  cxsparse.Free(a);
+  event_logger.AddEvent("NormalEquations");
+
+  if (!cxsparse.SolveCholesky(lhs, rhs_and_solution)) {
+    summary.termination_type = LINEAR_SOLVER_FAILURE;
+    summary.message = "CXSparse::SolveCholesky failed";
+  }
+  event_logger.AddEvent("Solve");
+
+  cxsparse.Free(lhs);
+  event_logger.AddEvent("TearDown");
+  return summary;
+#endif
+}
+
 LinearSolver::Summary
 DynamicSparseNormalCholeskySolver::SolveImplUsingSuiteSparse(
     CompressedRowSparseMatrix* A, double* rhs_and_solution) {
 #ifdef CERES_NO_SUITESPARSE
-  (void)A;
-  (void)rhs_and_solution;
 
   LinearSolver::Summary summary;
   summary.num_iterations = 0;
-  summary.termination_type = LinearSolverTerminationType::FATAL_ERROR;
+  summary.termination_type = LINEAR_SOLVER_FATAL_ERROR;
   summary.message =
       "SPARSE_NORMAL_CHOLESKY cannot be used with SUITE_SPARSE "
       "because Ceres was not built with support for SuiteSparse. "
@@ -198,7 +244,7 @@ DynamicSparseNormalCholeskySolver::SolveImplUsingSuiteSparse(
   EventLogger event_logger(
       "DynamicSparseNormalCholeskySolver::SuiteSparse::Solve");
   LinearSolver::Summary summary;
-  summary.termination_type = LinearSolverTerminationType::SUCCESS;
+  summary.termination_type = LINEAR_SOLVER_SUCCESS;
   summary.num_iterations = 1;
   summary.message = "Success.";
 
@@ -206,17 +252,16 @@ DynamicSparseNormalCholeskySolver::SolveImplUsingSuiteSparse(
   const int num_cols = A->num_cols();
   cholmod_sparse lhs = ss.CreateSparseMatrixTransposeView(A);
   event_logger.AddEvent("Setup");
-  cholmod_factor* factor =
-      ss.AnalyzeCholesky(&lhs, options_.ordering_type, &summary.message);
+  cholmod_factor* factor = ss.AnalyzeCholesky(&lhs, &summary.message);
   event_logger.AddEvent("Analysis");
 
   if (factor == nullptr) {
-    summary.termination_type = LinearSolverTerminationType::FATAL_ERROR;
+    summary.termination_type = LINEAR_SOLVER_FATAL_ERROR;
     return summary;
   }
 
   summary.termination_type = ss.Cholesky(&lhs, factor, &summary.message);
-  if (summary.termination_type == LinearSolverTerminationType::SUCCESS) {
+  if (summary.termination_type == LINEAR_SOLVER_SUCCESS) {
     cholmod_dense cholmod_rhs =
         ss.CreateDenseVectorView(rhs_and_solution, num_cols);
     cholmod_dense* solution = ss.Solve(factor, &cholmod_rhs, &summary.message);
@@ -226,7 +271,7 @@ DynamicSparseNormalCholeskySolver::SolveImplUsingSuiteSparse(
           rhs_and_solution, solution->x, num_cols * sizeof(*rhs_and_solution));
       ss.Free(solution);
     } else {
-      summary.termination_type = LinearSolverTerminationType::FAILURE;
+      summary.termination_type = LINEAR_SOLVER_FAILURE;
     }
   }
 
@@ -237,63 +282,5 @@ DynamicSparseNormalCholeskySolver::SolveImplUsingSuiteSparse(
 #endif
 }
 
-LinearSolver::Summary DynamicSparseNormalCholeskySolver::SolveImplUsingCuda(
-    CompressedRowSparseMatrix* A, double* rhs_and_solution) {
-#ifdef CERES_NO_CUDSS
-  (void)A;
-  (void)rhs_and_solution;
-
-  LinearSolver::Summary summary;
-  summary.num_iterations = 0;
-  summary.termination_type = LinearSolverTerminationType::FATAL_ERROR;
-  summary.message =
-      "SPARSE_NORMAL_CHOLESKY cannot be used with CUDA_SPARSE "
-      "because Ceres was not built with support for cuDSS. "
-      "This requires enabling building with -DUSE_CUDA=ON and ensuring that "
-      "cuDSS is found.";
-  return summary;
-#else
-
-  EventLogger event_logger("DynamicSparseNormalCholeskySolver::cuDSS::Solve");
-
-  // TODO: Consider computing A^T*A on device via cuSPARSE
-  // https://github.com/ceres-solver/ceres-solver/issues/1066
-  Eigen::Map<Eigen::SparseMatrix<double, Eigen::RowMajor>> a(
-      A->num_rows(),
-      A->num_cols(),
-      A->num_nonzeros(),
-      A->mutable_rows(),
-      A->mutable_cols(),
-      A->mutable_values());
-  Eigen::SparseMatrix<double, Eigen::RowMajor> ata =
-      (a.transpose() * a).triangularView<Eigen::Lower>();
-
-  CompressedRowSparseMatrix lhs(ata.rows(), ata.cols(), ata.nonZeros());
-  std::copy_n(ata.outerIndexPtr(), lhs.num_rows() + 1, lhs.mutable_rows());
-  std::copy_n(ata.innerIndexPtr(), lhs.num_nonzeros(), lhs.mutable_cols());
-  std::copy_n(ata.valuePtr(), lhs.num_nonzeros(), lhs.mutable_values());
-  lhs.set_storage_type(
-      CompressedRowSparseMatrix::StorageType::LOWER_TRIANGULAR);
-  event_logger.AddEvent("Compute A^T * A");
-
-  auto sparse_cholesky = CudaSparseCholesky<double>::Create(
-      options_.context, options_.ordering_type);
-
-  LinearSolver::Summary summary;
-  summary.num_iterations = 1;
-  summary.termination_type = sparse_cholesky->Factorize(&lhs, &summary.message);
-  if (summary.termination_type != LinearSolverTerminationType::SUCCESS) {
-    return summary;
-  }
-  event_logger.AddEvent("Analyze");
-
-  const Vector rhs = ConstVectorRef(rhs_and_solution, A->num_cols());
-  summary.termination_type =
-      sparse_cholesky->Solve(rhs.data(), rhs_and_solution, &summary.message);
-  event_logger.AddEvent("Solve");
-
-  return summary;
-#endif
-}
-
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

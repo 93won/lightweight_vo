@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,28 +31,28 @@
 #include "ceres/covariance.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
-#include <limits>
 #include <map>
 #include <memory>
 #include <utility>
-#include <vector>
 
-#include "absl/log/log.h"
 #include "ceres/autodiff_cost_function.h"
 #include "ceres/compressed_row_sparse_matrix.h"
 #include "ceres/cost_function.h"
 #include "ceres/covariance_impl.h"
-#include "ceres/internal/config.h"
-#include "ceres/internal/eigen.h"
-#include "ceres/manifold.h"
+#include "ceres/local_parameterization.h"
 #include "ceres/map_util.h"
 #include "ceres/problem_impl.h"
-#include "ceres/types.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
 namespace internal {
+
+using std::make_pair;
+using std::map;
+using std::pair;
+using std::vector;
 
 class UnaryCostFunction : public CostFunction {
  public:
@@ -71,19 +71,19 @@ class UnaryCostFunction : public CostFunction {
       residuals[i] = 1;
     }
 
-    if (jacobians == nullptr) {
+    if (jacobians == NULL) {
       return true;
     }
 
-    if (jacobians[0] != nullptr) {
-      std::copy(jacobian_.begin(), jacobian_.end(), jacobians[0]);
+    if (jacobians[0] != NULL) {
+      copy(jacobian_.begin(), jacobian_.end(), jacobians[0]);
     }
 
     return true;
   }
 
  private:
-  std::vector<double> jacobian_;
+  vector<double> jacobian_;
 };
 
 class BinaryCostFunction : public CostFunction {
@@ -109,24 +109,47 @@ class BinaryCostFunction : public CostFunction {
       residuals[i] = 2;
     }
 
-    if (jacobians == nullptr) {
+    if (jacobians == NULL) {
       return true;
     }
 
-    if (jacobians[0] != nullptr) {
-      std::copy(jacobian1_.begin(), jacobian1_.end(), jacobians[0]);
+    if (jacobians[0] != NULL) {
+      copy(jacobian1_.begin(), jacobian1_.end(), jacobians[0]);
     }
 
-    if (jacobians[1] != nullptr) {
-      std::copy(jacobian2_.begin(), jacobian2_.end(), jacobians[1]);
+    if (jacobians[1] != NULL) {
+      copy(jacobian2_.begin(), jacobian2_.end(), jacobians[1]);
     }
 
     return true;
   }
 
  private:
-  std::vector<double> jacobian1_;
-  std::vector<double> jacobian2_;
+  vector<double> jacobian1_;
+  vector<double> jacobian2_;
+};
+
+// x_plus_delta = delta * x;
+class PolynomialParameterization : public LocalParameterization {
+ public:
+  virtual ~PolynomialParameterization() {}
+
+  bool Plus(const double* x,
+            const double* delta,
+            double* x_plus_delta) const final {
+    x_plus_delta[0] = delta[0] * x[0];
+    x_plus_delta[1] = delta[0] * x[1];
+    return true;
+  }
+
+  bool ComputeJacobian(const double* x, double* jacobian) const final {
+    jacobian[0] = x[0];
+    jacobian[1] = x[1];
+    return true;
+  }
+
+  int GlobalSize() const final { return 2; }
+  int LocalSize() const final { return 1; }
 };
 
 TEST(CovarianceImpl, ComputeCovarianceSparsity) {
@@ -142,13 +165,13 @@ TEST(CovarianceImpl, ComputeCovarianceSparsity) {
   // Add in random order
   Vector junk_jacobian = Vector::Zero(10);
   problem.AddResidualBlock(
-      new UnaryCostFunction(1, 1, junk_jacobian.data()), nullptr, block1);
+      new UnaryCostFunction(1, 1, junk_jacobian.data()), NULL, block1);
   problem.AddResidualBlock(
-      new UnaryCostFunction(1, 4, junk_jacobian.data()), nullptr, block4);
+      new UnaryCostFunction(1, 4, junk_jacobian.data()), NULL, block4);
   problem.AddResidualBlock(
-      new UnaryCostFunction(1, 3, junk_jacobian.data()), nullptr, block3);
+      new UnaryCostFunction(1, 3, junk_jacobian.data()), NULL, block3);
   problem.AddResidualBlock(
-      new UnaryCostFunction(1, 2, junk_jacobian.data()), nullptr, block2);
+      new UnaryCostFunction(1, 2, junk_jacobian.data()), NULL, block2);
 
   // Sparsity pattern
   //
@@ -183,13 +206,13 @@ TEST(CovarianceImpl, ComputeCovarianceSparsity) {
                          6, 7, 8, 9};
   // clang-format on
 
-  std::vector<std::pair<const double*, const double*>> covariance_blocks;
-  covariance_blocks.emplace_back(block1, block1);
-  covariance_blocks.emplace_back(block4, block4);
-  covariance_blocks.emplace_back(block2, block2);
-  covariance_blocks.emplace_back(block3, block3);
-  covariance_blocks.emplace_back(block2, block3);
-  covariance_blocks.emplace_back(block4, block1);  // reversed
+  vector<pair<const double*, const double*>> covariance_blocks;
+  covariance_blocks.push_back(make_pair(block1, block1));
+  covariance_blocks.push_back(make_pair(block4, block4));
+  covariance_blocks.push_back(make_pair(block2, block2));
+  covariance_blocks.push_back(make_pair(block3, block3));
+  covariance_blocks.push_back(make_pair(block2, block3));
+  covariance_blocks.push_back(make_pair(block4, block1));  // reversed
 
   Covariance::Options options;
   CovarianceImpl covariance_impl(options);
@@ -228,13 +251,13 @@ TEST(CovarianceImpl, ComputeCovarianceSparsityWithConstantParameterBlock) {
   // Add in random order
   Vector junk_jacobian = Vector::Zero(10);
   problem.AddResidualBlock(
-      new UnaryCostFunction(1, 1, junk_jacobian.data()), nullptr, block1);
+      new UnaryCostFunction(1, 1, junk_jacobian.data()), NULL, block1);
   problem.AddResidualBlock(
-      new UnaryCostFunction(1, 4, junk_jacobian.data()), nullptr, block4);
+      new UnaryCostFunction(1, 4, junk_jacobian.data()), NULL, block4);
   problem.AddResidualBlock(
-      new UnaryCostFunction(1, 3, junk_jacobian.data()), nullptr, block3);
+      new UnaryCostFunction(1, 3, junk_jacobian.data()), NULL, block3);
   problem.AddResidualBlock(
-      new UnaryCostFunction(1, 2, junk_jacobian.data()), nullptr, block2);
+      new UnaryCostFunction(1, 2, junk_jacobian.data()), NULL, block2);
   problem.SetParameterBlockConstant(block3);
 
   // Sparsity pattern
@@ -264,13 +287,13 @@ TEST(CovarianceImpl, ComputeCovarianceSparsityWithConstantParameterBlock) {
                          3, 4, 5, 6};
   // clang-format on
 
-  std::vector<std::pair<const double*, const double*>> covariance_blocks;
-  covariance_blocks.emplace_back(block1, block1);
-  covariance_blocks.emplace_back(block4, block4);
-  covariance_blocks.emplace_back(block2, block2);
-  covariance_blocks.emplace_back(block3, block3);
-  covariance_blocks.emplace_back(block2, block3);
-  covariance_blocks.emplace_back(block4, block1);  // reversed
+  vector<pair<const double*, const double*>> covariance_blocks;
+  covariance_blocks.push_back(make_pair(block1, block1));
+  covariance_blocks.push_back(make_pair(block4, block4));
+  covariance_blocks.push_back(make_pair(block2, block2));
+  covariance_blocks.push_back(make_pair(block3, block3));
+  covariance_blocks.push_back(make_pair(block2, block3));
+  covariance_blocks.push_back(make_pair(block4, block1));  // reversed
 
   Covariance::Options options;
   CovarianceImpl covariance_impl(options);
@@ -309,12 +332,12 @@ TEST(CovarianceImpl, ComputeCovarianceSparsityWithFreeParameterBlock) {
   // Add in random order
   Vector junk_jacobian = Vector::Zero(10);
   problem.AddResidualBlock(
-      new UnaryCostFunction(1, 1, junk_jacobian.data()), nullptr, block1);
+      new UnaryCostFunction(1, 1, junk_jacobian.data()), NULL, block1);
   problem.AddResidualBlock(
-      new UnaryCostFunction(1, 4, junk_jacobian.data()), nullptr, block4);
+      new UnaryCostFunction(1, 4, junk_jacobian.data()), NULL, block4);
   problem.AddParameterBlock(block3, 3);
   problem.AddResidualBlock(
-      new UnaryCostFunction(1, 2, junk_jacobian.data()), nullptr, block2);
+      new UnaryCostFunction(1, 2, junk_jacobian.data()), NULL, block2);
 
   // Sparsity pattern
   //
@@ -343,13 +366,13 @@ TEST(CovarianceImpl, ComputeCovarianceSparsityWithFreeParameterBlock) {
                          3, 4, 5, 6};
   // clang-format on
 
-  std::vector<std::pair<const double*, const double*>> covariance_blocks;
-  covariance_blocks.emplace_back(block1, block1);
-  covariance_blocks.emplace_back(block4, block4);
-  covariance_blocks.emplace_back(block2, block2);
-  covariance_blocks.emplace_back(block3, block3);
-  covariance_blocks.emplace_back(block2, block3);
-  covariance_blocks.emplace_back(block4, block1);  // reversed
+  vector<pair<const double*, const double*>> covariance_blocks;
+  covariance_blocks.push_back(make_pair(block1, block1));
+  covariance_blocks.push_back(make_pair(block4, block4));
+  covariance_blocks.push_back(make_pair(block2, block2));
+  covariance_blocks.push_back(make_pair(block3, block3));
+  covariance_blocks.push_back(make_pair(block2, block3));
+  covariance_blocks.push_back(make_pair(block4, block1));  // reversed
 
   Covariance::Options options;
   CovarianceImpl covariance_impl(options);
@@ -375,42 +398,9 @@ TEST(CovarianceImpl, ComputeCovarianceSparsityWithFreeParameterBlock) {
   }
 }
 
-// x_plus_delta = delta * x;
-class PolynomialManifold : public Manifold {
- public:
-  bool Plus(const double* x,
-            const double* delta,
-            double* x_plus_delta) const final {
-    x_plus_delta[0] = delta[0] * x[0];
-    x_plus_delta[1] = delta[0] * x[1];
-    return true;
-  }
-
-  bool Minus(const double* y, const double* x, double* y_minus_x) const final {
-    LOG(FATAL) << "Should not be called";
-    return true;
-  }
-
-  bool PlusJacobian(const double* x, double* jacobian) const final {
-    jacobian[0] = x[0];
-    jacobian[1] = x[1];
-    return true;
-  }
-
-  bool MinusJacobian(const double* x, double* jacobian) const final {
-    LOG(FATAL) << "Should not be called";
-    return true;
-  }
-
-  int AmbientSize() const final { return 2; }
-  int TangentSize() const final { return 1; }
-};
-
 class CovarianceTest : public ::testing::Test {
  protected:
-  // TODO(sameeragarwal): Investigate if this should be an ordered or an
-  // unordered map.
-  using BoundsMap = std::map<const double*, std::pair<int, int>>;
+  typedef map<const double*, pair<int, int>> BoundsMap;
 
   void SetUp() override {
     double* x = parameters_;
@@ -426,46 +416,44 @@ class CovarianceTest : public ::testing::Test {
 
     {
       double jacobian[] = {1.0, 0.0, 0.0, 1.0};
-      problem_.AddResidualBlock(
-          new UnaryCostFunction(2, 2, jacobian), nullptr, x);
+      problem_.AddResidualBlock(new UnaryCostFunction(2, 2, jacobian), NULL, x);
     }
 
     {
       double jacobian[] = {2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0};
-      problem_.AddResidualBlock(
-          new UnaryCostFunction(3, 3, jacobian), nullptr, y);
+      problem_.AddResidualBlock(new UnaryCostFunction(3, 3, jacobian), NULL, y);
     }
 
     {
       double jacobian = 5.0;
       problem_.AddResidualBlock(
-          new UnaryCostFunction(1, 1, &jacobian), nullptr, z);
+          new UnaryCostFunction(1, 1, &jacobian), NULL, z);
     }
 
     {
       double jacobian1[] = {1.0, 2.0, 3.0};
       double jacobian2[] = {-5.0, -6.0};
       problem_.AddResidualBlock(
-          new BinaryCostFunction(1, 3, 2, jacobian1, jacobian2), nullptr, y, x);
+          new BinaryCostFunction(1, 3, 2, jacobian1, jacobian2), NULL, y, x);
     }
 
     {
       double jacobian1[] = {2.0};
       double jacobian2[] = {3.0, -2.0};
       problem_.AddResidualBlock(
-          new BinaryCostFunction(1, 1, 2, jacobian1, jacobian2), nullptr, z, x);
+          new BinaryCostFunction(1, 1, 2, jacobian1, jacobian2), NULL, z, x);
     }
 
-    all_covariance_blocks_.emplace_back(x, x);
-    all_covariance_blocks_.emplace_back(y, y);
-    all_covariance_blocks_.emplace_back(z, z);
-    all_covariance_blocks_.emplace_back(x, y);
-    all_covariance_blocks_.emplace_back(x, z);
-    all_covariance_blocks_.emplace_back(y, z);
+    all_covariance_blocks_.push_back(make_pair(x, x));
+    all_covariance_blocks_.push_back(make_pair(y, y));
+    all_covariance_blocks_.push_back(make_pair(z, z));
+    all_covariance_blocks_.push_back(make_pair(x, y));
+    all_covariance_blocks_.push_back(make_pair(x, z));
+    all_covariance_blocks_.push_back(make_pair(y, z));
 
-    column_bounds_[x] = std::make_pair(0, 2);
-    column_bounds_[y] = std::make_pair(2, 5);
-    column_bounds_[z] = std::make_pair(5, 6);
+    column_bounds_[x] = make_pair(0, 2);
+    column_bounds_[y] = make_pair(2, 5);
+    column_bounds_[z] = make_pair(5, 6);
   }
 
   // Computes covariance in ambient space.
@@ -493,7 +481,7 @@ class CovarianceTest : public ::testing::Test {
     // Generate all possible combination of block pairs and check if the
     // covariance computation is correct.
     for (int i = 0; i <= 64; ++i) {
-      std::vector<std::pair<const double*, const double*>> covariance_blocks;
+      vector<pair<const double*, const double*>> covariance_blocks;
       if (i & 1) {
         covariance_blocks.push_back(all_covariance_blocks_[0]);
       }
@@ -521,9 +509,9 @@ class CovarianceTest : public ::testing::Test {
       Covariance covariance(options);
       EXPECT_TRUE(covariance.Compute(covariance_blocks, &problem_));
 
-      for (auto& covariance_block : covariance_blocks) {
-        const double* block1 = covariance_block.first;
-        const double* block2 = covariance_block.second;
+      for (int i = 0; i < covariance_blocks.size(); ++i) {
+        const double* block1 = covariance_blocks[i].first;
+        const double* block2 = covariance_blocks[i].second;
         // block1, block2
         GetCovarianceBlockAndCompare(block1,
                                      block2,
@@ -586,7 +574,7 @@ class CovarianceTest : public ::testing::Test {
 
   double parameters_[6];
   Problem problem_;
-  std::vector<std::pair<const double*, const double*>> all_covariance_blocks_;
+  vector<pair<const double*, const double*>> all_covariance_blocks_;
   BoundsMap column_bounds_;
   BoundsMap local_column_bounds_;
 };
@@ -640,6 +628,8 @@ TEST_F(CovarianceTest, NormalBehavior) {
   ComputeAndCompareCovarianceBlocks(options, expected_covariance);
 }
 
+#ifdef CERES_USE_OPENMP
+
 TEST_F(CovarianceTest, ThreadedNormalBehavior) {
   // J
   //
@@ -689,6 +679,8 @@ TEST_F(CovarianceTest, ThreadedNormalBehavior) {
   options.sparse_linear_algebra_library_type = EIGEN_SPARSE;
   ComputeAndCompareCovarianceBlocks(options, expected_covariance);
 }
+
+#endif  // CERES_USE_OPENMP
 
 TEST_F(CovarianceTest, ConstantParameterBlock) {
   problem_.SetParameterBlockConstant(parameters_);
@@ -741,15 +733,15 @@ TEST_F(CovarianceTest, ConstantParameterBlock) {
   ComputeAndCompareCovarianceBlocks(options, expected_covariance);
 }
 
-TEST_F(CovarianceTest, Manifold) {
+TEST_F(CovarianceTest, LocalParameterization) {
   double* x = parameters_;
   double* y = x + 2;
 
-  problem_.SetManifold(x, new PolynomialManifold);
+  problem_.SetParameterization(x, new PolynomialParameterization);
 
-  std::vector<int> subset;
+  vector<int> subset;
   subset.push_back(2);
-  problem_.SetManifold(y, new SubsetManifold(3, subset));
+  problem_.SetParameterization(y, new SubsetParameterization(3, subset));
 
   // Raw Jacobian: J
   //
@@ -800,20 +792,20 @@ TEST_F(CovarianceTest, Manifold) {
   ComputeAndCompareCovarianceBlocks(options, expected_covariance);
 }
 
-TEST_F(CovarianceTest, ManifoldInTangentSpace) {
+TEST_F(CovarianceTest, LocalParameterizationInTangentSpace) {
   double* x = parameters_;
   double* y = x + 2;
   double* z = y + 3;
 
-  problem_.SetManifold(x, new PolynomialManifold);
+  problem_.SetParameterization(x, new PolynomialParameterization);
 
-  std::vector<int> subset;
+  vector<int> subset;
   subset.push_back(2);
-  problem_.SetManifold(y, new SubsetManifold(3, subset));
+  problem_.SetParameterization(y, new SubsetParameterization(3, subset));
 
-  local_column_bounds_[x] = std::make_pair(0, 1);
-  local_column_bounds_[y] = std::make_pair(1, 3);
-  local_column_bounds_[z] = std::make_pair(3, 4);
+  local_column_bounds_[x] = make_pair(0, 1);
+  local_column_bounds_[y] = make_pair(1, 3);
+  local_column_bounds_[z] = make_pair(3, 4);
 
   // Raw Jacobian: J
   //
@@ -863,22 +855,22 @@ TEST_F(CovarianceTest, ManifoldInTangentSpace) {
   ComputeAndCompareCovarianceBlocksInTangentSpace(options, expected_covariance);
 }
 
-TEST_F(CovarianceTest, ManifoldInTangentSpaceWithConstantBlocks) {
+TEST_F(CovarianceTest, LocalParameterizationInTangentSpaceWithConstantBlocks) {
   double* x = parameters_;
   double* y = x + 2;
   double* z = y + 3;
 
-  problem_.SetManifold(x, new PolynomialManifold);
+  problem_.SetParameterization(x, new PolynomialParameterization);
   problem_.SetParameterBlockConstant(x);
 
-  std::vector<int> subset;
+  vector<int> subset;
   subset.push_back(2);
-  problem_.SetManifold(y, new SubsetManifold(3, subset));
+  problem_.SetParameterization(y, new SubsetParameterization(3, subset));
   problem_.SetParameterBlockConstant(y);
 
-  local_column_bounds_[x] = std::make_pair(0, 1);
-  local_column_bounds_[y] = std::make_pair(1, 3);
-  local_column_bounds_[z] = std::make_pair(3, 4);
+  local_column_bounds_[x] = make_pair(0, 1);
+  local_column_bounds_[y] = make_pair(1, 3);
+  local_column_bounds_[z] = make_pair(3, 4);
 
   // Raw Jacobian: J
   //
@@ -949,7 +941,7 @@ TEST_F(CovarianceTest, TruncatedRank) {
   //  -15 -18  3   6  13  0
   //    6  -4  0   0   0 29
 
-  // 3.4142 is the smallest eigenvalue of J'J. The following matrix
+  // 3.4142 is the smallest eigen value of J'J. The following matrix
   // was obtained by dropping the eigenvector corresponding to this
   // eigenvalue.
   // clang-format off
@@ -988,7 +980,7 @@ TEST_F(CovarianceTest, DenseCovarianceMatrixFromSetOfParameters) {
   double* x = parameters_;
   double* y = x + 2;
   double* z = y + 3;
-  std::vector<const double*> parameter_blocks;
+  vector<const double*> parameter_blocks;
   parameter_blocks.push_back(x);
   parameter_blocks.push_back(y);
   parameter_blocks.push_back(z);
@@ -1017,7 +1009,7 @@ TEST_F(CovarianceTest, DenseCovarianceMatrixFromSetOfParametersThreaded) {
   double* x = parameters_;
   double* y = x + 2;
   double* z = y + 3;
-  std::vector<const double*> parameter_blocks;
+  vector<const double*> parameter_blocks;
   parameter_blocks.push_back(x);
   parameter_blocks.push_back(y);
   parameter_blocks.push_back(z);
@@ -1046,17 +1038,17 @@ TEST_F(CovarianceTest, DenseCovarianceMatrixFromSetOfParametersInTangentSpace) {
   double* y = x + 2;
   double* z = y + 3;
 
-  problem_.SetManifold(x, new PolynomialManifold);
+  problem_.SetParameterization(x, new PolynomialParameterization);
 
-  std::vector<int> subset;
+  vector<int> subset;
   subset.push_back(2);
-  problem_.SetManifold(y, new SubsetManifold(3, subset));
+  problem_.SetParameterization(y, new SubsetParameterization(3, subset));
 
-  local_column_bounds_[x] = std::make_pair(0, 1);
-  local_column_bounds_[y] = std::make_pair(1, 3);
-  local_column_bounds_[z] = std::make_pair(3, 4);
+  local_column_bounds_[x] = make_pair(0, 1);
+  local_column_bounds_[y] = make_pair(1, 3);
+  local_column_bounds_[z] = make_pair(3, 4);
 
-  std::vector<const double*> parameter_blocks;
+  vector<const double*> parameter_blocks;
   parameter_blocks.push_back(x);
   parameter_blocks.push_back(y);
   parameter_blocks.push_back(z);
@@ -1085,7 +1077,7 @@ TEST_F(CovarianceTest, ComputeCovarianceFailure) {
   Covariance covariance(options);
   double* x = parameters_;
   double* y = x + 2;
-  std::vector<const double*> parameter_blocks;
+  vector<const double*> parameter_blocks;
   parameter_blocks.push_back(x);
   parameter_blocks.push_back(x);
   parameter_blocks.push_back(y);
@@ -1093,11 +1085,11 @@ TEST_F(CovarianceTest, ComputeCovarianceFailure) {
   EXPECT_DEATH_IF_SUPPORTED(covariance.Compute(parameter_blocks, &problem_),
                             "Covariance::Compute called with duplicate blocks "
                             "at indices \\(0, 1\\) and \\(2, 3\\)");
-  std::vector<std::pair<const double*, const double*>> covariance_blocks;
-  covariance_blocks.emplace_back(x, x);
-  covariance_blocks.emplace_back(x, x);
-  covariance_blocks.emplace_back(y, y);
-  covariance_blocks.emplace_back(y, y);
+  vector<pair<const double*, const double*>> covariance_blocks;
+  covariance_blocks.push_back(make_pair(x, x));
+  covariance_blocks.push_back(make_pair(x, x));
+  covariance_blocks.push_back(make_pair(y, y));
+  covariance_blocks.push_back(make_pair(y, y));
   EXPECT_DEATH_IF_SUPPORTED(covariance.Compute(covariance_blocks, &problem_),
                             "Covariance::Compute called with duplicate blocks "
                             "at indices \\(0, 1\\) and \\(2, 3\\)");
@@ -1112,46 +1104,44 @@ class RankDeficientCovarianceTest : public CovarianceTest {
 
     {
       double jacobian[] = {1.0, 0.0, 0.0, 1.0};
-      problem_.AddResidualBlock(
-          new UnaryCostFunction(2, 2, jacobian), nullptr, x);
+      problem_.AddResidualBlock(new UnaryCostFunction(2, 2, jacobian), NULL, x);
     }
 
     {
       double jacobian[] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-      problem_.AddResidualBlock(
-          new UnaryCostFunction(3, 3, jacobian), nullptr, y);
+      problem_.AddResidualBlock(new UnaryCostFunction(3, 3, jacobian), NULL, y);
     }
 
     {
       double jacobian = 5.0;
       problem_.AddResidualBlock(
-          new UnaryCostFunction(1, 1, &jacobian), nullptr, z);
+          new UnaryCostFunction(1, 1, &jacobian), NULL, z);
     }
 
     {
       double jacobian1[] = {0.0, 0.0, 0.0};
       double jacobian2[] = {-5.0, -6.0};
       problem_.AddResidualBlock(
-          new BinaryCostFunction(1, 3, 2, jacobian1, jacobian2), nullptr, y, x);
+          new BinaryCostFunction(1, 3, 2, jacobian1, jacobian2), NULL, y, x);
     }
 
     {
       double jacobian1[] = {2.0};
       double jacobian2[] = {3.0, -2.0};
       problem_.AddResidualBlock(
-          new BinaryCostFunction(1, 1, 2, jacobian1, jacobian2), nullptr, z, x);
+          new BinaryCostFunction(1, 1, 2, jacobian1, jacobian2), NULL, z, x);
     }
 
-    all_covariance_blocks_.emplace_back(x, x);
-    all_covariance_blocks_.emplace_back(y, y);
-    all_covariance_blocks_.emplace_back(z, z);
-    all_covariance_blocks_.emplace_back(x, y);
-    all_covariance_blocks_.emplace_back(x, z);
-    all_covariance_blocks_.emplace_back(y, z);
+    all_covariance_blocks_.push_back(make_pair(x, x));
+    all_covariance_blocks_.push_back(make_pair(y, y));
+    all_covariance_blocks_.push_back(make_pair(z, z));
+    all_covariance_blocks_.push_back(make_pair(x, y));
+    all_covariance_blocks_.push_back(make_pair(x, z));
+    all_covariance_blocks_.push_back(make_pair(y, z));
 
-    column_bounds_[x] = std::make_pair(0, 2);
-    column_bounds_[y] = std::make_pair(2, 5);
-    column_bounds_[z] = std::make_pair(5, 6);
+    column_bounds_[x] = make_pair(0, 2);
+    column_bounds_[y] = make_pair(2, 5);
+    column_bounds_[z] = make_pair(5, 6);
   }
 };
 
@@ -1207,22 +1197,22 @@ struct LinearCostFunction {
   }
 };
 
-TEST(Covariance, ZeroSizedManifoldGetCovariance) {
+TEST(Covariance, ZeroSizedLocalParameterizationGetCovariance) {
   double x = 0.0;
   double y = 1.0;
   Problem problem;
   problem.AddResidualBlock(LinearCostFunction::Create(), nullptr, &x, &y);
-  problem.SetManifold(&y, new SubsetManifold(1, {0}));
+  problem.SetParameterization(&y, new SubsetParameterization(1, {0}));
   // J = [-1 0]
   //     [ 0 0]
   Covariance::Options options;
   options.algorithm_type = DENSE_SVD;
   Covariance covariance(options);
-  std::vector<std::pair<const double*, const double*>> covariance_blocks;
-  covariance_blocks.emplace_back(&x, &x);
-  covariance_blocks.emplace_back(&x, &y);
-  covariance_blocks.emplace_back(&y, &x);
-  covariance_blocks.emplace_back(&y, &y);
+  vector<pair<const double*, const double*>> covariance_blocks;
+  covariance_blocks.push_back(std::make_pair(&x, &x));
+  covariance_blocks.push_back(std::make_pair(&x, &y));
+  covariance_blocks.push_back(std::make_pair(&y, &x));
+  covariance_blocks.push_back(std::make_pair(&y, &y));
   EXPECT_TRUE(covariance.Compute(covariance_blocks, &problem));
 
   double value = -1;
@@ -1242,22 +1232,22 @@ TEST(Covariance, ZeroSizedManifoldGetCovariance) {
   EXPECT_NEAR(value, 0.0, std::numeric_limits<double>::epsilon());
 }
 
-TEST(Covariance, ZeroSizedManifoldGetCovarianceInTangentSpace) {
+TEST(Covariance, ZeroSizedLocalParameterizationGetCovarianceInTangentSpace) {
   double x = 0.0;
   double y = 1.0;
   Problem problem;
   problem.AddResidualBlock(LinearCostFunction::Create(), nullptr, &x, &y);
-  problem.SetManifold(&y, new SubsetManifold(1, {0}));
+  problem.SetParameterization(&y, new SubsetParameterization(1, {0}));
   // J = [-1 0]
   //     [ 0 0]
   Covariance::Options options;
   options.algorithm_type = DENSE_SVD;
   Covariance covariance(options);
-  std::vector<std::pair<const double*, const double*>> covariance_blocks;
-  covariance_blocks.emplace_back(&x, &x);
-  covariance_blocks.emplace_back(&x, &y);
-  covariance_blocks.emplace_back(&y, &x);
-  covariance_blocks.emplace_back(&y, &y);
+  vector<pair<const double*, const double*>> covariance_blocks;
+  covariance_blocks.push_back(std::make_pair(&x, &x));
+  covariance_blocks.push_back(std::make_pair(&x, &y));
+  covariance_blocks.push_back(std::make_pair(&y, &x));
+  covariance_blocks.push_back(std::make_pair(&y, &y));
   EXPECT_TRUE(covariance.Compute(covariance_blocks, &problem));
 
   double value = -1;
@@ -1280,8 +1270,8 @@ class LargeScaleCovarianceTest : public ::testing::Test {
   void SetUp() final {
     num_parameter_blocks_ = 2000;
     parameter_block_size_ = 5;
-    parameters_ = std::make_unique<double[]>(parameter_block_size_ *
-                                             num_parameter_blocks_);
+    parameters_.reset(
+        new double[parameter_block_size_ * num_parameter_blocks_]);
 
     Matrix jacobian(parameter_block_size_, parameter_block_size_);
     for (int i = 0; i < num_parameter_blocks_; ++i) {
@@ -1292,11 +1282,11 @@ class LargeScaleCovarianceTest : public ::testing::Test {
       problem_.AddResidualBlock(
           new UnaryCostFunction(
               parameter_block_size_, parameter_block_size_, jacobian.data()),
-          nullptr,
+          NULL,
           block_i);
       for (int j = i; j < num_parameter_blocks_; ++j) {
         double* block_j = parameters_.get() + j * parameter_block_size_;
-        all_covariance_blocks_.emplace_back(block_i, block_j);
+        all_covariance_blocks_.push_back(make_pair(block_i, block_j));
       }
     }
   }
@@ -1349,16 +1339,16 @@ class LargeScaleCovarianceTest : public ::testing::Test {
   int num_parameter_blocks_;
 
   Problem problem_;
-  std::vector<std::pair<const double*, const double*>> all_covariance_blocks_;
+  vector<pair<const double*, const double*>> all_covariance_blocks_;
 };
 
-#if !defined(CERES_NO_SUITESPARSE)
+#if !defined(CERES_NO_SUITESPARSE) && defined(CERES_USE_OPENMP)
 
 TEST_F(LargeScaleCovarianceTest, Parallel) {
   ComputeAndCompare(SPARSE_QR, SUITE_SPARSE, 4);
 }
 
-#endif  // !defined(CERES_NO_SUITESPARSE)
+#endif  // !defined(CERES_NO_SUITESPARSE) && defined(CERES_USE_OPENMP)
 
 }  // namespace internal
 }  // namespace ceres

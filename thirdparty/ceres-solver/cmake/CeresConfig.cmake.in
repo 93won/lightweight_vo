@@ -1,5 +1,5 @@
 # Ceres Solver - A fast non-linear least squares minimizer
-# Copyright 2025 Google Inc. All rights reserved.
+# Copyright 2015 Google Inc. All rights reserved.
 # http://ceres-solver.org/
 #
 # Redistribution and use in source and binary forms, with or without
@@ -76,8 +76,18 @@ macro(CERES_REPORT_NOT_FOUND REASON_MSG)
 
   # Reset the CMake module path to its state when this script was called.
   set(CMAKE_MODULE_PATH ${CALLERS_CMAKE_MODULE_PATH})
-  # Concatenate REASON_MSG and ARGN with each element separated by a space
-  string(JOIN " " ${CMAKE_FIND_PACKAGE_NAME}_NOT_FOUND_MESSAGE "${REASON_MSG}" ${ARGN})
+
+  # Note <package>_FIND_[REQUIRED/QUIETLY] variables defined by
+  # FindPackage() use the camelcase library name, not uppercase.
+  if (Ceres_FIND_QUIETLY)
+    message(STATUS "Failed to find Ceres - " ${REASON_MSG} ${ARGN})
+  elseif (Ceres_FIND_REQUIRED)
+    message(FATAL_ERROR "Failed to find Ceres - " ${REASON_MSG} ${ARGN})
+  else()
+    # Neither QUIETLY nor REQUIRED, use SEND_ERROR which emits an error
+    # that prevents generation, but continues configuration.
+    message(SEND_ERROR "Failed to find Ceres - " ${REASON_MSG} ${ARGN})
+  endif ()
   return()
 endmacro(CERES_REPORT_NOT_FOUND)
 
@@ -120,11 +130,11 @@ get_filename_component(CERES_CURRENT_CONFIG_DIR
   "${CMAKE_CURRENT_LIST_FILE}" PATH)
 
 if (CERES_WAS_INSTALLED)
-  # Update the CMake module path to include the installation directory of this
-  # script, thus we will use the FindPackage() scripts shipped with Ceres to
-  # find Ceres' dependencies, even if the user has equivalently named
-  # FindPackage() scripts in their project.
-  list(PREPEND CMAKE_MODULE_PATH ${CERES_CURRENT_CONFIG_DIR})
+  # Reset CMake module path to the installation directory of this
+  # script, thus we will use the FindPackage() scripts shipped with
+  # Ceres to find Ceres' dependencies, even if the user has equivalently
+  # named FindPackage() scripts in their project.
+  set(CMAKE_MODULE_PATH ${CERES_CURRENT_CONFIG_DIR})
 
   # Build the absolute root install directory as a relative path
   # (determined when Ceres was configured & built) from the current
@@ -155,23 +165,18 @@ else(CERES_WAS_INSTALLED)
       "directory: ${CERES_EXPORTED_BUILD_DIR} does not exist.")
   endif()
 
-  # Update the CMake module path to include the cmake directory in the Ceres
-  # source tree which was exported, thus we will use the FindPackage() scripts
-  # shipped with Ceres to find Ceres' dependencies, even if the user has
-  # equivalently named FindPackage() scripts in their project.
-  list(PREPEND CMAKE_MODULE_PATH ${CERES_EXPORTED_SOURCE_DIR}/cmake)
+  # Reset CMake module path to the cmake directory in the Ceres source
+  # tree which was exported, thus we will use the FindPackage() scripts shipped
+  # with Ceres to find Ceres' dependencies, even if the user has equivalently
+  # named FindPackage() scripts in their project.
+  set(CMAKE_MODULE_PATH ${CERES_EXPORTED_SOURCE_DIR}/cmake)
 endif(CERES_WAS_INSTALLED)
 
 # Set the version.
-set(CERES_VERSION @CERES_VERSION@)
+set(CERES_VERSION @CERES_VERSION@ )
 
 include(CMakeFindDependencyMacro)
-# Optional dependencies
-@METIS_DEPENDENCY@
-@SuiteSparse_DEPENDENCY@
-@CUDAToolkit_DEPENDENCY@
-@cudss_DEPENDENCY@
-@Threads_DEPENDENCY@
+find_dependency(Threads)
 
 # As imported CMake targets are not re-exported when a dependent target is
 # exported, we must invoke find_package(XXX) here to reload the definition
@@ -180,55 +185,83 @@ include(CMakeFindDependencyMacro)
 # defined, and so CMake will assume that they refer to a library name and
 # fail to link correctly.
 
-# Abseil
-set(_CERES_ABSL_VERSION @absl_VERSION@)
-set(_CERES_USE_SYSTEM_ABSL @CERES_USE_SYSTEM_ABSL@)
-if (_CERES_USE_SYSTEM_ABSL)
-  find_dependency(absl ${_CERES_ABSL_VERSION})
-  if (NOT absl_VERSION)
-    if (NOT TARGET absl::absl_vlog_is_on)
-      ceres_report_not_found("The version of abseil installed on the system "
-        "provides no version info and is missing TARGET 'absl::absl_vlog_is_on'")
-    endif ()
-  endif ()
-else ()
-  # absl from submodule, configs installed with ceres-solver
-  get_filename_component(_ABSL_IMPORT_PREFIX "${CMAKE_CURRENT_LIST_FILE}" PATH)
-  get_filename_component(_ABSL_IMPORT_PREFIX "${_ABSL_IMPORT_PREFIX}" PATH)
-  set(_ABSL_IMPORT_PREFIX "${_ABSL_IMPORT_PREFIX}/absl")
-  find_dependency(absl ${_CERES_ABSL_VERSION} HINTS "${_ABSL_IMPORT_PREFIX}")
-endif ()
-ceres_message(STATUS "Found required Ceres dependency: "
-  "absl version ${_CERES_ABSL_VERSION} in ${absl_DIR}")
-unset(_CERES_ABSL_VERSION)
-unset(_CERES_USE_SYSTEM_ABSL)
-
 # Eigen.
 # Flag set during configuration and build of Ceres.
-set(CERES_EIGEN_VERSION @Eigen3_VERSION@)
+set(CERES_EIGEN_VERSION @EIGEN3_VERSION_STRING@)
 # Search quietly to control the timing of the error message if not found. The
 # search should be for an exact match, but for usability reasons do a soft
 # match and reject with an explanation below.
 find_package(Eigen3 ${CERES_EIGEN_VERSION} QUIET)
-if (Eigen3_FOUND)
-  if (NOT Eigen3_VERSION VERSION_EQUAL CERES_EIGEN_VERSION)
+if (EIGEN3_FOUND)
+  if (NOT EIGEN3_VERSION_STRING VERSION_EQUAL CERES_EIGEN_VERSION)
     # CMake's VERSION check in FIND_PACKAGE() will accept any version >= the
     # specified version. However, only version = is supported. Improve
     # usability by explaining why we don't accept non-exact version matching.
     ceres_report_not_found("Found Eigen dependency, but the version of Eigen "
-      "found (${Eigen3_VERSION}) does not exactly match the version of Eigen "
+      "found (${EIGEN3_VERSION_STRING}) does not exactly match the version of Eigen "
       "Ceres was compiled with (${CERES_EIGEN_VERSION}). This can cause subtle "
       "bugs by triggering violations of the One Definition Rule. See the "
       "Wikipedia article http://en.wikipedia.org/wiki/One_Definition_Rule "
       "for more details")
   endif ()
   ceres_message(STATUS "Found required Ceres dependency: "
-    "Eigen version ${CERES_EIGEN_VERSION} in ${Eigen3_DIR}")
-else (Eigen3_FOUND)
+    "Eigen version ${CERES_EIGEN_VERSION} in ${EIGEN3_INCLUDE_DIRS}")
+else (EIGEN3_FOUND)
   ceres_report_not_found("Missing required Ceres "
     "dependency: Eigen version ${CERES_EIGEN_VERSION}, please set "
     "Eigen3_DIR.")
-endif (Eigen3_FOUND)
+endif (EIGEN3_FOUND)
+
+# glog (and maybe gflags).
+#
+# Flags set during configuration and build of Ceres.
+set(CERES_USES_MINIGLOG @MINIGLOG@)
+set(CERES_GLOG_VERSION @glog_VERSION@)
+set(CERES_GLOG_WAS_BUILT_WITH_CMAKE @FOUND_INSTALLED_GLOG_CMAKE_CONFIGURATION@)
+
+set(CERES_USES_GFLAGS @GFLAGS@)
+set(CERES_GFLAGS_VERSION @gflags_VERSION@)
+
+if (CERES_USES_MINIGLOG)
+  # Output message at standard log level (not the lower STATUS) so that
+  # the message is output in GUI during configuration to warn user.
+  ceres_message("-- Found Ceres compiled with miniglog substitute "
+    "for glog, beware this will likely cause problems if glog is later linked.")
+else(CERES_USES_MINIGLOG)
+  if (CERES_GLOG_WAS_BUILT_WITH_CMAKE)
+    find_package(glog ${CERES_GLOG_VERSION} CONFIG QUIET)
+    set(GLOG_FOUND ${glog_FOUND})
+  else()
+    # Version of glog against which Ceres was built was not built with CMake,
+    # use the exported glog find_package() module from Ceres to find it again.
+    # Append the locations of glog when Ceres was built to the search path hints.
+    list(APPEND GLOG_INCLUDE_DIR_HINTS "@GLOG_INCLUDE_DIR@")
+    get_filename_component(CERES_BUILD_GLOG_LIBRARY_DIR "@GLOG_LIBRARY@" PATH)
+    list(APPEND GLOG_LIBRARY_DIR_HINTS ${CERES_BUILD_GLOG_LIBRARY_DIR})
+
+    # Search quietly s/t we control the timing of the error message if not found.
+    find_package(Glog QUIET)
+  endif()
+
+  if (GLOG_FOUND)
+    ceres_message(STATUS "Found required Ceres dependency: glog")
+  else()
+    ceres_report_not_found("Missing required Ceres dependency: glog.")
+  endif()
+
+  # gflags is only a public dependency of Ceres via glog, thus is not required
+  # if Ceres was built with MINIGLOG.
+  if (CERES_USES_GFLAGS)
+    # Search quietly s/t we control the timing of the error message if not found.
+    find_package(gflags ${CERES_GFLAGS_VERSION} QUIET)
+    if (gflags_FOUND AND TARGET gflags)
+      ceres_message(STATUS "Found required Ceres dependency: gflags")
+    else()
+      ceres_report_not_found("Missing required Ceres "
+        "dependency: gflags (not found, or not found as exported CMake target).")
+    endif()
+  endif()
+endif(CERES_USES_MINIGLOG)
 
 # Import exported Ceres targets, if they have not already been imported.
 if (NOT TARGET ceres AND NOT Ceres_BINARY_DIR)
@@ -300,10 +333,4 @@ if (NOT TARGET ceres)
   # true ALIAS library in CMake terms as they cannot point to imported targets.
   add_library(ceres INTERFACE IMPORTED)
   set_target_properties(ceres PROPERTIES INTERFACE_LINK_LIBRARIES Ceres::ceres)
-
-  if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.17)
-    set_target_properties(ceres PROPERTIES DEPRECATION
-"The unscoped import target `ceres' is deprecated and will be removed in a \
-future Ceres Solver release. Please use the Ceres::ceres import target instead.")
-  endif (CMAKE_VERSION VERSION_GREATER_EQUAL 3.17)
 endif()

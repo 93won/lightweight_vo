@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,8 +33,10 @@
 
 #include "Eigen/Dense"
 #include "ceres/internal/eigen.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Helper routine to compute the inverse or pseudo-inverse of a
 // symmetric positive semi-definite matrix.
@@ -71,6 +73,7 @@ typename EigenTypes<kSize, kSize>::Matrix InvertPSDMatrix(
   return svd.solve(MType::Identity(size, size));
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_INVERT_PSD_MATRIX_H_

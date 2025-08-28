@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,33 +34,32 @@
 #include "ceres/evaluator.h"
 
 #include <memory>
-#include <string>
-#include <vector>
 
-#include "absl/log/log.h"
-#include "absl/log/vlog_is_on.h"
-#include "absl/strings/str_format.h"
 #include "ceres/casts.h"
 #include "ceres/cost_function.h"
 #include "ceres/crs_matrix.h"
 #include "ceres/evaluator_test_utils.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/manifold.h"
+#include "ceres/local_parameterization.h"
 #include "ceres/problem_impl.h"
 #include "ceres/program.h"
 #include "ceres/sized_cost_function.h"
 #include "ceres/sparse_matrix.h"
+#include "ceres/stringprintf.h"
 #include "ceres/types.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
 namespace internal {
 
+using std::string;
+using std::vector;
+
 // TODO(keir): Consider pushing this into a common test utils file.
 template <int kFactor, int kNumResiduals, int... Ns>
 class ParameterIgnoringCostFunction
     : public SizedCostFunction<kNumResiduals, Ns...> {
-  using Base = SizedCostFunction<kNumResiduals, Ns...>;
+  typedef SizedCostFunction<kNumResiduals, Ns...> Base;
 
  public:
   explicit ParameterIgnoringCostFunction(bool succeeds = true)
@@ -76,9 +75,9 @@ class ParameterIgnoringCostFunction
       for (int k = 0; k < Base::parameter_block_sizes().size(); ++k) {
         // The jacobians here are full sized, but they are transformed in the
         // evaluator into the "local" jacobian. In the tests, the "subset
-        // constant" manifold is used, which should pick out columns from these
-        // jacobians. Put values in the jacobian that make this obvious; in
-        // particular, make the jacobians like this:
+        // constant" parameterization is used, which should pick out columns
+        // from these jacobians. Put values in the jacobian that make this
+        // obvious; in particular, make the jacobians like this:
         //
         //   1 2 3 4 ...
         //   1 2 3 4 ...   .*  kFactor
@@ -117,21 +116,23 @@ struct EvaluatorTestOptions {
 };
 
 struct EvaluatorTest : public ::testing::TestWithParam<EvaluatorTestOptions> {
-  std::unique_ptr<Evaluator> CreateEvaluator(Program* program) {
+  Evaluator* CreateEvaluator(Program* program) {
     // This program is straight from the ProblemImpl, and so has no index/offset
     // yet; compute it here as required by the evaluator implementations.
     program->SetParameterOffsetsAndIndex();
 
     if (VLOG_IS_ON(1)) {
-      std::string report = absl::StrFormat("Creating evaluator with type: %d",
-                                           GetParam().linear_solver_type);
+      string report;
+      StringAppendF(&report,
+                    "Creating evaluator with type: %d",
+                    GetParam().linear_solver_type);
       if (GetParam().linear_solver_type == SPARSE_NORMAL_CHOLESKY) {
-        absl::StrAppendFormat(
+        StringAppendF(
             &report, ", dynamic_sparsity: %d", GetParam().dynamic_sparsity);
       }
-      absl::StrAppendFormat(&report,
-                            " and num_eliminate_blocks: %d",
-                            GetParam().num_eliminate_blocks);
+      StringAppendF(&report,
+                    " and num_eliminate_blocks: %d",
+                    GetParam().num_eliminate_blocks);
       VLOG(1) << report;
     }
     Evaluator::Options options;
@@ -139,7 +140,7 @@ struct EvaluatorTest : public ::testing::TestWithParam<EvaluatorTestOptions> {
     options.num_eliminate_blocks = GetParam().num_eliminate_blocks;
     options.dynamic_sparsity = GetParam().dynamic_sparsity;
     options.context = problem.context();
-    std::string error;
+    string error;
     return Evaluator::Create(options, program, &error);
   }
 
@@ -150,8 +151,8 @@ struct EvaluatorTest : public ::testing::TestWithParam<EvaluatorTestOptions> {
                           const double* expected_residuals,
                           const double* expected_gradient,
                           const double* expected_jacobian) {
-    std::unique_ptr<Evaluator> evaluator =
-        CreateEvaluator(problem->mutable_program());
+    std::unique_ptr<Evaluator> evaluator(
+        CreateEvaluator(problem->mutable_program()));
     int num_residuals = expected_num_rows;
     int num_parameters = expected_num_cols;
 
@@ -170,7 +171,7 @@ struct EvaluatorTest : public ::testing::TestWithParam<EvaluatorTestOptions> {
     ASSERT_EQ(expected_num_rows, jacobian->num_rows());
     ASSERT_EQ(expected_num_cols, jacobian->num_cols());
 
-    std::vector<double> state(evaluator->NumParameters());
+    vector<double> state(evaluator->NumParameters());
 
     // clang-format off
     ASSERT_TRUE(evaluator->Evaluate(
@@ -393,19 +394,19 @@ TEST_P(EvaluatorTest, MultipleResidualProblem) {
   CheckAllEvaluationCombinations(expected);
 }
 
-TEST_P(EvaluatorTest, MultipleResidualsWithManifolds) {
+TEST_P(EvaluatorTest, MultipleResidualsWithLocalParameterizations) {
   // Add the parameters in explicit order to force the ordering in the program.
   problem.AddParameterBlock(x, 2);
 
   // Fix y's first dimension.
-  std::vector<int> y_fixed;
+  vector<int> y_fixed;
   y_fixed.push_back(0);
-  problem.AddParameterBlock(y, 3, new SubsetManifold(3, y_fixed));
+  problem.AddParameterBlock(y, 3, new SubsetParameterization(3, y_fixed));
 
   // Fix z's second dimension.
-  std::vector<int> z_fixed;
+  vector<int> z_fixed;
   z_fixed.push_back(1);
-  problem.AddParameterBlock(z, 4, new SubsetManifold(4, z_fixed));
+  problem.AddParameterBlock(z, 4, new SubsetParameterization(4, z_fixed));
 
   // f(x, y) in R^2
   problem.AddResidualBlock(
@@ -485,7 +486,7 @@ TEST_P(EvaluatorTest, MultipleResidualProblemWithSomeConstantParameters) {
   // Normally, the preprocessing of the program that happens in solver_impl
   // takes care of this, but we don't want to invoke the solver here.
   Program reduced_program;
-  std::vector<ParameterBlock*>* parameter_blocks =
+  vector<ParameterBlock*>* parameter_blocks =
       problem.mutable_program()->mutable_parameter_blocks();
 
   // "z" is the last parameter; save it for later and pop it off temporarily.
@@ -544,8 +545,8 @@ TEST_P(EvaluatorTest, EvaluatorAbortsForResidualsThatFailToEvaluate) {
   // The values are ignored.
   double state[9];
 
-  std::unique_ptr<Evaluator> evaluator =
-      CreateEvaluator(problem.mutable_program());
+  std::unique_ptr<Evaluator> evaluator(
+      CreateEvaluator(problem.mutable_program()));
   std::unique_ptr<SparseMatrix> jacobian(evaluator->CreateJacobian());
   double cost;
   EXPECT_FALSE(evaluator->Evaluate(state, &cost, nullptr, nullptr, nullptr));
@@ -619,7 +620,7 @@ TEST(Evaluator, EvaluatorRespectsParameterChanges) {
   options.linear_solver_type = DENSE_QR;
   options.num_eliminate_blocks = 0;
   options.context = problem.context();
-  std::string error;
+  string error;
   std::unique_ptr<Evaluator> evaluator(
       Evaluator::Create(options, program, &error));
   std::unique_ptr<SparseMatrix> jacobian(evaluator->CreateJacobian());
@@ -674,52 +675,6 @@ TEST(Evaluator, EvaluatorRespectsParameterChanges) {
         << actual_jacobian << "\nExpected:\n"
         << expected_jacobian;
   }
-}
-
-class HugeCostFunction : public SizedCostFunction<46341, 46345> {
-  bool Evaluate(double const* const* parameters,
-                double* residuals,
-                double** jacobians) const override {
-    return true;
-  }
-};
-
-TEST(Evaluator, LargeProblemDoesNotCauseCrashBlockJacobianWriter) {
-  ProblemImpl problem;
-  std::vector<double> x(46345);
-
-  problem.AddResidualBlock(new HugeCostFunction, nullptr, x.data());
-  Evaluator::Options options;
-  options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;
-  options.context = problem.context();
-  options.num_eliminate_blocks = 0;
-  options.dynamic_sparsity = false;
-  std::string error;
-  auto program = problem.mutable_program();
-  program->SetParameterOffsetsAndIndex();
-  auto evaluator = Evaluator::Create(options, program, &error);
-  auto jacobian = evaluator->CreateJacobian();
-  EXPECT_EQ(jacobian, nullptr);
-}
-
-TEST(Evaluator, LargeProblemDoesNotCauseCrashCompressedRowJacobianWriter) {
-  ProblemImpl problem;
-  std::vector<double> x(46345);
-
-  problem.AddResidualBlock(new HugeCostFunction, nullptr, x.data());
-  Evaluator::Options options;
-  // CGNR on CUDA_SPARSE is the only combination that triggers a
-  // CompressedRowJacobianWriter.
-  options.linear_solver_type = CGNR;
-  options.sparse_linear_algebra_library_type = CUDA_SPARSE;
-  options.context = problem.context();
-  options.num_eliminate_blocks = 0;
-  std::string error;
-  auto program = problem.mutable_program();
-  program->SetParameterOffsetsAndIndex();
-  auto evaluator = Evaluator::Create(options, program, &error);
-  auto jacobian = evaluator->CreateJacobian();
-  EXPECT_EQ(jacobian, nullptr);
 }
 
 }  // namespace internal

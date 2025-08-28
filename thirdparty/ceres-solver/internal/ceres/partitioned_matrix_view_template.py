@@ -1,5 +1,5 @@
 # Ceres Solver - A fast non-linear least squares minimizer
-# Copyright 2023 Google Inc. All rights reserved.
+# Copyright 2015 Google Inc. All rights reserved.
 # http://ceres-solver.org/
 #
 # Redistribution and use in source and binary forms, with or without
@@ -47,7 +47,7 @@
 # specializations that is generated.
 
 HEADER = """// Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -91,60 +91,61 @@ HEADER = """// Ceres Solver - A fast non-linear least squares minimizer
 DYNAMIC_FILE = """
 #include "ceres/partitioned_matrix_view_impl.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 template class PartitionedMatrixView<%s,
                                      %s,
                                      %s>;
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 """
 
 SPECIALIZATION_FILE = """
 // This include must come before any #ifndef check on Ceres compile options.
-#include "ceres/internal/config.h"
+#include "ceres/internal/port.h"
 
 #ifndef CERES_RESTRICT_SCHUR_SPECIALIZATION
 
 #include "ceres/partitioned_matrix_view_impl.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 template class PartitionedMatrixView<%s, %s, %s>;
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_RESTRICT_SCHUR_SPECIALIZATION
 """
 
 FACTORY_FILE_HEADER = """
-#include <memory>
-
-#include "absl/log/log.h"
 #include "ceres/linear_solver.h"
 #include "ceres/partitioned_matrix_view.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-PartitionedMatrixViewBase::~PartitionedMatrixViewBase() = default;
-
-std::unique_ptr<PartitionedMatrixViewBase> PartitionedMatrixViewBase::Create(
+PartitionedMatrixViewBase* PartitionedMatrixViewBase::Create(
     const LinearSolver::Options& options, const BlockSparseMatrix& matrix) {
 #ifndef CERES_RESTRICT_SCHUR_SPECIALIZATION
 """
-FACTORY = """  return std::make_unique<PartitionedMatrixView<%s,%s, %s>>(
-                   options, matrix);"""
+FACTORY = """  return new PartitionedMatrixView<%s, %s, %s>(matrix,
+                                              options.elimination_groups[0]);"""
 
 FACTORY_FOOTER = """
 #endif
   VLOG(1) << "Template specializations not found for <"
           << options.row_block_size << "," << options.e_block_size << ","
           << options.f_block_size << ">";
-  return std::make_unique<PartitionedMatrixView<Eigen::Dynamic,
-                                                Eigen::Dynamic,
-                                                Eigen::Dynamic>>(
-      options, matrix);
+  return new PartitionedMatrixView<Eigen::Dynamic,
+                                   Eigen::Dynamic,
+                                   Eigen::Dynamic>(
+      matrix, options.elimination_groups[0]);
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 """

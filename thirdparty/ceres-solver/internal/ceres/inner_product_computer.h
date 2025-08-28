@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,10 +36,10 @@
 
 #include "ceres/block_sparse_matrix.h"
 #include "ceres/compressed_row_sparse_matrix.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // This class is used to repeatedly compute the inner product
 //
@@ -61,7 +61,7 @@ namespace ceres::internal {
 // This is not a problem as sparse linear algebra libraries can ignore
 // these entries with ease and the space used is minimal/linear in the
 // size of the matrices.
-class CERES_NO_EXPORT InnerProductComputer {
+class CERES_EXPORT_INTERNAL InnerProductComputer {
  public:
   // Factory
   //
@@ -74,7 +74,7 @@ class CERES_NO_EXPORT InnerProductComputer {
   //
   // The user must ensure that the matrix m is valid for the life time
   // of this object.
-  static std::unique_ptr<InnerProductComputer> Create(
+  static InnerProductComputer* Create(
       const BlockSparseMatrix& m,
       CompressedRowSparseMatrix::StorageType storage_type);
 
@@ -83,7 +83,7 @@ class CERES_NO_EXPORT InnerProductComputer {
   //
   // a = m(start_row_block : end_row_block, :);
   // result = a' * a;
-  static std::unique_ptr<InnerProductComputer> Create(
+  static InnerProductComputer* Create(
       const BlockSparseMatrix& m,
       int start_row_block,
       int end_row_block,
@@ -127,7 +127,7 @@ class CERES_NO_EXPORT InnerProductComputer {
 
   void Init(CompressedRowSparseMatrix::StorageType storage_type);
 
-  std::unique_ptr<CompressedRowSparseMatrix> CreateResultMatrix(
+  CompressedRowSparseMatrix* CreateResultMatrix(
       const CompressedRowSparseMatrix::StorageType storage_type,
       int num_nonzeros);
 
@@ -152,8 +152,7 @@ class CERES_NO_EXPORT InnerProductComputer {
   std::vector<int> result_offsets_;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_INNER_PRODUCT_COMPUTER_H_

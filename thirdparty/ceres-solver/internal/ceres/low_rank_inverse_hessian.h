@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -37,10 +37,10 @@
 #include <list>
 
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
 #include "ceres/linear_operator.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // LowRankInverseHessian is a positive definite approximation to the
 // Hessian using the limited memory variant of the
@@ -59,12 +59,12 @@ namespace ceres::internal {
 // Byrd, R. H.; Nocedal, J.; Schnabel, R. B. (1994).
 // "Representations of Quasi-Newton Matrices and their use in
 // Limited Memory Methods". Mathematical Programming 63 (4):
-class CERES_NO_EXPORT LowRankInverseHessian final : public LinearOperator {
+class LowRankInverseHessian : public LinearOperator {
  public:
   // num_parameters is the row/column size of the Hessian.
   // max_num_corrections is the rank of the Hessian approximation.
   // use_approximate_eigenvalue_scaling controls whether the initial
-  // inverse Hessian used during Right/LeftMultiplyAndAccumulate() is scaled by
+  // inverse Hessian used during Right/LeftMultiply() is scaled by
   // the approximate eigenvalue of the true inverse Hessian at the
   // current operating point.
   // The approximation uses:
@@ -73,6 +73,7 @@ class CERES_NO_EXPORT LowRankInverseHessian final : public LinearOperator {
   LowRankInverseHessian(int num_parameters,
                         int max_num_corrections,
                         bool use_approximate_eigenvalue_scaling);
+  virtual ~LowRankInverseHessian() {}
 
   // Update the low rank approximation. delta_x is the change in the
   // domain of Hessian, and delta_gradient is the change in the
@@ -83,9 +84,9 @@ class CERES_NO_EXPORT LowRankInverseHessian final : public LinearOperator {
   bool Update(const Vector& delta_x, const Vector& delta_gradient);
 
   // LinearOperator interface
-  void RightMultiplyAndAccumulate(const double* x, double* y) const final;
-  void LeftMultiplyAndAccumulate(const double* x, double* y) const final {
-    RightMultiplyAndAccumulate(x, y);
+  void RightMultiply(const double* x, double* y) const final;
+  void LeftMultiply(const double* x, double* y) const final {
+    RightMultiply(x, y);
   }
   int num_rows() const final { return num_parameters_; }
   int num_cols() const final { return num_parameters_; }
@@ -101,6 +102,7 @@ class CERES_NO_EXPORT LowRankInverseHessian final : public LinearOperator {
   std::list<int> indices_;
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_LOW_RANK_INVERSE_HESSIAN_H_

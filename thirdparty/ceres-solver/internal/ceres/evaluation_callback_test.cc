@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2018 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 
 #include <cmath>
 #include <limits>
-#include <memory>
 #include <vector>
 
 #include "ceres/autodiff_cost_function.h"
@@ -42,14 +41,15 @@
 #include "ceres/solver.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Use an inline hash function to avoid portability wrangling. Algorithm from
 // Daniel Bernstein, known as the "djb2" hash.
 template <typename T>
 uint64_t Djb2Hash(const T* data, const int size) {
   uint64_t hash = 5381;
-  const auto* data_as_bytes = reinterpret_cast<const uint8_t*>(data);
+  const uint8_t* data_as_bytes = reinterpret_cast<const uint8_t*>(data);
   for (int i = 0; i < sizeof(*data) * size; ++i) {
     hash = hash * 33 + data_as_bytes[i];
   }
@@ -71,6 +71,8 @@ struct WigglyBowlCostFunctionAndEvaluationCallback : SizedCostFunction<2, 2>,
         prepare_parameter_hash(kUninitialized),
         evaluate_num_calls(0),
         evaluate_last_parameter_hash(kUninitialized) {}
+
+  virtual ~WigglyBowlCostFunctionAndEvaluationCallback() {}
 
   // Evaluation callback interface. This checks that all the preconditions are
   // met at the point that Ceres calls into it.
@@ -130,7 +132,7 @@ struct WigglyBowlCostFunctionAndEvaluationCallback : SizedCostFunction<2, 2>,
     double y = (*parameters)[1];
     residuals[0] = y - a * sin(x);
     residuals[1] = x;
-    if (jacobians != nullptr) {
+    if (jacobians != NULL) {
       (*jacobians)[2 * 0 + 0] = -a * cos(x);  // df1/dx
       (*jacobians)[2 * 0 + 1] = 1.0;          // df1/dy
       (*jacobians)[2 * 1 + 0] = 1.0;          // df2/dx
@@ -151,11 +153,11 @@ struct WigglyBowlCostFunctionAndEvaluationCallback : SizedCostFunction<2, 2>,
       EXPECT_EQ(evaluate_last_parameter_hash, incoming_parameter_hash);
     }
 
-    // Check: Parameter matches value in parameter blocks during prepare.
+    // Check: Parameter matches value in in parameter blocks during prepare.
     EXPECT_EQ(prepare_parameter_hash, incoming_parameter_hash);
 
     // Check: jacobians are requested if they were in PrepareForEvaluation().
-    EXPECT_EQ(prepare_requested_jacobians, jacobians != nullptr);
+    EXPECT_EQ(prepare_requested_jacobians, jacobians != NULL);
 
     evaluate_num_calls++;
     evaluate_last_parameter_hash = incoming_parameter_hash;
@@ -194,7 +196,7 @@ TEST(EvaluationCallback, WithTrustRegionMinimizer) {
   problem_options.evaluation_callback = &cost_function;
   problem_options.cost_function_ownership = DO_NOT_TAKE_OWNERSHIP;
   Problem problem(problem_options);
-  problem.AddResidualBlock(&cost_function, nullptr, parameters);
+  problem.AddResidualBlock(&cost_function, NULL, parameters);
 
   Solver::Options options;
   options.linear_solver_type = DENSE_QR;
@@ -252,7 +254,7 @@ class IncrementingEvaluationCallback : public EvaluationCallback {
     counter_ += 1.0;
   }
 
-  double counter() const { return counter_; }
+  const double counter() const { return counter_; }
 
  private:
   double counter_ = -1;
@@ -320,7 +322,7 @@ static void WithLineSearchMinimizerImpl(
   problem_options.evaluation_callback = &cost_function;
   problem_options.cost_function_ownership = DO_NOT_TAKE_OWNERSHIP;
   Problem problem(problem_options);
-  problem.AddResidualBlock(&cost_function, nullptr, parameters);
+  problem.AddResidualBlock(&cost_function, NULL, parameters);
 
   Solver::Options options;
   options.linear_solver_type = DENSE_QR;
@@ -385,4 +387,5 @@ TEST(EvaluationCallback, WithLineSearchMinimizerArmijoQuadratic) {
   WithLineSearchMinimizerImpl(ARMIJO, NONLINEAR_CONJUGATE_GRADIENT, QUADRATIC);
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

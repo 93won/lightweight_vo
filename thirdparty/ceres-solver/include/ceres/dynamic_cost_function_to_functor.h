@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2025 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,11 +36,9 @@
 #include <numeric>
 #include <vector>
 
-#include "absl/container/fixed_array.h"
-#include "absl/log/check.h"
 #include "ceres/dynamic_cost_function.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/fixed_array.h"
+#include "ceres/internal/port.h"
 
 namespace ceres {
 
@@ -102,16 +100,17 @@ namespace ceres {
 //  private:
 //   DynamicCostFunctionToFunctor intrinsic_projection_;
 // };
-class CERES_EXPORT DynamicCostFunctionToFunctor {
+class DynamicCostFunctionToFunctor {
  public:
   // Takes ownership of cost_function.
-  explicit DynamicCostFunctionToFunctor(CostFunction* cost_function);
+  explicit DynamicCostFunctionToFunctor(CostFunction* cost_function)
+      : cost_function_(cost_function) {
+    CHECK(cost_function != nullptr);
+  }
 
-  // Takes ownership of cost_function.
-  explicit DynamicCostFunctionToFunctor(
-      std::unique_ptr<CostFunction> cost_function);
-
-  bool operator()(double const* const* parameters, double* residuals) const;
+  bool operator()(double const* const* parameters, double* residuals) const {
+    return cost_function_->Evaluate(parameters, residuals, NULL);
+  }
 
   template <typename JetT>
   bool operator()(JetT const* const* inputs, JetT* output) const {
@@ -123,11 +122,11 @@ class CERES_EXPORT DynamicCostFunctionToFunctor {
     const int num_parameters = std::accumulate(
         parameter_block_sizes.begin(), parameter_block_sizes.end(), 0);
 
-    absl::FixedArray<double> parameters(num_parameters);
-    absl::FixedArray<double*> parameter_blocks(num_parameter_blocks);
-    absl::FixedArray<double> jacobians(num_residuals * num_parameters);
-    absl::FixedArray<double*> jacobian_blocks(num_parameter_blocks);
-    absl::FixedArray<double> residuals(num_residuals);
+    internal::FixedArray<double> parameters(num_parameters);
+    internal::FixedArray<double*> parameter_blocks(num_parameter_blocks);
+    internal::FixedArray<double> jacobians(num_residuals * num_parameters);
+    internal::FixedArray<double*> jacobian_blocks(num_parameter_blocks);
+    internal::FixedArray<double> residuals(num_residuals);
 
     // Build a set of arrays to get the residuals and jacobians from
     // the CostFunction wrapped by this functor.
@@ -182,14 +181,10 @@ class CERES_EXPORT DynamicCostFunctionToFunctor {
     return true;
   }
 
-  CostFunction* function() const noexcept { return cost_function_.get(); }
-
  private:
   std::unique_ptr<CostFunction> cost_function_;
 };
 
 }  // namespace ceres
-
-#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_PUBLIC_DYNAMIC_COST_FUNCTION_TO_FUNCTOR_H_

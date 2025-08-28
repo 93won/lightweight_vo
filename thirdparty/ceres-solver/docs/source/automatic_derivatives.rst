@@ -37,7 +37,9 @@ implements an automatically differentiated ``CostFunction`` for `Rat43
   };
 
 
-  auto* cost_function = new AutoDiffCostFunction<Rat43CostFunctor, 1, 4>(x, y);
+  CostFunction* cost_function =
+        new AutoDiffCostFunction<Rat43CostFunctor, 1, 4>(
+          new Rat43CostFunctor(x, y));
 
 Notice that compared to numeric differentiation, the only difference
 when defining the functor for use with automatic differentiation is
@@ -296,7 +298,7 @@ we find that it is an indeterminate form at :math:`x_0 = 0, x_1 =
 
 There is no single solution to this problem. In some cases one needs
 to reason explicitly about the points where indeterminacy may occur
-and use alternate expressions using `L'Hôpital's rule
+and use alternate expressions using `L'Hopital's rule
 <https://en.wikipedia.org/wiki/L'H%C3%B4pital's_rule>`_ (see for
 example some of the conversion routines in `rotation.h
 <https://github.com/ceres-solver/ceres-solver/blob/master/include/ceres/rotation.h>`_. In

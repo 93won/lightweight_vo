@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,10 @@
 
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
+
+using std::vector;
 
 TEST(ArrayUtils, IsArrayValid) {
   double x[3];
@@ -50,7 +53,7 @@ TEST(ArrayUtils, IsArrayValid) {
   EXPECT_FALSE(IsArrayValid(3, x));
   x[1] = std::numeric_limits<double>::signaling_NaN();
   EXPECT_FALSE(IsArrayValid(3, x));
-  EXPECT_TRUE(IsArrayValid(1, nullptr));
+  EXPECT_TRUE(IsArrayValid(1, NULL));
   InvalidateArray(3, x);
   EXPECT_FALSE(IsArrayValid(3, x));
 }
@@ -67,16 +70,16 @@ TEST(ArrayUtils, FindInvalidIndex) {
   EXPECT_EQ(FindInvalidValue(3, x), 1);
   x[1] = std::numeric_limits<double>::signaling_NaN();
   EXPECT_EQ(FindInvalidValue(3, x), 1);
-  EXPECT_EQ(FindInvalidValue(1, nullptr), 1);
+  EXPECT_EQ(FindInvalidValue(1, NULL), 1);
   InvalidateArray(3, x);
   EXPECT_EQ(FindInvalidValue(3, x), 0);
 }
 
 TEST(MapValuesToContiguousRange, ContiguousEntries) {
-  std::vector<int> array;
+  vector<int> array;
   array.push_back(0);
   array.push_back(1);
-  std::vector<int> expected = array;
+  vector<int> expected = array;
   MapValuesToContiguousRange(array.size(), &array[0]);
   EXPECT_EQ(array, expected);
   array.clear();
@@ -89,10 +92,10 @@ TEST(MapValuesToContiguousRange, ContiguousEntries) {
 }
 
 TEST(MapValuesToContiguousRange, NonContiguousEntries) {
-  std::vector<int> array;
+  vector<int> array;
   array.push_back(0);
   array.push_back(2);
-  std::vector<int> expected;
+  vector<int> expected;
   expected.push_back(0);
   expected.push_back(1);
   MapValuesToContiguousRange(array.size(), &array[0]);
@@ -100,14 +103,14 @@ TEST(MapValuesToContiguousRange, NonContiguousEntries) {
 }
 
 TEST(MapValuesToContiguousRange, NonContiguousRepeatingEntries) {
-  std::vector<int> array;
+  vector<int> array;
   array.push_back(3);
   array.push_back(1);
   array.push_back(0);
   array.push_back(0);
   array.push_back(0);
   array.push_back(5);
-  std::vector<int> expected;
+  vector<int> expected;
   expected.push_back(2);
   expected.push_back(1);
   expected.push_back(0);
@@ -118,4 +121,5 @@ TEST(MapValuesToContiguousRange, NonContiguousRepeatingEntries) {
   EXPECT_EQ(array, expected);
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

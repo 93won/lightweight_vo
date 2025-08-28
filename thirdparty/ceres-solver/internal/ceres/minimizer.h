@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,22 +35,21 @@
 #include <string>
 #include <vector>
 
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/iteration_callback.h"
 #include "ceres/solver.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class Evaluator;
 class SparseMatrix;
 class TrustRegionStrategy;
 class CoordinateDescentMinimizer;
 class LinearSolver;
-class ContextImpl;
 
 // Interface for non-linear least squares solvers.
-class CERES_NO_EXPORT Minimizer {
+class CERES_EXPORT_INTERNAL Minimizer {
  public:
   // Options struct to control the behaviour of the Minimizer. Please
   // see solver.h for detailed information about the meaning and
@@ -114,7 +113,6 @@ class CERES_NO_EXPORT Minimizer {
     int max_num_iterations;
     double max_solver_time_in_seconds;
     int num_threads;
-    ContextImpl* context = nullptr;
 
     // Number of times the linear solver should be retried in case of
     // numerical failure. The retries are done by exponentially scaling up
@@ -180,7 +178,7 @@ class CERES_NO_EXPORT Minimizer {
     std::shared_ptr<CoordinateDescentMinimizer> inner_iteration_minimizer;
   };
 
-  static std::unique_ptr<Minimizer> Create(MinimizerType minimizer_type);
+  static Minimizer* Create(MinimizerType minimizer_type);
   static bool RunCallbacks(const Options& options,
                            const IterationSummary& iteration_summary,
                            Solver::Summary* summary);
@@ -194,8 +192,7 @@ class CERES_NO_EXPORT Minimizer {
                         Solver::Summary* summary) = 0;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_MINIMIZER_H_

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,17 +33,16 @@
 #ifndef CERES_INTERNAL_LINE_SEARCH_H_
 #define CERES_INTERNAL_LINE_SEARCH_H_
 
-#include <memory>
 #include <string>
 #include <vector>
 
-#include "absl/time/time.h"
 #include "ceres/function_sample.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/types.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class Evaluator;
 class LineSearchFunction;
@@ -58,11 +57,11 @@ class LineSearchFunction;
 // sufficient decrease condition. Depending on the particular
 // condition used, we get a variety of different line search
 // algorithms, e.g., Armijo, Wolfe etc.
-class CERES_NO_EXPORT LineSearch {
+class LineSearch {
  public:
   struct Summary;
 
-  struct CERES_NO_EXPORT Options {
+  struct Options {
     // Degree of the polynomial used to approximate the objective
     // function.
     LineSearchInterpolationType interpolation_type = CUBIC;
@@ -150,24 +149,23 @@ class CERES_NO_EXPORT LineSearch {
     int num_iterations = 0;
     // Cumulative time spent evaluating the value of the cost function across
     // all iterations.
-    absl::Duration cost_evaluation_time = absl::ZeroDuration();
+    double cost_evaluation_time_in_seconds = 0.0;
     // Cumulative time spent evaluating the gradient of the cost function across
     // all iterations.
-    absl::Duration gradient_evaluation_time = absl::ZeroDuration();
+    double gradient_evaluation_time_in_seconds = 0.0;
     // Cumulative time spent minimizing the interpolating polynomial to compute
     // the next candidate step size across all iterations.
-    absl::Duration polynomial_minimization_time = absl::ZeroDuration();
-    absl::Duration total_time = absl::ZeroDuration();
+    double polynomial_minimization_time_in_seconds = 0.0;
+    double total_time_in_seconds = 0.0;
     std::string error;
   };
 
   explicit LineSearch(const LineSearch::Options& options);
-  virtual ~LineSearch();
+  virtual ~LineSearch() {}
 
-  static std::unique_ptr<LineSearch> Create(
-      const LineSearchType line_search_type,
-      const LineSearch::Options& options,
-      std::string* error);
+  static LineSearch* Create(const LineSearchType line_search_type,
+                            const LineSearch::Options& options,
+                            std::string* error);
 
   // Perform the line search.
   //
@@ -210,7 +208,7 @@ class CERES_NO_EXPORT LineSearch {
 // In practice, this object provides access to the objective
 // function value and the directional derivative of the underlying
 // optimization problem along a specific search direction.
-class CERES_NO_EXPORT LineSearchFunction {
+class LineSearchFunction {
  public:
   explicit LineSearchFunction(Evaluator* evaluator);
   void Init(const Vector& position, const Vector& direction);
@@ -233,8 +231,8 @@ class CERES_NO_EXPORT LineSearchFunction {
 
   // Resets to now, the start point for the results from TimeStatistics().
   void ResetTimeStatistics();
-  void TimeStatistics(absl::Duration* cost_evaluation_time,
-                      absl::Duration* gradient_evaluation_time) const;
+  void TimeStatistics(double* cost_evaluation_time_in_seconds,
+                      double* gradient_evaluation_time_in_seconds) const;
   const Vector& position() const { return position_; }
   const Vector& direction() const { return direction_; }
 
@@ -250,8 +248,8 @@ class CERES_NO_EXPORT LineSearchFunction {
   // minimizer), hence we need to save the initial evaluation durations for the
   // value & gradient to accurately determine the duration of the evaluations
   // we invoked.  These are reset by a call to ResetTimeStatistics().
-  absl::Duration initial_evaluator_residual_time = absl::ZeroDuration();
-  absl::Duration initial_evaluator_jacobian_time = absl::ZeroDuration();
+  double initial_evaluator_residual_time_in_seconds;
+  double initial_evaluator_jacobian_time_in_seconds;
 };
 
 // Backtracking and interpolation based Armijo line search. This
@@ -259,9 +257,10 @@ class CERES_NO_EXPORT LineSearchFunction {
 // minFunc package by Mark Schmidt.
 //
 // For more details: http://www.di.ens.fr/~mschmidt/Software/minFunc.html
-class CERES_NO_EXPORT ArmijoLineSearch final : public LineSearch {
+class ArmijoLineSearch : public LineSearch {
  public:
   explicit ArmijoLineSearch(const LineSearch::Options& options);
+  virtual ~ArmijoLineSearch() {}
 
  private:
   void DoSearch(double step_size_estimate,
@@ -277,9 +276,10 @@ class CERES_NO_EXPORT ArmijoLineSearch final : public LineSearch {
 //
 // [1] Nocedal J., Wright S., Numerical Optimization, 2nd Ed., Springer, 1999.
 // [2] http://www.di.ens.fr/~mschmidt/Software/minFunc.html.
-class CERES_NO_EXPORT WolfeLineSearch final : public LineSearch {
+class WolfeLineSearch : public LineSearch {
  public:
   explicit WolfeLineSearch(const LineSearch::Options& options);
+  virtual ~WolfeLineSearch() {}
 
   // Returns true iff either a valid point, or valid bracket are found.
   bool BracketingPhase(const FunctionSample& initial_position,
@@ -302,6 +302,7 @@ class CERES_NO_EXPORT WolfeLineSearch final : public LineSearch {
                 Summary* summary) const final;
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_LINE_SEARCH_H_

@@ -1,4 +1,3 @@
-.. highlight:: c++
 
 .. default-domain:: cpp
 
@@ -116,7 +115,7 @@ cases.
      four dimensional quaternion used to parameterize :math:`SO(3)`,
      which is a three dimensional manifold. In cases like this, the
      user should use an appropriate
-     :class:`Manifold`. Not only will this lead to better
+     :class:`LocalParameterization`. Not only will this lead to better
      numerical behaviour of the Solver, it will also expose the rank
      deficiency to the :class:`Covariance` object so that it can
      handle it correctly.
@@ -167,7 +166,7 @@ cases.
       moderately fast algorithm suitable for small to medium sized
       matrices. For best performance we recommend using
       ``SuiteSparseQR`` which is enabled by setting
-      :member:`Covariance::Options::sparse_linear_algebra_library_type`
+      :member:`Covaraince::Options::sparse_linear_algebra_library_type`
       to ``SUITE_SPARSE``.
 
       ``SPARSE_QR`` cannot compute the covariance if the
@@ -186,23 +185,6 @@ cases.
       It is an accurate but slow method and should only be used for
       small to moderate sized problems. It can handle full-rank as
       well as rank deficient Jacobians.
-
-
-.. member:: double Covariance::Options::column_pivot_threshold
-
-   Default: :math:`-1`
-
-    During QR factorization, if a column with Euclidean norm less than
-    ``column_pivot_threshold`` is encountered it is treated as zero.
-
-    If ``column_pivot_threshold < 0``, then an automatic default value
-    of `20*(m+n)*eps*sqrt(max(diag(J’*J)))` is used.  Here `m` and `n`
-    are the number of rows and columns of the Jacobian (`J`)
-    respectively.
-
-    This is an advanced option meant for users who know enough about
-    their Jacobian matrices that they can determine a value better
-    than the default.
 
 
 .. member:: int Covariance::Options::min_reciprocal_condition_number
@@ -239,7 +221,7 @@ cases.
       .. math:: \frac{\sigma_{\text{min}}}{\sigma_{\text{max}}}  < \sqrt{\text{min_reciprocal_condition_number}}
 
       where :math:`\sigma_{\text{min}}` and
-      :math:`\sigma_{\text{max}}` are the minimum and maximum
+      :math:`\sigma_{\text{max}}` are the minimum and maxiumum
       singular values of :math:`J` respectively.
 
    2. ``SPARSE_QR``
@@ -303,7 +285,7 @@ cases.
    entire documentation for :class:`Covariance::Options` before using
    :class:`Covariance`.
 
-.. function:: bool Covariance::Compute(const std::vector<std::pair<const double*, const double*> >& covariance_blocks, Problem* problem)
+.. function:: bool Covariance::Compute(const vector<pair<const double*, const double*> >& covariance_blocks, Problem* problem)
 
    Compute a part of the covariance matrix.
 
@@ -379,7 +361,7 @@ Example Usage
  Covariance::Options options;
  Covariance covariance(options);
 
- std::vector<std::pair<const double*, const double*> > covariance_blocks;
+ vector<pair<const double*, const double*> > covariance_blocks;
  covariance_blocks.push_back(make_pair(x, x));
  covariance_blocks.push_back(make_pair(y, y));
  covariance_blocks.push_back(make_pair(x, y));

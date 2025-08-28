@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -9,7 +9,7 @@
 //   this list of conditions and the following disclaimer.
 // * Redistributions in binary form must reproduce the above copyright notice,
 //   this list of conditions and the following disclaimer in the documentation
-//   and/or other materials provided with the distribution.
+//   and/or other materils provided with the distribution.
 // * Neither the name of Google Inc. nor the names of its contributors may be
 //   used to endorse or promote products derived from this software without
 //   specific prior written permission.
@@ -32,7 +32,8 @@
 #include "benchmark/benchmark.h"
 #include "ceres/invert_psd_matrix.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 template <int kSize>
 void BenchmarkFixedSizedInvertPSDMatrix(benchmark::State& state) {
@@ -61,10 +62,10 @@ BENCHMARK_TEMPLATE(BenchmarkFixedSizedInvertPSDMatrix, 10);
 BENCHMARK_TEMPLATE(BenchmarkFixedSizedInvertPSDMatrix, 11);
 BENCHMARK_TEMPLATE(BenchmarkFixedSizedInvertPSDMatrix, 12);
 
-static void BenchmarkDynamicallyInvertPSDMatrix(benchmark::State& state) {
+void BenchmarkDynamicallyInvertPSDMatrix(benchmark::State& state) {
   using MatrixType =
       typename EigenTypes<Eigen::Dynamic, Eigen::Dynamic>::Matrix;
-  const int size = static_cast<int>(state.range(0));
+  const int size = state.range(0);
   MatrixType input = MatrixType::Random(size, size);
   input += input.transpose() + MatrixType::Identity(size, size);
 
@@ -83,6 +84,7 @@ BENCHMARK(BenchmarkDynamicallyInvertPSDMatrix)
       }
     });
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 BENCHMARK_MAIN();

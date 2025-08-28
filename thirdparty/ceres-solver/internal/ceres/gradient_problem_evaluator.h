@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,33 +32,30 @@
 #define CERES_INTERNAL_GRADIENT_PROBLEM_EVALUATOR_H_
 
 #include <map>
-#include <memory>
 #include <string>
 
-#include "absl/log/check.h"
 #include "ceres/evaluator.h"
 #include "ceres/execution_summary.h"
 #include "ceres/gradient_problem.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
-#include "ceres/sparse_matrix.h"
+#include "ceres/internal/port.h"
+#include "ceres/wall_time.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-class CERES_NO_EXPORT GradientProblemEvaluator final : public Evaluator {
+class GradientProblemEvaluator : public Evaluator {
  public:
   explicit GradientProblemEvaluator(const GradientProblem& problem)
       : problem_(problem) {}
-
-  std::unique_ptr<SparseMatrix> CreateJacobian() const final { return nullptr; }
-
-  bool Evaluate(const EvaluateOptions& /*evaluate_options*/,
+  virtual ~GradientProblemEvaluator() {}
+  SparseMatrix* CreateJacobian() const final { return nullptr; }
+  bool Evaluate(const EvaluateOptions& evaluate_options,
                 const double* state,
                 double* cost,
-                double* /*residuals*/,
+                double* residuals,
                 double* gradient,
                 SparseMatrix* jacobian) final {
-    CHECK(jacobian == nullptr);
+    CHECK(jacobian == NULL);
     ScopedExecutionTimer total_timer("Evaluator::Total", &execution_summary_);
     // The reason we use Residual and Jacobian here even when we are
     // only computing the cost and gradient has to do with the fact
@@ -68,7 +65,7 @@ class CERES_NO_EXPORT GradientProblemEvaluator final : public Evaluator {
     // to be consistent across the code base for the time accounting
     // to work.
     ScopedExecutionTimer call_type_timer(
-        gradient == nullptr ? "Evaluator::Residual" : "Evaluator::Jacobian",
+        gradient == NULL ? "Evaluator::Residual" : "Evaluator::Jacobian",
         &execution_summary_);
     return problem_.Evaluate(state, cost, gradient);
   }
@@ -82,7 +79,7 @@ class CERES_NO_EXPORT GradientProblemEvaluator final : public Evaluator {
   int NumParameters() const final { return problem_.NumParameters(); }
 
   int NumEffectiveParameters() const final {
-    return problem_.NumTangentParameters();
+    return problem_.NumLocalParameters();
   }
 
   int NumResiduals() const final { return 1; }
@@ -96,8 +93,7 @@ class CERES_NO_EXPORT GradientProblemEvaluator final : public Evaluator {
   ::ceres::internal::ExecutionSummary execution_summary_;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_GRADIENT_PROBLEM_EVALUATOR_H_

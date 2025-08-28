@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,14 +32,16 @@
 
 #include <algorithm>
 #include <memory>
-#include <vector>
+#include <unordered_set>
 
-#include "absl/container/flat_hash_set.h"
 #include "ceres/graph.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
+
+using std::vector;
 
 TEST(IndependentSetOrdering, Chain) {
   Graph<int> graph;
@@ -56,7 +58,7 @@ TEST(IndependentSetOrdering, Chain) {
 
   // 0-1-2-3-4
   // 0, 2, 4 should be in the independent set.
-  std::vector<int> ordering;
+  vector<int> ordering;
   int independent_set_size = IndependentSetOrdering(graph, &ordering);
 
   sort(ordering.begin(), ordering.begin() + 3);
@@ -90,7 +92,7 @@ TEST(IndependentSetOrdering, Star) {
   //      |
   //      3
   // 1, 2, 3, 4 should be in the independent set.
-  std::vector<int> ordering;
+  vector<int> ordering;
   int independent_set_size = IndependentSetOrdering(graph, &ordering);
   EXPECT_EQ(independent_set_size, 4);
   EXPECT_EQ(ordering.size(), 5);
@@ -112,7 +114,7 @@ TEST(Degree2MaximumSpanningForest, PreserveWeights) {
   std::unique_ptr<WeightedGraph<int>> forest(
       Degree2MaximumSpanningForest(graph));
 
-  const absl::flat_hash_set<int>& vertices = forest->vertices();
+  const std::unordered_set<int>& vertices = forest->vertices();
   EXPECT_EQ(vertices.size(), 2);
   EXPECT_EQ(forest->VertexWeight(0), 1.0);
   EXPECT_EQ(forest->VertexWeight(1), 2.0);
@@ -135,35 +137,35 @@ TEST(Degree2MaximumSpanningForest, StarGraph) {
 
   std::unique_ptr<WeightedGraph<int>> forest(
       Degree2MaximumSpanningForest(graph));
-  const absl::flat_hash_set<int>& vertices = forest->vertices();
+  const std::unordered_set<int>& vertices = forest->vertices();
   EXPECT_EQ(vertices.size(), 5);
 
   {
-    const absl::flat_hash_set<int>& neighbors = forest->Neighbors(0);
+    const std::unordered_set<int>& neighbors = forest->Neighbors(0);
     EXPECT_EQ(neighbors.size(), 2);
     EXPECT_TRUE(neighbors.find(4) != neighbors.end());
     EXPECT_TRUE(neighbors.find(3) != neighbors.end());
   }
 
   {
-    const absl::flat_hash_set<int>& neighbors = forest->Neighbors(3);
+    const std::unordered_set<int>& neighbors = forest->Neighbors(3);
     EXPECT_EQ(neighbors.size(), 1);
     EXPECT_TRUE(neighbors.find(0) != neighbors.end());
   }
 
   {
-    const absl::flat_hash_set<int>& neighbors = forest->Neighbors(4);
+    const std::unordered_set<int>& neighbors = forest->Neighbors(4);
     EXPECT_EQ(neighbors.size(), 1);
     EXPECT_TRUE(neighbors.find(0) != neighbors.end());
   }
 
   {
-    const absl::flat_hash_set<int>& neighbors = forest->Neighbors(1);
+    const std::unordered_set<int>& neighbors = forest->Neighbors(1);
     EXPECT_EQ(neighbors.size(), 0);
   }
 
   {
-    const absl::flat_hash_set<int>& neighbors = forest->Neighbors(2);
+    const std::unordered_set<int>& neighbors = forest->Neighbors(2);
     EXPECT_EQ(neighbors.size(), 0);
   }
 }
@@ -218,7 +220,7 @@ TEST(StableIndependentSet, BreakTies) {
   // guarantees that it will always be the first vertex in the
   // ordering vector.
   {
-    std::vector<int> ordering;
+    vector<int> ordering;
     ordering.push_back(0);
     ordering.push_back(1);
     ordering.push_back(2);
@@ -230,7 +232,7 @@ TEST(StableIndependentSet, BreakTies) {
   }
 
   {
-    std::vector<int> ordering;
+    vector<int> ordering;
     ordering.push_back(1);
     ordering.push_back(0);
     ordering.push_back(2);
@@ -242,4 +244,5 @@ TEST(StableIndependentSet, BreakTies) {
   }
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

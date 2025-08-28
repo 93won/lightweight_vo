@@ -133,97 +133,152 @@ int main(int argc, char* argv[]) {
     std::shared_ptr<Frame> previous_frame = nullptr;
     int current_idx = 0;
     bool auto_play = true;
+    bool step_mode = false;
+    bool advance_frame = false;
     
     std::cout << "Starting VIO estimation with 3D visualization..." << std::endl;
     std::cout << "Controls:" << std::endl;
     std::cout << "  3D Viewer: Mouse for camera control" << std::endl;
+    std::cout << "  SPACE: Toggle auto-play / step mode" << std::endl;
+    std::cout << "  N or ENTER: Next frame (in step mode)" << std::endl;
     std::cout << "  ESC: Exit application" << std::endl;
+    
+    // Initialize variables for tracking current state
+    Estimator::EstimationResult last_estimation_result;
+    std::shared_ptr<Frame> current_frame = nullptr;
+    std::vector<Eigen::Vector3f> current_points;
+    cv::Mat last_tracking_image;
     
     // Main processing loop
     while (!viewer.shouldClose() && current_idx < image_data.size()) {
-        // Load stereo images
-        cv::Mat left_image = load_image(dataset_path, image_data[current_idx].filename, 0);
-        cv::Mat right_image = load_image(dataset_path, image_data[current_idx].filename, 1);
+        // Check for keyboard input first
+        viewer.processKeyboardInput(auto_play, step_mode, advance_frame);
         
-        if (left_image.empty()) {
-            current_idx++;
-            continue;
+        // Determine whether to advance to next frame
+        bool should_advance = false;
+        if (auto_play && !step_mode) {
+            should_advance = true;
+        } else if (step_mode && advance_frame) {
+            should_advance = true;
+            advance_frame = false;  // Reset flag
         }
         
-        // Image preprocessing
-        cv::Mat processed_left_image, processed_right_image;
-        cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(2.0, cv::Size(8, 8));
-        clahe->apply(left_image, processed_left_image);
-        
-        if (!right_image.empty()) {
-            clahe->apply(right_image, processed_right_image);
-        }
-        
-        // Process frame through estimator
-        auto estimation_result = estimator.process_frame(
-            processed_left_image, processed_right_image, 
-            image_data[current_idx].timestamp);
-        
-        // Get current frame from estimator
-        auto current_frame = estimator.get_current_frame();
-        
-        // Extract 3D points from current frame
-        std::vector<Eigen::Vector3f> current_points = extract_3d_points(current_frame);
-        
-        // Update 3D viewer with current frame points only (no accumulation)
-        viewer.updatePoints(current_points);
-        
-        // Update images in ImGui viewer
-        cv::Mat tracking_image;
-        if (previous_frame) {
-            tracking_image = current_frame->draw_tracks(*previous_frame);
-        } else {
-            tracking_image = current_frame->draw_features();
-        }
-        
-        // Add frame information to tracking image
-        std::string info = "Frame: " + std::to_string(current_idx + 1) + "/" + 
-                          std::to_string(image_data.size()) + 
-                          " | Features: " + std::to_string(estimation_result.num_features);
-        
-        if (current_frame && current_frame->is_stereo()) {
-            int stereo_matches = 0;
-            int triangulated_points = 0;
-            for (const auto& feature : current_frame->get_features()) {
-                if (feature->has_stereo_match()) stereo_matches++;
-                if (feature->has_3d_point()) triangulated_points++;
+        // Only process new frame if we should advance
+        if (should_advance) {
+            // Load stereo images
+            cv::Mat left_image = load_image(dataset_path, image_data[current_idx].filename, 0);
+            cv::Mat right_image = load_image(dataset_path, image_data[current_idx].filename, 1);
+            
+            if (left_image.empty()) {
+                current_idx++;
+                continue;
             }
-            info += " | Stereo: " + std::to_string(stereo_matches);
-            info += " | 3D: " + std::to_string(triangulated_points);
+            
+            // Image preprocessing with enhanced illumination handling
+            cv::Mat processed_left_image, processed_right_image;
+            
+            // Step 1: Global Histogram Equalization for overall brightness normalization
+            cv::Mat equalized_left, equalized_right;
+            cv::equalizeHist(left_image, equalized_left);
+            
+            // Step 2: CLAHE for local contrast enhancement
+            cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(2.0, cv::Size(8, 8));
+            clahe->apply(equalized_left, processed_left_image);
+            
+            if (!right_image.empty()) {
+                cv::equalizeHist(right_image, equalized_right);
+                clahe->apply(equalized_right, processed_right_image);
+            }
+            
+            // Process frame through estimator
+            last_estimation_result = estimator.process_frame(
+                processed_left_image, processed_right_image, 
+                image_data[current_idx].timestamp);
+            
+            // Get current frame from estimator
+            current_frame = estimator.get_current_frame();
+            
+            // Extract 3D points from current frame
+            current_points = extract_3d_points(current_frame);
+            
+            // Update images in ImGui viewer
+            if (previous_frame) {
+                last_tracking_image = current_frame->draw_tracks(*previous_frame);
+            } else {
+                last_tracking_image = current_frame->draw_features();
+            }
+            
+            // Add frame information to tracking image (3 lines)
+            std::string info1 = "Frame: " + std::to_string(current_idx + 1) + "/" + 
+                               std::to_string(image_data.size()) + 
+                               " | Features: " + std::to_string(last_estimation_result.num_features);
+            
+            // Count long-tracked features for all frames
+            int long_tracked_points = 0;
+            if (current_frame) {
+                for (const auto& feature : current_frame->get_features()) {
+                    if (feature->get_track_count() >= 3) long_tracked_points++;
+                }
+            }
+            
+            std::string info2 = "";
+            std::string info3 = "";
+            
+            if (current_frame && current_frame->is_stereo()) {
+                int stereo_matches = 0;
+                int triangulated_points = 0;
+                for (const auto& feature : current_frame->get_features()) {
+                    if (feature->has_stereo_match()) stereo_matches++;
+                    if (feature->has_3d_point()) triangulated_points++;
+                }
+                info2 = "Stereo: " + std::to_string(stereo_matches) + 
+                       " | 3D: " + std::to_string(triangulated_points) + 
+                       " | Track>=3: " + std::to_string(long_tracked_points);
+            } else if (current_frame) {
+                info2 = "Track>=3: " + std::to_string(long_tracked_points);
+            }
+            
+            info3 = "Current 3D: " + std::to_string(current_points.size());
+            if (last_estimation_result.success) {
+                info3 += " | Estimation: SUCCESS";
+            } else {
+                info3 += " | Estimation: FAILED";
+            }
+            
+            // Add mode information to tracking image
+            std::string mode_info = step_mode ? "STEP MODE - Press N/ENTER for next frame" : "AUTO MODE - Press SPACE for step mode";
+            cv::putText(last_tracking_image, mode_info, cv::Point(10, 100), 
+                       cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 0), 2);
+            
+            // Draw three lines of information
+            cv::putText(last_tracking_image, info1, cv::Point(10, 25), 
+                       cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
+            cv::putText(last_tracking_image, info2, cv::Point(10, 50), 
+                       cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
+            cv::putText(last_tracking_image, info3, cv::Point(10, 75), 
+                       cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
+            
+            previous_frame = current_frame;
+            current_idx++;
         }
-        info += " | Current 3D: " + std::to_string(current_points.size());
-        if (estimation_result.success) {
-            info += " | Estimation: SUCCESS";
-        } else {
-            info += " | Estimation: FAILED";
-        }
-        info += " | Time: " + std::to_string(estimation_result.optimization_time_ms) + "ms";
         
-        cv::putText(tracking_image, info, cv::Point(10, 30), 
-                   cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
-        
-        // Update tracking image in viewer
-        viewer.updateTrackingImage(tracking_image);
-        
-        // Update stereo matching image if available
-        if (current_frame && current_frame->is_stereo()) {
-            cv::Mat stereo_image = current_frame->draw_stereo_matches();
-            viewer.updateStereoImage(stereo_image);
+        // Always update viewer with current state (even if no new frame was processed)
+        if (current_frame) {
+            // Update 3D viewer with current frame points only (no accumulation)
+            viewer.updatePoints(current_points);
+            
+            // Update tracking image in viewer
+            viewer.updateTrackingImage(last_tracking_image);
+            
+            // Update stereo matching image if available
+            if (current_frame->is_stereo()) {
+                cv::Mat stereo_image = current_frame->draw_stereo_matches();
+                viewer.updateStereoImage(stereo_image);
+            }
         }
         
         // Render 3D viewer
         viewer.render();
-        
-        // Auto advance
-        if (auto_play) {
-            current_idx++;
-        }
-        previous_frame = current_frame;
         
         // Control frame rate
         std::this_thread::sleep_for(std::chrono::milliseconds(30));

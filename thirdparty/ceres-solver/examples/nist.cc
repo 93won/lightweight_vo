@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -71,133 +71,103 @@
 // Average LRE     2.3      4.3       4.0  6.8      4.4    9.4
 //      Winner       0        0         5   11        2     41
 
-#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <iterator>
-#include <string>
-#include <vector>
 
 #include "Eigen/Core"
-#include "absl/flags/flag.h"
-#include "absl/flags/parse.h"
-#include "absl/log/check.h"
-#include "absl/log/initialize.h"
-#include "absl/log/log.h"
 #include "ceres/ceres.h"
 #include "ceres/tiny_solver.h"
 #include "ceres/tiny_solver_cost_function_adapter.h"
+#include "gflags/gflags.h"
+#include "glog/logging.h"
 
-ABSL_FLAG(bool,
-          use_tiny_solver,
-          false,
-          "Use TinySolver instead of Ceres::Solver");
-ABSL_FLAG(std::string,
-          nist_data_dir,
-          "",
-          "Directory containing the NIST non-linear regression examples");
-ABSL_FLAG(std::string,
-          minimizer,
-          "trust_region",
-          "Minimizer type to use, choices are: line_search & trust_region");
-ABSL_FLAG(std::string,
-          trust_region_strategy,
-          "levenberg_marquardt",
-          "Options are: levenberg_marquardt, dogleg");
-ABSL_FLAG(std::string,
-          dogleg,
-          "traditional_dogleg",
-          "Options are: traditional_dogleg, subspace_dogleg");
-ABSL_FLAG(std::string,
-          linear_solver,
-          "dense_qr",
-          "Options are: sparse_cholesky, dense_qr, dense_normal_cholesky "
-          "and cgnr");
-ABSL_FLAG(std::string,
-          dense_linear_algebra_library,
-          "eigen",
-          "Options are: eigen, lapack, and cuda.");
-ABSL_FLAG(std::string,
-          preconditioner,
-          "jacobi",
-          "Options are: identity, jacobi");
-ABSL_FLAG(std::string,
-          line_search,
-          "wolfe",
-          "Line search algorithm to use, choices are: armijo and wolfe.");
-ABSL_FLAG(std::string,
-          line_search_direction,
-          "lbfgs",
-          "Line search direction algorithm to use, choices: lbfgs, bfgs");
-ABSL_FLAG(int32_t,
-          max_line_search_iterations,
-          20,
-          "Maximum number of iterations for each line search.");
-ABSL_FLAG(int32_t,
-          max_line_search_restarts,
-          10,
-          "Maximum number of restarts of line search direction algorithm.");
-ABSL_FLAG(std::string,
-          line_search_interpolation,
-          "cubic",
-          "Degree of polynomial approximation in line search, choices are: "
-          "bisection, quadratic & cubic.");
-ABSL_FLAG(int32_t,
-          lbfgs_rank,
-          20,
-          "Rank of L-BFGS inverse Hessian approximation in line search.");
-ABSL_FLAG(bool,
-          approximate_eigenvalue_bfgs_scaling,
-          false,
-          "Use approximate eigenvalue scaling in (L)BFGS line search.");
-ABSL_FLAG(double,
-          sufficient_decrease,
-          1.0e-4,
-          "Line search Armijo sufficient (function) decrease factor.");
-ABSL_FLAG(double,
-          sufficient_curvature_decrease,
-          0.9,
-          "Line search Wolfe sufficient curvature decrease factor.");
-ABSL_FLAG(int32_t, num_iterations, 10000, "Number of iterations");
-ABSL_FLAG(bool,
-          nonmonotonic_steps,
-          false,
-          "Trust region algorithm can use nonmonotic steps");
-ABSL_FLAG(double,
-          initial_trust_region_radius,
-          1e4,
-          "Initial trust region radius");
-ABSL_FLAG(bool,
-          use_numeric_diff,
-          false,
-          "Use numeric differentiation instead of automatic "
-          "differentiation.");
-ABSL_FLAG(std::string,
-          numeric_diff_method,
-          "ridders",
-          "When using numeric differentiation, selects algorithm. Options "
-          "are: central, forward, ridders.");
-ABSL_FLAG(double,
-          ridders_step_size,
-          1e-9,
-          "Initial step size for Ridders numeric differentiation.");
-ABSL_FLAG(int32_t,
-          ridders_extrapolations,
-          3,
-          "Maximal number of Ridders extrapolations.");
+DEFINE_bool(use_tiny_solver, false, "Use TinySolver instead of Ceres::Solver");
+DEFINE_string(nist_data_dir,
+              "",
+              "Directory containing the NIST non-linear regression examples");
+DEFINE_string(minimizer,
+              "trust_region",
+              "Minimizer type to use, choices are: line_search & trust_region");
+DEFINE_string(trust_region_strategy,
+              "levenberg_marquardt",
+              "Options are: levenberg_marquardt, dogleg");
+DEFINE_string(dogleg,
+              "traditional_dogleg",
+              "Options are: traditional_dogleg, subspace_dogleg");
+DEFINE_string(linear_solver,
+              "dense_qr",
+              "Options are: sparse_cholesky, dense_qr, dense_normal_cholesky "
+              "and cgnr");
+DEFINE_string(preconditioner, "jacobi", "Options are: identity, jacobi");
+DEFINE_string(line_search,
+              "wolfe",
+              "Line search algorithm to use, choices are: armijo and wolfe.");
+DEFINE_string(line_search_direction,
+              "lbfgs",
+              "Line search direction algorithm to use, choices: lbfgs, bfgs");
+DEFINE_int32(max_line_search_iterations,
+             20,
+             "Maximum number of iterations for each line search.");
+DEFINE_int32(max_line_search_restarts,
+             10,
+             "Maximum number of restarts of line search direction algorithm.");
+DEFINE_string(line_search_interpolation,
+              "cubic",
+              "Degree of polynomial aproximation in line search, choices are: "
+              "bisection, quadratic & cubic.");
+DEFINE_int32(lbfgs_rank,
+             20,
+             "Rank of L-BFGS inverse Hessian approximation in line search.");
+DEFINE_bool(approximate_eigenvalue_bfgs_scaling,
+            false,
+            "Use approximate eigenvalue scaling in (L)BFGS line search.");
+DEFINE_double(sufficient_decrease,
+              1.0e-4,
+              "Line search Armijo sufficient (function) decrease factor.");
+DEFINE_double(sufficient_curvature_decrease,
+              0.9,
+              "Line search Wolfe sufficient curvature decrease factor.");
+DEFINE_int32(num_iterations, 10000, "Number of iterations");
+DEFINE_bool(nonmonotonic_steps,
+            false,
+            "Trust region algorithm can use nonmonotic steps");
+DEFINE_double(initial_trust_region_radius, 1e4, "Initial trust region radius");
+DEFINE_bool(use_numeric_diff,
+            false,
+            "Use numeric differentiation instead of automatic "
+            "differentiation.");
+DEFINE_string(numeric_diff_method,
+              "ridders",
+              "When using numeric differentiation, selects algorithm. Options "
+              "are: central, forward, ridders.");
+DEFINE_double(ridders_step_size,
+              1e-9,
+              "Initial step size for Ridders numeric differentiation.");
+DEFINE_int32(ridders_extrapolations,
+             3,
+             "Maximal number of Ridders extrapolations.");
 
-namespace ceres::examples {
+namespace ceres {
+namespace examples {
 namespace {
 
 using Eigen::Dynamic;
 using Eigen::RowMajor;
-using Vector = Eigen::Matrix<double, Dynamic, 1>;
-using Matrix = Eigen::Matrix<double, Dynamic, Dynamic, RowMajor>;
+typedef Eigen::Matrix<double, Dynamic, 1> Vector;
+typedef Eigen::Matrix<double, Dynamic, Dynamic, RowMajor> Matrix;
 
-void SplitStringUsingChar(const std::string& full,
+using std::atof;
+using std::atoi;
+using std::cout;
+using std::ifstream;
+using std::string;
+using std::vector;
+
+void SplitStringUsingChar(const string& full,
                           const char delim,
-                          std::vector<std::string>* result) {
-  std::back_insert_iterator<std::vector<std::string>> it(*result);
+                          vector<string>* result) {
+  std::back_insert_iterator<vector<string>> it(*result);
 
   const char* p = full.data();
   const char* end = p + full.size();
@@ -207,22 +177,22 @@ void SplitStringUsingChar(const std::string& full,
     } else {
       const char* start = p;
       while (++p != end && *p != delim) {
-        // Skip to the next occurrence of the delimiter.
+        // Skip to the next occurence of the delimiter.
       }
-      *it++ = std::string(start, p - start);
+      *it++ = string(start, p - start);
     }
   }
 }
 
-bool GetAndSplitLine(std::ifstream& ifs, std::vector<std::string>* pieces) {
+bool GetAndSplitLine(ifstream& ifs, vector<string>* pieces) {
   pieces->clear();
   char buf[256];
   ifs.getline(buf, 256);
-  SplitStringUsingChar(std::string(buf), ' ', pieces);
+  SplitStringUsingChar(string(buf), ' ', pieces);
   return true;
 }
 
-void SkipLines(std::ifstream& ifs, int num_lines) {
+void SkipLines(ifstream& ifs, int num_lines) {
   char buf[256];
   for (int i = 0; i < num_lines; ++i) {
     ifs.getline(buf, 256);
@@ -231,24 +201,24 @@ void SkipLines(std::ifstream& ifs, int num_lines) {
 
 class NISTProblem {
  public:
-  explicit NISTProblem(const std::string& filename) {
-    std::ifstream ifs(filename.c_str(), std::ifstream::in);
+  explicit NISTProblem(const string& filename) {
+    ifstream ifs(filename.c_str(), ifstream::in);
     CHECK(ifs) << "Unable to open : " << filename;
 
-    std::vector<std::string> pieces;
+    vector<string> pieces;
     SkipLines(ifs, 24);
     GetAndSplitLine(ifs, &pieces);
-    const int kNumResponses = std::atoi(pieces[1].c_str());
+    const int kNumResponses = atoi(pieces[1].c_str());
 
     GetAndSplitLine(ifs, &pieces);
-    const int kNumPredictors = std::atoi(pieces[0].c_str());
+    const int kNumPredictors = atoi(pieces[0].c_str());
 
     GetAndSplitLine(ifs, &pieces);
-    const int kNumObservations = std::atoi(pieces[0].c_str());
+    const int kNumObservations = atoi(pieces[0].c_str());
 
     SkipLines(ifs, 4);
     GetAndSplitLine(ifs, &pieces);
-    const int kNumParameters = std::atoi(pieces[0].c_str());
+    const int kNumParameters = atoi(pieces[0].c_str());
     SkipLines(ifs, 8);
 
     // Get the first line of initial and final parameter values to
@@ -264,26 +234,24 @@ class NISTProblem {
     // Parse the line for parameter b1.
     int parameter_id = 0;
     for (int i = 0; i < kNumTries; ++i) {
-      initial_parameters_(i, parameter_id) = std::atof(pieces[i + 2].c_str());
+      initial_parameters_(i, parameter_id) = atof(pieces[i + 2].c_str());
     }
-    final_parameters_(0, parameter_id) =
-        std::atof(pieces[2 + kNumTries].c_str());
+    final_parameters_(0, parameter_id) = atof(pieces[2 + kNumTries].c_str());
 
     // Parse the remaining parameter lines.
     for (int parameter_id = 1; parameter_id < kNumParameters; ++parameter_id) {
       GetAndSplitLine(ifs, &pieces);
       // b2, b3, ....
       for (int i = 0; i < kNumTries; ++i) {
-        initial_parameters_(i, parameter_id) = std::atof(pieces[i + 2].c_str());
+        initial_parameters_(i, parameter_id) = atof(pieces[i + 2].c_str());
       }
-      final_parameters_(0, parameter_id) =
-          std::atof(pieces[2 + kNumTries].c_str());
+      final_parameters_(0, parameter_id) = atof(pieces[2 + kNumTries].c_str());
     }
 
-    // Certified cost
+    // Certfied cost
     SkipLines(ifs, 1);
     GetAndSplitLine(ifs, &pieces);
-    certified_cost_ = std::atof(pieces[4].c_str()) / 2.0;
+    certified_cost_ = atof(pieces[4].c_str()) / 2.0;
 
     // Read the observations.
     SkipLines(ifs, 18 - kNumParameters);
@@ -291,12 +259,12 @@ class NISTProblem {
       GetAndSplitLine(ifs, &pieces);
       // Response.
       for (int j = 0; j < kNumResponses; ++j) {
-        response_(i, j) = std::atof(pieces[j].c_str());
+        response_(i, j) = atof(pieces[j].c_str());
       }
 
       // Predictor variables.
       for (int j = 0; j < kNumPredictors; ++j) {
-        predictor_(i, j) = std::atof(pieces[j + kNumResponses].c_str());
+        predictor_(i, j) = atof(pieces[j + kNumResponses].c_str());
       }
     }
   }
@@ -487,57 +455,47 @@ struct Nelson {
 // clang-format on
 
 static void SetNumericDiffOptions(ceres::NumericDiffOptions* options) {
-  options->max_num_ridders_extrapolations =
-      absl::GetFlag(FLAGS_ridders_extrapolations);
-  options->ridders_relative_initial_step_size =
-      absl::GetFlag(FLAGS_ridders_step_size);
+  options->max_num_ridders_extrapolations = FLAGS_ridders_extrapolations;
+  options->ridders_relative_initial_step_size = FLAGS_ridders_step_size;
 }
 
 void SetMinimizerOptions(ceres::Solver::Options* options) {
-  CHECK(ceres::StringToMinimizerType(absl::GetFlag(FLAGS_minimizer),
-                                     &options->minimizer_type));
-  CHECK(ceres::StringToLinearSolverType(absl::GetFlag(FLAGS_linear_solver),
+  CHECK(
+      ceres::StringToMinimizerType(FLAGS_minimizer, &options->minimizer_type));
+  CHECK(ceres::StringToLinearSolverType(FLAGS_linear_solver,
                                         &options->linear_solver_type));
-  CHECK(StringToDenseLinearAlgebraLibraryType(
-      absl::GetFlag(FLAGS_dense_linear_algebra_library),
-      &options->dense_linear_algebra_library_type));
-  CHECK(ceres::StringToPreconditionerType(absl::GetFlag(FLAGS_preconditioner),
+  CHECK(ceres::StringToPreconditionerType(FLAGS_preconditioner,
                                           &options->preconditioner_type));
   CHECK(ceres::StringToTrustRegionStrategyType(
-      absl::GetFlag(FLAGS_trust_region_strategy),
-      &options->trust_region_strategy_type));
-  CHECK(ceres::StringToDoglegType(absl::GetFlag(FLAGS_dogleg),
-                                  &options->dogleg_type));
+      FLAGS_trust_region_strategy, &options->trust_region_strategy_type));
+  CHECK(ceres::StringToDoglegType(FLAGS_dogleg, &options->dogleg_type));
   CHECK(ceres::StringToLineSearchDirectionType(
-      absl::GetFlag(FLAGS_line_search_direction),
-      &options->line_search_direction_type));
-  CHECK(ceres::StringToLineSearchType(absl::GetFlag(FLAGS_line_search),
+      FLAGS_line_search_direction, &options->line_search_direction_type));
+  CHECK(ceres::StringToLineSearchType(FLAGS_line_search,
                                       &options->line_search_type));
   CHECK(ceres::StringToLineSearchInterpolationType(
-      absl::GetFlag(FLAGS_line_search_interpolation),
+      FLAGS_line_search_interpolation,
       &options->line_search_interpolation_type));
 
-  options->max_num_iterations = absl::GetFlag(FLAGS_num_iterations);
-  options->use_nonmonotonic_steps = absl::GetFlag(FLAGS_nonmonotonic_steps);
-  options->initial_trust_region_radius =
-      absl::GetFlag(FLAGS_initial_trust_region_radius);
-  options->max_lbfgs_rank = absl::GetFlag(FLAGS_lbfgs_rank);
-  options->line_search_sufficient_function_decrease =
-      absl::GetFlag(FLAGS_sufficient_decrease);
+  options->max_num_iterations = FLAGS_num_iterations;
+  options->use_nonmonotonic_steps = FLAGS_nonmonotonic_steps;
+  options->initial_trust_region_radius = FLAGS_initial_trust_region_radius;
+  options->max_lbfgs_rank = FLAGS_lbfgs_rank;
+  options->line_search_sufficient_function_decrease = FLAGS_sufficient_decrease;
   options->line_search_sufficient_curvature_decrease =
-      absl::GetFlag(FLAGS_sufficient_curvature_decrease);
+      FLAGS_sufficient_curvature_decrease;
   options->max_num_line_search_step_size_iterations =
-      absl::GetFlag(FLAGS_max_line_search_iterations);
+      FLAGS_max_line_search_iterations;
   options->max_num_line_search_direction_restarts =
-      absl::GetFlag(FLAGS_max_line_search_restarts);
+      FLAGS_max_line_search_restarts;
   options->use_approximate_eigenvalue_bfgs_scaling =
-      absl::GetFlag(FLAGS_approximate_eigenvalue_bfgs_scaling);
+      FLAGS_approximate_eigenvalue_bfgs_scaling;
   options->function_tolerance = std::numeric_limits<double>::epsilon();
   options->gradient_tolerance = std::numeric_limits<double>::epsilon();
   options->parameter_tolerance = std::numeric_limits<double>::epsilon();
 }
 
-std::string JoinPath(const std::string& dirname, const std::string& basename) {
+string JoinPath(const string& dirname, const string& basename) {
 #ifdef _WIN32
   static const char separator = '\\';
 #else
@@ -549,7 +507,7 @@ std::string JoinPath(const std::string& dirname, const std::string& basename) {
   } else if (dirname[dirname.size() - 1] == separator) {
     return dirname + basename;
   } else {
-    return dirname + std::string(&separator, 1) + basename;
+    return dirname + string(&separator, 1) + basename;
   }
 }
 
@@ -557,24 +515,24 @@ template <typename Model, int num_parameters>
 CostFunction* CreateCostFunction(const Matrix& predictor,
                                  const Matrix& response,
                                  const int num_observations) {
-  auto* model = new Model(predictor.data(), response.data(), num_observations);
-  ceres::CostFunction* cost_function = nullptr;
-  if (absl::GetFlag(FLAGS_use_numeric_diff)) {
+  Model* model = new Model(predictor.data(), response.data(), num_observations);
+  ceres::CostFunction* cost_function = NULL;
+  if (FLAGS_use_numeric_diff) {
     ceres::NumericDiffOptions options;
     SetNumericDiffOptions(&options);
-    if (absl::GetFlag(FLAGS_numeric_diff_method) == "central") {
+    if (FLAGS_numeric_diff_method == "central") {
       cost_function = new NumericDiffCostFunction<Model,
                                                   ceres::CENTRAL,
                                                   ceres::DYNAMIC,
                                                   num_parameters>(
           model, ceres::TAKE_OWNERSHIP, num_observations, options);
-    } else if (absl::GetFlag(FLAGS_numeric_diff_method) == "forward") {
+    } else if (FLAGS_numeric_diff_method == "forward") {
       cost_function = new NumericDiffCostFunction<Model,
                                                   ceres::FORWARD,
                                                   ceres::DYNAMIC,
                                                   num_parameters>(
           model, ceres::TAKE_OWNERSHIP, num_observations, options);
-    } else if (absl::GetFlag(FLAGS_numeric_diff_method) == "ridders") {
+    } else if (FLAGS_numeric_diff_method == "ridders") {
       cost_function = new NumericDiffCostFunction<Model,
                                                   ceres::RIDDERS,
                                                   ceres::DYNAMIC,
@@ -582,7 +540,7 @@ CostFunction* CreateCostFunction(const Matrix& predictor,
           model, ceres::TAKE_OWNERSHIP, num_observations, options);
     } else {
       LOG(ERROR) << "Invalid numeric diff method specified";
-      return nullptr;
+      return 0;
     }
   } else {
     cost_function =
@@ -613,9 +571,8 @@ double ComputeLRE(const Matrix& expected, const Matrix& actual) {
 }
 
 template <typename Model, int num_parameters>
-int RegressionDriver(const std::string& filename) {
-  NISTProblem nist_problem(
-      JoinPath(absl::GetFlag(FLAGS_nist_data_dir), filename));
+int RegressionDriver(const string& filename) {
+  NISTProblem nist_problem(JoinPath(FLAGS_nist_data_dir, filename));
   CHECK_EQ(num_parameters, nist_problem.num_parameters());
 
   Matrix predictor = nist_problem.predictor();
@@ -636,10 +593,9 @@ int RegressionDriver(const std::string& filename) {
     double initial_cost;
     double final_cost;
 
-    if (!absl::GetFlag(FLAGS_use_tiny_solver)) {
+    if (!FLAGS_use_tiny_solver) {
       ceres::Problem problem;
-      problem.AddResidualBlock(
-          cost_function, nullptr, initial_parameters.data());
+      problem.AddResidualBlock(cost_function, NULL, initial_parameters.data());
       ceres::Solver::Summary summary;
       ceres::Solver::Options options;
       SetMinimizerOptions(&options);
@@ -649,15 +605,15 @@ int RegressionDriver(const std::string& filename) {
     } else {
       ceres::TinySolverCostFunctionAdapter<Eigen::Dynamic, num_parameters> cfa(
           *cost_function);
-      using Solver = ceres::TinySolver<
-          ceres::TinySolverCostFunctionAdapter<Eigen::Dynamic, num_parameters>>;
+      typedef ceres::TinySolver<
+          ceres::TinySolverCostFunctionAdapter<Eigen::Dynamic, num_parameters>>
+          Solver;
       Solver solver;
-      solver.options.max_num_iterations = absl::GetFlag(FLAGS_num_iterations);
+      solver.options.max_num_iterations = FLAGS_num_iterations;
       solver.options.gradient_tolerance =
           std::numeric_limits<double>::epsilon();
       solver.options.parameter_tolerance =
           std::numeric_limits<double>::epsilon();
-      solver.options.function_tolerance = 0.0;
 
       Eigen::Matrix<double, num_parameters, 1> x;
       x = initial_parameters.transpose();
@@ -689,11 +645,11 @@ int RegressionDriver(const std::string& filename) {
 }
 
 void SolveNISTProblems() {
-  if (absl::GetFlag(FLAGS_nist_data_dir).empty()) {
+  if (FLAGS_nist_data_dir.empty()) {
     LOG(FATAL) << "Must specify the directory containing the NIST problems";
   }
 
-  std::cout << "Lower Difficulty\n";
+  cout << "Lower Difficulty\n";
   int easy_success = 0;
   easy_success += RegressionDriver<Misra1a, 2>("Misra1a.dat");
   easy_success += RegressionDriver<Chwirut, 3>("Chwirut1.dat");
@@ -704,7 +660,7 @@ void SolveNISTProblems() {
   easy_success += RegressionDriver<DanWood, 2>("DanWood.dat");
   easy_success += RegressionDriver<Misra1b, 2>("Misra1b.dat");
 
-  std::cout << "\nMedium Difficulty\n";
+  cout << "\nMedium Difficulty\n";
   int medium_success = 0;
   medium_success += RegressionDriver<Kirby2, 5>("Kirby2.dat");
   medium_success += RegressionDriver<Hahn1, 7>("Hahn1.dat");
@@ -718,7 +674,7 @@ void SolveNISTProblems() {
   medium_success += RegressionDriver<Roszman1, 4>("Roszman1.dat");
   medium_success += RegressionDriver<ENSO, 9>("ENSO.dat");
 
-  std::cout << "\nHigher Difficulty\n";
+  cout << "\nHigher Difficulty\n";
   int hard_success = 0;
   hard_success += RegressionDriver<MGH09, 4>("MGH09.dat");
   hard_success += RegressionDriver<Thurber, 7>("Thurber.dat");
@@ -729,20 +685,21 @@ void SolveNISTProblems() {
   hard_success += RegressionDriver<Rat43, 4>("Rat43.dat");
   hard_success += RegressionDriver<Bennet5, 3>("Bennett5.dat");
 
-  std::cout << "\n";
-  std::cout << "Easy    : " << easy_success << "/16\n";
-  std::cout << "Medium  : " << medium_success << "/22\n";
-  std::cout << "Hard    : " << hard_success << "/16\n";
-  std::cout << "Total   : " << easy_success + medium_success + hard_success
-            << "/54\n";
+  cout << "\n";
+  cout << "Easy    : " << easy_success << "/16\n";
+  cout << "Medium  : " << medium_success << "/22\n";
+  cout << "Hard    : " << hard_success << "/16\n";
+  cout << "Total   : " << easy_success + medium_success + hard_success
+       << "/54\n";
 }
 
 }  // namespace
-}  // namespace ceres::examples
+}  // namespace examples
+}  // namespace ceres
 
 int main(int argc, char** argv) {
-  absl::InitializeLog();
-  absl::ParseCommandLine(argc, argv);
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
+  google::InitGoogleLogging(argv[0]);
   ceres::examples::SolveNISTProblems();
   return 0;
 }

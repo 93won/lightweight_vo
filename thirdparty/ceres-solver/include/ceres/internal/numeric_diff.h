@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -40,14 +40,15 @@
 
 #include "Eigen/Dense"
 #include "Eigen/StdVector"
-#include "absl/container/fixed_array.h"
-#include "absl/log/check.h"
 #include "ceres/cost_function.h"
+#include "ceres/internal/fixed_array.h"
 #include "ceres/internal/variadic_evaluate.h"
 #include "ceres/numeric_diff_options.h"
 #include "ceres/types.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // This is split from the main class because C++ doesn't allow partial template
 // specializations for member functions. The alternative is to repeat the main
@@ -85,18 +86,18 @@ struct NumericDiff {
         (kParameterBlockSize != ceres::DYNAMIC ? kParameterBlockSize
                                                : parameter_block_size);
 
-    using ResidualVector = Matrix<double, kNumResiduals, 1>;
-    using ParameterVector = Matrix<double, kParameterBlockSize, 1>;
+    typedef Matrix<double, kNumResiduals, 1> ResidualVector;
+    typedef Matrix<double, kParameterBlockSize, 1> ParameterVector;
 
     // The convoluted reasoning for choosing the Row/Column major
     // ordering of the matrix is an artifact of the restrictions in
     // Eigen that prevent it from creating RowMajor matrices with a
     // single column. In these cases, we ask for a ColMajor matrix.
-    using JacobianMatrix =
-        Matrix<double,
-               kNumResiduals,
-               kParameterBlockSize,
-               (kParameterBlockSize == 1) ? ColMajor : RowMajor>;
+    typedef Matrix<double,
+                   kNumResiduals,
+                   kParameterBlockSize,
+                   (kParameterBlockSize == 1) ? ColMajor : RowMajor>
+        JacobianMatrix;
 
     Map<JacobianMatrix> parameter_jacobian(
         jacobian, num_residuals_internal, parameter_block_size_internal);
@@ -120,18 +121,18 @@ struct NumericDiff {
     // thus ridders_relative_initial_step_size is used.
     if (kMethod == RIDDERS) {
       min_step_size =
-          (std::max)(min_step_size, options.ridders_relative_initial_step_size);
+          std::max(min_step_size, options.ridders_relative_initial_step_size);
     }
 
     // For each parameter in the parameter block, use finite differences to
     // compute the derivative for that parameter.
-    absl::FixedArray<double> temp_residual_array(num_residuals_internal);
-    absl::FixedArray<double> residual_array(num_residuals_internal);
+    FixedArray<double> temp_residual_array(num_residuals_internal);
+    FixedArray<double> residual_array(num_residuals_internal);
     Map<ResidualVector> residuals(residual_array.data(),
                                   num_residuals_internal);
 
     for (int j = 0; j < parameter_block_size_internal; ++j) {
-      const double delta = (std::max)(min_step_size, step_size(j));
+      const double delta = std::max(min_step_size, step_size(j));
 
       if (kMethod == RIDDERS) {
         if (!EvaluateRiddersJacobianColumn(functor,
@@ -183,8 +184,8 @@ struct NumericDiff {
     using Eigen::Map;
     using Eigen::Matrix;
 
-    using ResidualVector = Matrix<double, kNumResiduals, 1>;
-    using ParameterVector = Matrix<double, kParameterBlockSize, 1>;
+    typedef Matrix<double, kNumResiduals, 1> ResidualVector;
+    typedef Matrix<double, kParameterBlockSize, 1> ParameterVector;
 
     Map<const ParameterVector> x(x_ptr, parameter_block_size);
     Map<ParameterVector> x_plus_delta(x_plus_delta_ptr, parameter_block_size);
@@ -259,10 +260,10 @@ struct NumericDiff {
     using Eigen::Map;
     using Eigen::Matrix;
 
-    using ResidualVector = Matrix<double, kNumResiduals, 1>;
-    using ResidualCandidateMatrix =
-        Matrix<double, kNumResiduals, Eigen::Dynamic>;
-    using ParameterVector = Matrix<double, kParameterBlockSize, 1>;
+    typedef Matrix<double, kNumResiduals, 1> ResidualVector;
+    typedef Matrix<double, kNumResiduals, Eigen::Dynamic>
+        ResidualCandidateMatrix;
+    typedef Matrix<double, kParameterBlockSize, 1> ParameterVector;
 
     Map<const ParameterVector> x(x_ptr, parameter_block_size);
     Map<ParameterVector> x_plus_delta(x_plus_delta_ptr, parameter_block_size);
@@ -295,7 +296,7 @@ struct NumericDiff {
     // norm_error is supposed to decrease as the finite difference tableau
     // generation progresses, serving both as an estimate for differentiation
     // error and as a measure of differentiation numerical stability.
-    double norm_error = (std::numeric_limits<double>::max)();
+    double norm_error = std::numeric_limits<double>::max();
 
     // Loop over decreasing step sizes until:
     //  1. Error is smaller than a given value (ridders_epsilon),
@@ -341,7 +342,7 @@ struct NumericDiff {
                              options.ridders_step_shrink_factor;
 
         // Compute the difference between the previous value and the current.
-        double candidate_error = (std::max)(
+        double candidate_error = std::max(
             (current_candidates->col(k) - current_candidates->col(k - 1))
                 .norm(),
             (current_candidates->col(k) - previous_candidates->col(k - 1))
@@ -501,6 +502,7 @@ struct EvaluateJacobianForParameterBlocks<ParameterDims,
   }
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_PUBLIC_INTERNAL_NUMERIC_DIFF_H_

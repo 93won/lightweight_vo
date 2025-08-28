@@ -13,9 +13,17 @@ find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(Threads REQUIRED)
 
-# Build Ceres and Sophus from thirdparty
-add_subdirectory(thirdparty/ceres-solver)
+# Build Sophus from thirdparty first with tests disabled
+set(BUILD_TESTS OFF CACHE BOOL "Build Sophus tests" FORCE)
 add_subdirectory(thirdparty/Sophus)
+
+# Build Ceres from thirdparty without finding system version
+set(CERES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/ceres-solver)
+set(BUILD_EXAMPLES OFF CACHE BOOL "Build Ceres examples" FORCE)
+set(BUILD_BENCHMARKS OFF CACHE BOOL "Build Ceres benchmarks" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "Build Ceres tests" FORCE)
+set(SUITESPARSE OFF CACHE BOOL "Enable SuiteSparse" FORCE)
+add_subdirectory(${CERES_DIR} EXCLUDE_FROM_ALL)
 
 # Find GLU for legacy OpenGL functions
 find_library(GLU_LIBRARY GLU REQUIRED)
@@ -59,8 +67,9 @@ add_executable(test_vio_viewer test_vio_viewer.cpp
     src/module/FeatureTracker.cpp
     src/module/PoseOptimizer.cpp
     src/module/Estimator.cpp
-    src/factor/SE3Manifolds.cpp
+    # src/factor/SE3Manifolds.cpp
     src/factor/PnPFactors.cpp
+    src/factor/Parameters.cpp
     src/util/Config.cpp
     src/viewer/ImGuiViewer.cpp
     ${IMGUI_SOURCES}

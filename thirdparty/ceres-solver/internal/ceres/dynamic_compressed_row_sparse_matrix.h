@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -44,15 +44,15 @@
 #include <vector>
 
 #include "ceres/compressed_row_sparse_matrix.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-class CERES_NO_EXPORT DynamicCompressedRowSparseMatrix final
+class CERES_EXPORT_INTERNAL DynamicCompressedRowSparseMatrix
     : public CompressedRowSparseMatrix {
  public:
-  // Set the number of rows and columns for the underlying
+  // Set the number of rows and columns for the underlyig
   // `CompressedRowSparseMatrix` and set the initial number of maximum non-zero
   // entries. Note that following the insertion of entries, when `Finalize`
   // is called the number of non-zeros is determined and all internal
@@ -73,7 +73,7 @@ class CERES_NO_EXPORT DynamicCompressedRowSparseMatrix final
 
   // Insert an entry at a given row and column position. This method is
   // thread-safe across rows i.e. different threads can insert values
-  // simultaneously into different rows. It should be emphasized that this
+  // simultaneously into different rows. It should be emphasised that this
   // method always inserts a new entry and does not check for existing
   // entries at the specified row and column position. Duplicate entries
   // for a given row and column position will result in undefined
@@ -97,8 +97,7 @@ class CERES_NO_EXPORT DynamicCompressedRowSparseMatrix final
   std::vector<std::vector<double>> dynamic_values_;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_DYNAMIC_COMPRESSED_ROW_SPARSE_MATRIX_H_

@@ -25,6 +25,8 @@ ImGuiViewer::ImGuiViewer()
     , m_tracking_height(0)
     , m_stereo_width(0)
     , m_stereo_height(0)
+    , m_space_pressed(false)
+    , m_next_pressed(false)
 {
 }
 
@@ -168,7 +170,7 @@ void ImGuiViewer::render() {
     if (m_tracking_texture) {
         ImGui::Begin("Feature Tracking", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
         ImGui::Image((void*)(intptr_t)m_tracking_texture, 
-                    ImVec2(m_tracking_width * 1.0f, m_tracking_height * 1.0f));
+                    ImVec2(m_tracking_width * 2.0f, m_tracking_height * 2.0f));
         ImGui::End();
     }
     
@@ -324,6 +326,18 @@ void ImGuiViewer::keyCallback(GLFWwindow* window, int key, int scancode, int act
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
     }
+    
+    // Store key states for processing in main loop
+    ImGuiViewer* viewer = static_cast<ImGuiViewer*>(glfwGetWindowUserPointer(window));
+    if (viewer) {
+        if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
+            viewer->m_space_pressed = true;
+        }
+        // Allow both PRESS and REPEAT for N and ENTER keys to enable continuous frame advance
+        if ((key == GLFW_KEY_N || key == GLFW_KEY_ENTER) && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+            viewer->m_next_pressed = true;
+        }
+    }
 }
 
 void ImGuiViewer::processCameraInput() {
@@ -442,6 +456,30 @@ GLuint ImGuiViewer::createTextureFromMat(const cv::Mat& mat) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, mat.cols, mat.rows, 0, GL_RGB, GL_UNSIGNED_BYTE, mat.data);
     
     return texture;
+}
+
+void ImGuiViewer::processKeyboardInput(bool& auto_play, bool& step_mode, bool& advance_frame) {
+    // Handle space key press - toggle between auto and step mode
+    if (m_space_pressed) {
+        if (auto_play) {
+            auto_play = false;
+            step_mode = true;
+            std::cout << "Switched to STEP MODE - Press N or ENTER to advance frames" << std::endl;
+        } else {
+            auto_play = true;
+            step_mode = false;
+            std::cout << "Switched to AUTO MODE - Press SPACE to return to step mode" << std::endl;
+        }
+        m_space_pressed = false;  // Reset flag
+    }
+    
+    // Handle next frame key press - advance one frame in step mode
+    if (m_next_pressed) {
+        if (step_mode) {
+            advance_frame = true;
+        }
+        m_next_pressed = false;  // Reset flag
+    }
 }
 
 } // namespace lightweight_vio

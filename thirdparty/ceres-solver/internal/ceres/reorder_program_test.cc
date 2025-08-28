@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,27 +30,20 @@
 
 #include "ceres/reorder_program.h"
 
-#include <algorithm>
-#include <memory>
 #include <random>
-#include <string>
-#include <unordered_set>
-#include <vector>
 
-#include "ceres/internal/config.h"
-#include "ceres/ordered_groups.h"
 #include "ceres/parameter_block.h"
-#include "ceres/problem.h"
 #include "ceres/problem_impl.h"
 #include "ceres/program.h"
 #include "ceres/sized_cost_function.h"
 #include "ceres/solver.h"
-#include "ceres/types.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 namespace ceres {
 namespace internal {
+
+using std::vector;
 
 // Templated base class for the CostFunction signatures.
 template <int kNumResiduals, int... Ns>
@@ -85,19 +78,19 @@ TEST(_, ReorderResidualBlockNormalFunction) {
   problem.AddResidualBlock(new BinaryCostFunction(), nullptr, &x, &y);
   problem.AddResidualBlock(new UnaryCostFunction(), nullptr, &y);
 
-  auto linear_solver_ordering = std::make_shared<ParameterBlockOrdering>();
+  ParameterBlockOrdering* linear_solver_ordering = new ParameterBlockOrdering;
   linear_solver_ordering->AddElementToGroup(&x, 0);
   linear_solver_ordering->AddElementToGroup(&y, 0);
   linear_solver_ordering->AddElementToGroup(&z, 1);
 
   Solver::Options options;
   options.linear_solver_type = DENSE_SCHUR;
-  options.linear_solver_ordering = linear_solver_ordering;
+  options.linear_solver_ordering.reset(linear_solver_ordering);
 
-  const std::vector<ResidualBlock*>& residual_blocks =
+  const vector<ResidualBlock*>& residual_blocks =
       problem.program().residual_blocks();
 
-  std::vector<ResidualBlock*> expected_residual_blocks;
+  vector<ResidualBlock*> expected_residual_blocks;
 
   // This is a bit fragile, but it serves the purpose. We know the
   // bucketing algorithm that the reordering function uses, so we
@@ -162,8 +155,7 @@ TEST(_, ApplyOrderingNormal) {
 
   EXPECT_TRUE(ApplyOrdering(
       problem.parameter_map(), linear_solver_ordering, program, &message));
-  const std::vector<ParameterBlock*>& parameter_blocks =
-      program->parameter_blocks();
+  const vector<ParameterBlock*>& parameter_blocks = program->parameter_blocks();
 
   EXPECT_EQ(parameter_blocks.size(), 3);
   EXPECT_EQ(parameter_blocks[0]->user_state(), &x);
@@ -172,10 +164,10 @@ TEST(_, ApplyOrderingNormal) {
 }
 
 #ifndef CERES_NO_SUITESPARSE
-class ReorderProgramForSparseCholeskyUsingSuiteSparseTest
+class ReorderProgramFoSparseCholeskyUsingSuiteSparseTest
     : public ::testing::Test {
  protected:
-  void SetUp() override {
+  void SetUp() {
     problem_.AddResidualBlock(new UnaryCostFunction(), nullptr, &x_);
     problem_.AddResidualBlock(new BinaryCostFunction(), nullptr, &z_, &x_);
     problem_.AddResidualBlock(new BinaryCostFunction(), nullptr, &z_, &y_);
@@ -187,17 +179,16 @@ class ReorderProgramForSparseCholeskyUsingSuiteSparseTest
   void ComputeAndValidateOrdering(
       const ParameterBlockOrdering& linear_solver_ordering) {
     Program* program = problem_.mutable_program();
-    std::vector<ParameterBlock*> unordered_parameter_blocks =
+    vector<ParameterBlock*> unordered_parameter_blocks =
         program->parameter_blocks();
 
     std::string error;
     EXPECT_TRUE(ReorderProgramForSparseCholesky(ceres::SUITE_SPARSE,
-                                                ceres::AMD,
                                                 linear_solver_ordering,
                                                 0, /* use all rows */
                                                 program,
                                                 &error));
-    const std::vector<ParameterBlock*>& ordered_parameter_blocks =
+    const vector<ParameterBlock*>& ordered_parameter_blocks =
         program->parameter_blocks();
     EXPECT_EQ(ordered_parameter_blocks.size(),
               unordered_parameter_blocks.size());
@@ -212,7 +203,7 @@ class ReorderProgramForSparseCholeskyUsingSuiteSparseTest
   double z_;
 };
 
-TEST_F(ReorderProgramForSparseCholeskyUsingSuiteSparseTest,
+TEST_F(ReorderProgramFoSparseCholeskyUsingSuiteSparseTest,
        EverythingInGroupZero) {
   ParameterBlockOrdering linear_solver_ordering;
   linear_solver_ordering.AddElementToGroup(&x_, 0);
@@ -222,7 +213,7 @@ TEST_F(ReorderProgramForSparseCholeskyUsingSuiteSparseTest,
   ComputeAndValidateOrdering(linear_solver_ordering);
 }
 
-TEST_F(ReorderProgramForSparseCholeskyUsingSuiteSparseTest, ContiguousGroups) {
+TEST_F(ReorderProgramFoSparseCholeskyUsingSuiteSparseTest, ContiguousGroups) {
   ParameterBlockOrdering linear_solver_ordering;
   linear_solver_ordering.AddElementToGroup(&x_, 0);
   linear_solver_ordering.AddElementToGroup(&y_, 1);
@@ -231,7 +222,7 @@ TEST_F(ReorderProgramForSparseCholeskyUsingSuiteSparseTest, ContiguousGroups) {
   ComputeAndValidateOrdering(linear_solver_ordering);
 }
 
-TEST_F(ReorderProgramForSparseCholeskyUsingSuiteSparseTest, GroupsWithGaps) {
+TEST_F(ReorderProgramFoSparseCholeskyUsingSuiteSparseTest, GroupsWithGaps) {
   ParameterBlockOrdering linear_solver_ordering;
   linear_solver_ordering.AddElementToGroup(&x_, 0);
   linear_solver_ordering.AddElementToGroup(&y_, 2);
@@ -240,7 +231,7 @@ TEST_F(ReorderProgramForSparseCholeskyUsingSuiteSparseTest, GroupsWithGaps) {
   ComputeAndValidateOrdering(linear_solver_ordering);
 }
 
-TEST_F(ReorderProgramForSparseCholeskyUsingSuiteSparseTest,
+TEST_F(ReorderProgramFoSparseCholeskyUsingSuiteSparseTest,
        NonContiguousStartingAtTwo) {
   ParameterBlockOrdering linear_solver_ordering;
   linear_solver_ordering.AddElementToGroup(&x_, 2);
@@ -272,7 +263,7 @@ TEST(_, ReorderResidualBlocksbyPartition) {
   problem.GetResidualBlocks(&residual_block_ids);
   std::vector<ResidualBlock*> residual_blocks =
       problem.program().residual_blocks();
-  auto rng = std::mt19937{};
+  auto rng = std::default_random_engine{};
   for (int i = 1; i < 6; ++i) {
     std::shuffle(
         std::begin(residual_block_ids), std::end(residual_block_ids), rng);

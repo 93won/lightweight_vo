@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,11 +34,11 @@
 
 #include <vector>
 
-#include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 struct FunctionSample;
 
@@ -49,7 +49,6 @@ struct FunctionSample;
 // and are given by a vector of coefficients of size N + 1.
 
 // Evaluate the polynomial at x using the Horner scheme.
-CERES_NO_EXPORT
 inline double EvaluatePolynomial(const Vector& polynomial, double x) {
   double v = 0.0;
   for (int i = 0; i < polynomial.size(); ++i) {
@@ -65,16 +64,15 @@ inline double EvaluatePolynomial(const Vector& polynomial, double x) {
 // Failure indicates that the polynomial is invalid (of size 0) or
 // that the eigenvalues of the companion matrix could not be computed.
 // On failure, a more detailed message will be written to LOG(ERROR).
-// If real is not nullptr, the real parts of the roots will be returned in it.
-// Likewise, if imaginary is not nullptr, imaginary parts will be returned in
-// it.
-CERES_NO_EXPORT bool FindPolynomialRoots(const Vector& polynomial,
-                                         Vector* real,
-                                         Vector* imaginary);
+// If real is not NULL, the real parts of the roots will be returned in it.
+// Likewise, if imaginary is not NULL, imaginary parts will be returned in it.
+CERES_EXPORT_INTERNAL bool FindPolynomialRoots(const Vector& polynomial,
+                                               Vector* real,
+                                               Vector* imaginary);
 
 // Return the derivative of the given polynomial. It is assumed that
 // the input polynomial is at least of degree zero.
-CERES_NO_EXPORT Vector DifferentiatePolynomial(const Vector& polynomial);
+CERES_EXPORT_INTERNAL Vector DifferentiatePolynomial(const Vector& polynomial);
 
 // Find the minimum value of the polynomial in the interval [x_min,
 // x_max]. The minimum is obtained by computing all the roots of the
@@ -82,11 +80,11 @@ CERES_NO_EXPORT Vector DifferentiatePolynomial(const Vector& polynomial);
 // interval [x_min, x_max] are considered as well as the end points
 // x_min and x_max. Since polynomials are differentiable functions,
 // this ensures that the true minimum is found.
-CERES_NO_EXPORT void MinimizePolynomial(const Vector& polynomial,
-                                        double x_min,
-                                        double x_max,
-                                        double* optimal_x,
-                                        double* optimal_value);
+CERES_EXPORT_INTERNAL void MinimizePolynomial(const Vector& polynomial,
+                                              double x_min,
+                                              double x_max,
+                                              double* optimal_x,
+                                              double* optimal_value);
 
 // Given a set of function value and/or gradient samples, find a
 // polynomial whose value and gradients are exactly equal to the ones
@@ -99,7 +97,7 @@ CERES_NO_EXPORT void MinimizePolynomial(const Vector& polynomial,
 // Of course its possible to sample a polynomial any number of times,
 // in which case, generally speaking the spurious higher order
 // coefficients will be zero.
-CERES_NO_EXPORT Vector
+CERES_EXPORT_INTERNAL Vector
 FindInterpolatingPolynomial(const std::vector<FunctionSample>& samples);
 
 // Interpolate the function described by samples with a polynomial,
@@ -108,15 +106,14 @@ FindInterpolatingPolynomial(const std::vector<FunctionSample>& samples);
 // finding algorithms may fail due to numerical difficulties. But the
 // function is guaranteed to return its best guess of an answer, by
 // considering the samples and the end points as possible solutions.
-CERES_NO_EXPORT void MinimizeInterpolatingPolynomial(
+CERES_EXPORT_INTERNAL void MinimizeInterpolatingPolynomial(
     const std::vector<FunctionSample>& samples,
     double x_min,
     double x_max,
     double* optimal_x,
     double* optimal_value);
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_POLYNOMIAL_SOLVER_H_

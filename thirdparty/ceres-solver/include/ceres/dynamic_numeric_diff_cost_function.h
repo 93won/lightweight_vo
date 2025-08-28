@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2024 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -37,16 +37,15 @@
 #include <cmath>
 #include <memory>
 #include <numeric>
-#include <type_traits>
 #include <vector>
 
-#include "absl/log/check.h"
 #include "ceres/dynamic_cost_function.h"
 #include "ceres/internal/eigen.h"
 #include "ceres/internal/numeric_diff.h"
 #include "ceres/internal/parameter_dims.h"
 #include "ceres/numeric_diff_options.h"
 #include "ceres/types.h"
+#include "glog/logging.h"
 
 namespace ceres {
 
@@ -72,47 +71,25 @@ namespace ceres {
 // also specify the sizes after creating the
 // DynamicNumericDiffCostFunction. For example:
 //
-//   DynamicAutoDiffCostFunction<MyCostFunctor, CENTRAL> cost_function;
+//   DynamicAutoDiffCostFunction<MyCostFunctor, CENTRAL> cost_function(
+//       new MyCostFunctor());
 //   cost_function.AddParameterBlock(5);
 //   cost_function.AddParameterBlock(10);
 //   cost_function.SetNumResiduals(21);
-template <typename CostFunctor, NumericDiffMethodType kMethod = CENTRAL>
-class DynamicNumericDiffCostFunction final : public DynamicCostFunction {
+template <typename CostFunctor, NumericDiffMethodType method = CENTRAL>
+class DynamicNumericDiffCostFunction : public DynamicCostFunction {
  public:
   explicit DynamicNumericDiffCostFunction(
       const CostFunctor* functor,
       Ownership ownership = TAKE_OWNERSHIP,
       const NumericDiffOptions& options = NumericDiffOptions())
-      : DynamicNumericDiffCostFunction{
-            std::unique_ptr<const CostFunctor>{functor}, ownership, options} {}
+      : functor_(functor), ownership_(ownership), options_(options) {}
 
   explicit DynamicNumericDiffCostFunction(
-      std::unique_ptr<const CostFunctor> functor,
-      const NumericDiffOptions& options = NumericDiffOptions())
-      : DynamicNumericDiffCostFunction{
-            std::move(functor), TAKE_OWNERSHIP, options} {}
+      DynamicNumericDiffCostFunction&& other)
+      : functor_(std::move(other.functor_)), ownership_(other.ownership_) {}
 
-  // Constructs the CostFunctor on the heap and takes the ownership.
-  template <class... Args,
-            std::enable_if_t<std::is_constructible_v<CostFunctor, Args&&...>>* =
-                nullptr>
-  explicit DynamicNumericDiffCostFunction(Args&&... args)
-      // NOTE We explicitly use direct initialization using parentheses instead
-      // of uniform initialization using braces to avoid narrowing conversion
-      // warnings.
-      : DynamicNumericDiffCostFunction{
-            std::make_unique<CostFunctor>(std::forward<Args>(args)...)} {}
-
-  DynamicNumericDiffCostFunction(const DynamicNumericDiffCostFunction&) =
-      delete;
-  DynamicNumericDiffCostFunction& operator=(
-      const DynamicNumericDiffCostFunction&) = delete;
-  DynamicNumericDiffCostFunction(
-      DynamicNumericDiffCostFunction&& other) noexcept = default;
-  DynamicNumericDiffCostFunction& operator=(
-      DynamicNumericDiffCostFunction&& other) noexcept = default;
-
-  ~DynamicNumericDiffCostFunction() override {
+  virtual ~DynamicNumericDiffCostFunction() {
     if (ownership_ != TAKE_OWNERSHIP) {
       functor_.release();
     }
@@ -134,7 +111,7 @@ class DynamicNumericDiffCostFunction final : public DynamicCostFunction {
     const bool status =
         internal::VariadicEvaluate<internal::DynamicParameterDims>(
             *functor_.get(), parameters, residuals);
-    if (jacobians == nullptr || !status) {
+    if (jacobians == NULL || !status) {
       return status;
     }
 
@@ -142,7 +119,7 @@ class DynamicNumericDiffCostFunction final : public DynamicCostFunction {
     int parameters_size = accumulate(block_sizes.begin(), block_sizes.end(), 0);
     std::vector<double> parameters_copy(parameters_size);
     std::vector<double*> parameters_references_copy(block_sizes.size());
-    parameters_references_copy[0] = parameters_copy.data();
+    parameters_references_copy[0] = &parameters_copy[0];
     for (size_t block = 1; block < block_sizes.size(); ++block) {
       parameters_references_copy[block] =
           parameters_references_copy[block - 1] + block_sizes[block - 1];
@@ -156,22 +133,21 @@ class DynamicNumericDiffCostFunction final : public DynamicCostFunction {
     }
 
     for (size_t block = 0; block < block_sizes.size(); ++block) {
-      if (jacobians[block] != nullptr &&
+      if (jacobians[block] != NULL &&
           !NumericDiff<CostFunctor,
-                       kMethod,
+                       method,
                        ceres::DYNAMIC,
                        internal::DynamicParameterDims,
                        ceres::DYNAMIC,
                        ceres::DYNAMIC>::
-              EvaluateJacobianForParameterBlock(
-                  functor_.get(),
-                  residuals,
-                  options_,
-                  this->num_residuals(),
-                  block,
-                  block_sizes[block],
-                  parameters_references_copy.data(),
-                  jacobians[block])) {
+              EvaluateJacobianForParameterBlock(functor_.get(),
+                                                residuals,
+                                                options_,
+                                                this->num_residuals(),
+                                                block,
+                                                block_sizes[block],
+                                                &parameters_references_copy[0],
+                                                jacobians[block])) {
         return false;
       }
     }
@@ -179,44 +155,10 @@ class DynamicNumericDiffCostFunction final : public DynamicCostFunction {
   }
 
  private:
-  explicit DynamicNumericDiffCostFunction(
-      std::unique_ptr<const CostFunctor> functor,
-      Ownership ownership,
-      const NumericDiffOptions& options)
-      : functor_(std::move(functor)),
-        ownership_(ownership),
-        options_(options) {}
-
   std::unique_ptr<const CostFunctor> functor_;
   Ownership ownership_;
   NumericDiffOptions options_;
 };
-
-// Deduction guide that allows the user to avoid explicitly specifying the
-// template parameter of DynamicNumericDiffCostFunction. The class can instead
-// be instantiated as follows:
-//
-//   new DynamicNumericDiffCostFunction{new MyCostFunctor{}};
-//   new DynamicNumericDiffCostFunction{std::make_unique<MyCostFunctor>()};
-//
-template <typename CostFunctor>
-DynamicNumericDiffCostFunction(CostFunctor* functor)
-    -> DynamicNumericDiffCostFunction<CostFunctor>;
-template <typename CostFunctor>
-DynamicNumericDiffCostFunction(CostFunctor* functor, Ownership ownership)
-    -> DynamicNumericDiffCostFunction<CostFunctor>;
-template <typename CostFunctor>
-DynamicNumericDiffCostFunction(CostFunctor* functor,
-                               Ownership ownership,
-                               const NumericDiffOptions& options)
-    -> DynamicNumericDiffCostFunction<CostFunctor>;
-template <typename CostFunctor>
-DynamicNumericDiffCostFunction(std::unique_ptr<CostFunctor> functor)
-    -> DynamicNumericDiffCostFunction<CostFunctor>;
-template <typename CostFunctor>
-DynamicNumericDiffCostFunction(std::unique_ptr<CostFunctor> functor,
-                               const NumericDiffOptions& options)
-    -> DynamicNumericDiffCostFunction<CostFunctor>;
 
 }  // namespace ceres
 

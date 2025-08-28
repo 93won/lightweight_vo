@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,14 +33,15 @@
 #include "ceres/file.h"
 
 #include <cstdio>
-#include <string>
 
-#include "absl/log/log.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
-void WriteStringToFileOrDie(const std::string& data,
-                            const std::string& filename) {
+using std::string;
+
+void WriteStringToFileOrDie(const string& data, const string& filename) {
   FILE* file_descriptor = fopen(filename.c_str(), "wb");
   if (!file_descriptor) {
     LOG(FATAL) << "Couldn't write to file: " << filename;
@@ -49,7 +50,7 @@ void WriteStringToFileOrDie(const std::string& data,
   fclose(file_descriptor);
 }
 
-void ReadFileToStringOrDie(const std::string& filename, std::string* data) {
+void ReadFileToStringOrDie(const string& filename, string* data) {
   FILE* file_descriptor = fopen(filename.c_str(), "r");
 
   if (!file_descriptor) {
@@ -58,12 +59,12 @@ void ReadFileToStringOrDie(const std::string& filename, std::string* data) {
 
   // Resize the input buffer appropriately.
   fseek(file_descriptor, 0L, SEEK_END);
-  int64_t num_bytes = ftell(file_descriptor);
+  int num_bytes = ftell(file_descriptor);
   data->resize(num_bytes);
 
   // Read the data.
   fseek(file_descriptor, 0L, SEEK_SET);
-  int64_t num_read =
+  int num_read =
       fread(&((*data)[0]), sizeof((*data)[0]), num_bytes, file_descriptor);
   if (num_read != num_bytes) {
     LOG(FATAL) << "Couldn't read all of " << filename
@@ -73,7 +74,7 @@ void ReadFileToStringOrDie(const std::string& filename, std::string* data) {
   fclose(file_descriptor);
 }
 
-std::string JoinPath(const std::string& dirname, const std::string& basename) {
+string JoinPath(const string& dirname, const string& basename) {
 #ifdef _WIN32
   static const char separator = '\\';
 #else
@@ -85,8 +86,9 @@ std::string JoinPath(const std::string& dirname, const std::string& basename) {
   } else if (dirname[dirname.size() - 1] == separator) {
     return dirname + basename;
   } else {
-    return dirname + std::string(&separator, 1) + basename;
+    return dirname + string(&separator, 1) + basename;
   }
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

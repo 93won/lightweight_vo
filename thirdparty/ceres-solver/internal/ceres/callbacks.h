@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,19 +33,20 @@
 
 #include <string>
 
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/iteration_callback.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class Program;
 
 // Callback for updating the externally visible state of parameter
 // blocks.
-class CERES_NO_EXPORT StateUpdatingCallback final : public IterationCallback {
+class StateUpdatingCallback : public IterationCallback {
  public:
   StateUpdatingCallback(Program* program, double* parameters);
-  ~StateUpdatingCallback() override;
+  virtual ~StateUpdatingCallback();
   CallbackReturnType operator()(const IterationSummary& summary) final;
 
  private:
@@ -55,13 +56,12 @@ class CERES_NO_EXPORT StateUpdatingCallback final : public IterationCallback {
 
 // Callback for updating the externally visible state of the
 // parameters vector for GradientProblemSolver.
-class CERES_NO_EXPORT GradientProblemSolverStateUpdatingCallback final
-    : public IterationCallback {
+class GradientProblemSolverStateUpdatingCallback : public IterationCallback {
  public:
   GradientProblemSolverStateUpdatingCallback(int num_parameters,
                                              const double* internal_parameters,
                                              double* user_parameters);
-  ~GradientProblemSolverStateUpdatingCallback() override;
+  virtual ~GradientProblemSolverStateUpdatingCallback();
   CallbackReturnType operator()(const IterationSummary& summary) final;
 
  private:
@@ -72,10 +72,10 @@ class CERES_NO_EXPORT GradientProblemSolverStateUpdatingCallback final
 
 // Callback for logging the state of the minimizer to STDERR or
 // STDOUT depending on the user's preferences and logging level.
-class CERES_NO_EXPORT LoggingCallback final : public IterationCallback {
+class LoggingCallback : public IterationCallback {
  public:
   LoggingCallback(MinimizerType minimizer_type, bool log_to_stdout);
-  ~LoggingCallback() override;
+  virtual ~LoggingCallback();
   CallbackReturnType operator()(const IterationSummary& summary) final;
 
  private:
@@ -83,6 +83,7 @@ class CERES_NO_EXPORT LoggingCallback final : public IterationCallback {
   const bool log_to_stdout_;
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_CALLBACKS_H_

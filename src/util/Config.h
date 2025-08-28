@@ -67,6 +67,14 @@ public:
     cv::Mat getRightDistCoeffs() const { return right_dist_coeffs.clone(); }
     cv::Mat getLeftToRightTransform() const { return T_left_right.clone(); }  // T_rl: left to right transform
     
+    // Convenient camera parameter getters
+    double getFx() const { return left_camera_matrix.at<double>(0, 0); }
+    double getFy() const { return left_camera_matrix.at<double>(1, 1); }
+    double getCx() const { return left_camera_matrix.at<double>(0, 2); }
+    double getCy() const { return left_camera_matrix.at<double>(1, 2); }
+    double getBaseline() const { return 0.11; }  // EuRoC stereo baseline (meters)
+    cv::Mat getDistortionCoeffs() const { return left_dist_coeffs.clone(); }
+    
     // Performance Parameters
     bool isTimingEnabled() const { return enable_timing; }
     bool isDebugOutputEnabled() const { return enable_debug_output; }

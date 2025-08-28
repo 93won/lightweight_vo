@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -36,12 +36,14 @@
 #include <vector>
 
 #include "Eigen/Dense"
-#include "absl/log/check.h"
-#include "absl/log/log.h"
 #include "ceres/function_sample.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
+
+using std::vector;
 
 namespace {
 
@@ -70,30 +72,26 @@ void BalanceCompanionMatrix(Matrix* companion_matrix_ptr) {
     scaling_has_changed = false;
 
     for (int i = 0; i < degree; ++i) {
+      const double row_norm = companion_matrix_offdiagonal.row(i).lpNorm<1>();
       const double col_norm = companion_matrix_offdiagonal.col(i).lpNorm<1>();
 
-      // Avoid division by zero
-      if (std::fpclassify(col_norm) != FP_ZERO) {
-        const double row_norm = companion_matrix_offdiagonal.row(i).lpNorm<1>();
-        // Decompose row_norm/col_norm into mantissa * 2^exponent,
-        // where 0.5 <= mantissa < 1. Discard mantissa (return value
-        // of frexp), as only the exponent is needed.
-        int exponent = 0;
-        std::frexp(row_norm / col_norm, &exponent);
-        exponent /= 2;
+      // Decompose row_norm/col_norm into mantissa * 2^exponent,
+      // where 0.5 <= mantissa < 1. Discard mantissa (return value
+      // of frexp), as only the exponent is needed.
+      int exponent = 0;
+      std::frexp(row_norm / col_norm, &exponent);
+      exponent /= 2;
 
-        if (exponent != 0) {
-          const double scaled_col_norm = std::ldexp(col_norm, exponent);
-          const double scaled_row_norm = std::ldexp(row_norm, -exponent);
-          if (scaled_col_norm + scaled_row_norm <
-              gamma * (col_norm + row_norm)) {
-            // Accept the new scaling. (Multiplication by powers of 2 should not
-            // introduce rounding errors (ignoring non-normalized numbers and
-            // over- or underflow))
-            scaling_has_changed = true;
-            companion_matrix_offdiagonal.row(i) *= std::ldexp(1.0, -exponent);
-            companion_matrix_offdiagonal.col(i) *= std::ldexp(1.0, exponent);
-          }
+      if (exponent != 0) {
+        const double scaled_col_norm = std::ldexp(col_norm, exponent);
+        const double scaled_row_norm = std::ldexp(row_norm, -exponent);
+        if (scaled_col_norm + scaled_row_norm < gamma * (col_norm + row_norm)) {
+          // Accept the new scaling. (Multiplication by powers of 2 should not
+          // introduce rounding errors (ignoring non-normalized numbers and
+          // over- or underflow))
+          scaling_has_changed = true;
+          companion_matrix_offdiagonal.row(i) *= std::ldexp(1.0, -exponent);
+          companion_matrix_offdiagonal.col(i) *= std::ldexp(1.0, exponent);
         }
       }
     }
@@ -130,12 +128,12 @@ void FindLinearPolynomialRoots(const Vector& polynomial,
                                Vector* real,
                                Vector* imaginary) {
   CHECK_EQ(polynomial.size(), 2);
-  if (real != nullptr) {
+  if (real != NULL) {
     real->resize(1);
     (*real)(0) = -polynomial(1) / polynomial(0);
   }
 
-  if (imaginary != nullptr) {
+  if (imaginary != NULL) {
     imaginary->setZero(1);
   }
 }
@@ -149,16 +147,16 @@ void FindQuadraticPolynomialRoots(const Vector& polynomial,
   const double c = polynomial(2);
   const double D = b * b - 4 * a * c;
   const double sqrt_D = sqrt(fabs(D));
-  if (real != nullptr) {
+  if (real != NULL) {
     real->setZero(2);
   }
-  if (imaginary != nullptr) {
+  if (imaginary != NULL) {
     imaginary->setZero(2);
   }
 
   // Real roots.
   if (D >= 0) {
-    if (real != nullptr) {
+    if (real != NULL) {
       // Stable quadratic roots according to BKP Horn.
       // http://people.csail.mit.edu/bkph/articles/Quadratics.pdf
       if (b >= 0) {
@@ -173,11 +171,11 @@ void FindQuadraticPolynomialRoots(const Vector& polynomial,
   }
 
   // Use the normal quadratic formula for the complex case.
-  if (real != nullptr) {
+  if (real != NULL) {
     (*real)(0) = -b / (2.0 * a);
     (*real)(1) = -b / (2.0 * a);
   }
-  if (imaginary != nullptr) {
+  if (imaginary != NULL) {
     (*imaginary)(0) = sqrt_D / (2.0 * a);
     (*imaginary)(1) = -sqrt_D / (2.0 * a);
   }
@@ -242,14 +240,14 @@ bool FindPolynomialRoots(const Vector& polynomial_in,
   }
 
   // Output roots
-  if (real != nullptr) {
+  if (real != NULL) {
     *real = solver.eigenvalues().real();
   } else {
-    LOG(WARNING) << "nullptr pointer passed as real argument to "
+    LOG(WARNING) << "NULL pointer passed as real argument to "
                  << "FindPolynomialRoots. Real parts of the roots will not "
                  << "be returned.";
   }
-  if (imaginary != nullptr) {
+  if (imaginary != NULL) {
     *imaginary = solver.eigenvalues().imag();
   }
   return true;
@@ -306,7 +304,7 @@ void MinimizePolynomial(const Vector& polynomial,
 
   const Vector derivative = DifferentiatePolynomial(polynomial);
   Vector roots_real;
-  if (!FindPolynomialRoots(derivative, &roots_real, nullptr)) {
+  if (!FindPolynomialRoots(derivative, &roots_real, NULL)) {
     LOG(WARNING) << "Unable to find the critical points of "
                  << "the interpolating polynomial.";
     return;
@@ -328,7 +326,7 @@ void MinimizePolynomial(const Vector& polynomial,
   }
 }
 
-Vector FindInterpolatingPolynomial(const std::vector<FunctionSample>& samples) {
+Vector FindInterpolatingPolynomial(const vector<FunctionSample>& samples) {
   const int num_samples = samples.size();
   int num_constraints = 0;
   for (int i = 0; i < num_samples; ++i) {
@@ -371,14 +369,15 @@ Vector FindInterpolatingPolynomial(const std::vector<FunctionSample>& samples) {
   return lu.setThreshold(0.0).solve(rhs);
 }
 
-void MinimizeInterpolatingPolynomial(const std::vector<FunctionSample>& samples,
+void MinimizeInterpolatingPolynomial(const vector<FunctionSample>& samples,
                                      double x_min,
                                      double x_max,
                                      double* optimal_x,
                                      double* optimal_value) {
   const Vector polynomial = FindInterpolatingPolynomial(samples);
   MinimizePolynomial(polynomial, x_min, x_max, optimal_x, optimal_value);
-  for (const auto& sample : samples) {
+  for (int i = 0; i < samples.size(); ++i) {
+    const FunctionSample& sample = samples[i];
     if ((sample.x < x_min) || (sample.x > x_max)) {
       continue;
     }
@@ -391,4 +390,5 @@ void MinimizeInterpolatingPolynomial(const std::vector<FunctionSample>& samples,
   }
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

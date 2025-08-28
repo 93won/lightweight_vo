@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2016 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,7 +33,10 @@
 #include <algorithm>
 #include <limits>
 
-namespace ceres::internal {
+#include "glog/logging.h"
+
+namespace ceres {
+namespace internal {
 
 TrustRegionStepEvaluator::TrustRegionStepEvaluator(
     const double initial_cost, const int max_consecutive_nonmonotonic_steps)
@@ -108,4 +111,5 @@ void TrustRegionStepEvaluator::StepAccepted(const double cost,
   }
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

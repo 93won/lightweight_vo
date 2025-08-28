@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,18 +34,17 @@
 #include <cmath>
 
 #include "Eigen/Core"
-#include "absl/log/check.h"
-#include "absl/log/log.h"
 #include "ceres/array_utils.h"
 #include "ceres/internal/eigen.h"
 #include "ceres/linear_least_squares_problems.h"
 #include "ceres/linear_solver.h"
-#include "ceres/parallel_vector_ops.h"
 #include "ceres/sparse_matrix.h"
 #include "ceres/trust_region_strategy.h"
 #include "ceres/types.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 LevenbergMarquardtStrategy::LevenbergMarquardtStrategy(
     const TrustRegionStrategy::Options& options)
@@ -55,16 +54,14 @@ LevenbergMarquardtStrategy::LevenbergMarquardtStrategy(
       min_diagonal_(options.min_lm_diagonal),
       max_diagonal_(options.max_lm_diagonal),
       decrease_factor_(2.0),
-      reuse_diagonal_(false),
-      context_(options.context),
-      num_threads_(options.num_threads) {
+      reuse_diagonal_(false) {
   CHECK(linear_solver_ != nullptr);
   CHECK_GT(min_diagonal_, 0.0);
   CHECK_LE(min_diagonal_, max_diagonal_);
   CHECK_GT(max_radius_, 0.0);
 }
 
-LevenbergMarquardtStrategy::~LevenbergMarquardtStrategy() = default;
+LevenbergMarquardtStrategy::~LevenbergMarquardtStrategy() {}
 
 TrustRegionStrategy::Summary LevenbergMarquardtStrategy::ComputeStep(
     const TrustRegionStrategy::PerSolveOptions& per_solve_options,
@@ -81,18 +78,14 @@ TrustRegionStrategy::Summary LevenbergMarquardtStrategy::ComputeStep(
       diagonal_.resize(num_parameters, 1);
     }
 
-    jacobian->SquaredColumnNorm(diagonal_.data(), context_, num_threads_);
-    ParallelAssign(context_,
-                   num_threads_,
-                   diagonal_,
-                   diagonal_.array().max(min_diagonal_).min(max_diagonal_));
+    jacobian->SquaredColumnNorm(diagonal_.data());
+    for (int i = 0; i < num_parameters; ++i) {
+      diagonal_[i] =
+          std::min(std::max(diagonal_[i], min_diagonal_), max_diagonal_);
+    }
   }
 
-  if (lm_diagonal_.size() == 0) {
-    lm_diagonal_.resize(num_parameters);
-  }
-  ParallelAssign(
-      context_, num_threads_, lm_diagonal_, (diagonal_ / radius_).cwiseSqrt());
+  lm_diagonal_ = (diagonal_ / radius_).array().sqrt();
 
   LinearSolver::PerSolveOptions solve_options;
   solve_options.D = lm_diagonal_.data();
@@ -106,7 +99,7 @@ TrustRegionStrategy::Summary LevenbergMarquardtStrategy::ComputeStep(
   // Invalidate the output array lm_step, so that we can detect if
   // the linear solver generated numerical garbage.  This is known
   // to happen for the DENSE_QR and then DENSE_SCHUR solver when
-  // the Jacobian is severely rank deficient and mu is too small.
+  // the Jacobin is severely rank deficient and mu is too small.
   InvalidateArray(num_parameters, step);
 
   // Instead of solving Jx = -r, solve Jy = r.
@@ -115,21 +108,17 @@ TrustRegionStrategy::Summary LevenbergMarquardtStrategy::ComputeStep(
   LinearSolver::Summary linear_solver_summary =
       linear_solver_->Solve(jacobian, residuals, solve_options, step);
 
-  if (linear_solver_summary.termination_type ==
-      LinearSolverTerminationType::FATAL_ERROR) {
+  if (linear_solver_summary.termination_type == LINEAR_SOLVER_FATAL_ERROR) {
     LOG(WARNING) << "Linear solver fatal error: "
                  << linear_solver_summary.message;
-  } else if (linear_solver_summary.termination_type ==
-             LinearSolverTerminationType::FAILURE) {
+  } else if (linear_solver_summary.termination_type == LINEAR_SOLVER_FAILURE) {
     LOG(WARNING) << "Linear solver failure. Failed to compute a step: "
                  << linear_solver_summary.message;
   } else if (!IsArrayValid(num_parameters, step)) {
     LOG(WARNING) << "Linear solver failure. Failed to compute a finite step.";
-    linear_solver_summary.termination_type =
-        LinearSolverTerminationType::FAILURE;
+    linear_solver_summary.termination_type = LINEAR_SOLVER_FAILURE;
   } else {
-    VectorRef step_vec(step, num_parameters);
-    ParallelAssign(context_, num_threads_, step_vec, -step_vec);
+    VectorRef(step, num_parameters) *= -1.0;
   }
   reuse_diagonal_ = true;
 
@@ -164,7 +153,7 @@ void LevenbergMarquardtStrategy::StepAccepted(double step_quality) {
   reuse_diagonal_ = false;
 }
 
-void LevenbergMarquardtStrategy::StepRejected(double /*step_quality*/) {
+void LevenbergMarquardtStrategy::StepRejected(double step_quality) {
   radius_ = radius_ / decrease_factor_;
   decrease_factor_ *= 2.0;
   reuse_diagonal_ = true;
@@ -172,4 +161,5 @@ void LevenbergMarquardtStrategy::StepRejected(double /*step_quality*/) {
 
 double LevenbergMarquardtStrategy::Radius() const { return radius_; }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

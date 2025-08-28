@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,11 +30,11 @@
 
 #include "ceres/detect_structure.h"
 
-#include "absl/log/check.h"
-#include "absl/log/log.h"
 #include "ceres/internal/eigen.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 void DetectStructure(const CompressedRowBlockStructure& bs,
                      const int num_eliminate_blocks,
@@ -119,4 +119,5 @@ void DetectStructure(const CompressedRowBlockStructure& bs,
   // clang-format on
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

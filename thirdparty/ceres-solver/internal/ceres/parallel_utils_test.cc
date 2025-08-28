@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2018 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,15 +28,18 @@
 //
 // Author: wjr@google.com (William Rucklidge)
 
+// This include must come before any #ifndef check on Ceres compile options.
+// clang-format off
+#include "ceres/internal/port.h"
+// clang-format on
+
 #include "ceres/parallel_utils.h"
 
-#include <set>
-#include <utility>
-
-#include "ceres/internal/config.h"
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Tests that unfolding linear iterations to triangular iterations produces
 // indices that are in-range and unique.
@@ -57,4 +60,5 @@ TEST(LinearIndexToUpperTriangularIndexTest, UniqueAndValid) {
   }
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

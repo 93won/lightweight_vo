@@ -8,7 +8,7 @@
 # Controls how corner features are detected using goodFeaturesToTrack
 feature_detection:
   max_features: 150           # Maximum number of features to track per frame
-  quality_level: 0.01         # Minimum accepted quality of corners (0.01 = 1% of best corner)
+  quality_level: 0.1         # Minimum accepted quality of corners (0.01 = 1% of best corner)
   min_distance: 30.0          # Minimum distance between features in pixels (prevents clustering)
 
 # Optical Flow Tracking Parameters  
@@ -20,7 +20,7 @@ optical_flow:
   epsilon: 0.01               # Convergence criteria - stop when change < epsilon
   error_threshold: 30.0       # Maximum tracking error to accept a match (pixels)
   max_movement: 100.0         # Maximum pixel movement between frames (rejects large jumps)
-  min_eigen_threshold: 1e-4   # Minimum eigenvalue threshold for optical flow (smaller = more restrictive)
+  min_eigen_threshold: 5e-2   # Minimum eigenvalue threshold for optical flow (increased for white walls)
 
 # Outlier Rejection Parameters
 # Multi-stage outlier filtering to improve tracking robustness  
@@ -36,8 +36,8 @@ outlier_rejection:
 # Uses dynamically estimated fundamental matrix for epipolar constraint
 stereo_matching:
   error_threshold: 50.0       # Maximum optical flow error for stereo matches (pixels)
-  min_disparity: 0.1          # Minimum disparity (pixels) - filters out very far points
-  max_disparity: 300.0        # Maximum disparity (pixels) - filters out very close points  
+  min_disparity: 1          # Minimum disparity (pixels) - filters out very far points
+  max_disparity: 1000.0        # Maximum disparity (pixels) - filters out very close points  
   max_y_difference: 20.0      # Maximum Y-coordinate difference for stereo pairs (pixels)
   epipolar_threshold: 1.0     # Maximum distance from epipolar line using estimated F matrix (pixels)
 

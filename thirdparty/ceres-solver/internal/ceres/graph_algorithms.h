@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,22 +34,22 @@
 #define CERES_INTERNAL_GRAPH_ALGORITHMS_H_
 
 #include <algorithm>
-#include <memory>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
-#include "absl/container/flat_hash_set.h"
-#include "absl/log/check.h"
 #include "ceres/graph.h"
-#include "ceres/internal/export.h"
+#include "ceres/wall_time.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Compare two vertices of a graph by their degrees, if the degrees
 // are equal then order them by their ids.
 template <typename Vertex>
-class CERES_NO_EXPORT VertexTotalOrdering {
+class VertexTotalOrdering {
  public:
   explicit VertexTotalOrdering(const Graph<Vertex>& graph) : graph_(graph) {}
 
@@ -96,7 +96,7 @@ class VertexDegreeLessThan {
 template <typename Vertex>
 int IndependentSetOrdering(const Graph<Vertex>& graph,
                            std::vector<Vertex>* ordering) {
-  const absl::flat_hash_set<Vertex>& vertices = graph.vertices();
+  const std::unordered_set<Vertex>& vertices = graph.vertices();
   const int num_vertices = vertices.size();
 
   CHECK(ordering != nullptr);
@@ -109,7 +109,7 @@ int IndependentSetOrdering(const Graph<Vertex>& graph,
   const char kBlack = 2;
 
   // Mark all vertices white.
-  absl::flat_hash_map<Vertex, char> vertex_color;
+  std::unordered_map<Vertex, char> vertex_color;
   std::vector<Vertex> vertex_queue;
   for (const Vertex& vertex : vertices) {
     vertex_color[vertex] = kWhite;
@@ -129,7 +129,7 @@ int IndependentSetOrdering(const Graph<Vertex>& graph,
 
     ordering->push_back(vertex);
     vertex_color[vertex] = kBlack;
-    const absl::flat_hash_set<Vertex>& neighbors = graph.Neighbors(vertex);
+    const std::unordered_set<Vertex>& neighbors = graph.Neighbors(vertex);
     for (const Vertex& neighbor : neighbors) {
       vertex_color[neighbor] = kGrey;
     }
@@ -165,7 +165,7 @@ template <typename Vertex>
 int StableIndependentSetOrdering(const Graph<Vertex>& graph,
                                  std::vector<Vertex>* ordering) {
   CHECK(ordering != nullptr);
-  const absl::flat_hash_set<Vertex>& vertices = graph.vertices();
+  const std::unordered_set<Vertex>& vertices = graph.vertices();
   const int num_vertices = vertices.size();
   CHECK_EQ(vertices.size(), ordering->size());
 
@@ -181,7 +181,7 @@ int StableIndependentSetOrdering(const Graph<Vertex>& graph,
                    VertexDegreeLessThan<Vertex>(graph));
 
   // Mark all vertices white.
-  absl::flat_hash_map<Vertex, char> vertex_color;
+  std::unordered_map<Vertex, char> vertex_color;
   for (const Vertex& vertex : vertices) {
     vertex_color[vertex] = kWhite;
   }
@@ -198,7 +198,7 @@ int StableIndependentSetOrdering(const Graph<Vertex>& graph,
 
     ordering->push_back(vertex);
     vertex_color[vertex] = kBlack;
-    const absl::flat_hash_set<Vertex>& neighbors = graph.Neighbors(vertex);
+    const std::unordered_set<Vertex>& neighbors = graph.Neighbors(vertex);
     for (const Vertex& neighbor : neighbors) {
       vertex_color[neighbor] = kGrey;
     }
@@ -228,7 +228,7 @@ int StableIndependentSetOrdering(const Graph<Vertex>& graph,
 // is what gives this data structure its efficiency.
 template <typename Vertex>
 Vertex FindConnectedComponent(const Vertex& vertex,
-                              absl::flat_hash_map<Vertex, Vertex>* union_find) {
+                              std::unordered_map<Vertex, Vertex>* union_find) {
   auto it = union_find->find(vertex);
   DCHECK(it != union_find->end());
   if (it->second != vertex) {
@@ -257,26 +257,26 @@ Vertex FindConnectedComponent(const Vertex& vertex,
 // spanning forest, or a collection of linear paths that span the
 // graph G.
 template <typename Vertex>
-std::unique_ptr<WeightedGraph<Vertex>> Degree2MaximumSpanningForest(
+WeightedGraph<Vertex>* Degree2MaximumSpanningForest(
     const WeightedGraph<Vertex>& graph) {
   // Array of edges sorted in decreasing order of their weights.
   std::vector<std::pair<double, std::pair<Vertex, Vertex>>> weighted_edges;
-  auto forest = std::make_unique<WeightedGraph<Vertex>>();
+  WeightedGraph<Vertex>* forest = new WeightedGraph<Vertex>();
 
   // Disjoint-set to keep track of the connected components in the
   // maximum spanning tree.
-  absl::flat_hash_map<Vertex, Vertex> disjoint_set;
+  std::unordered_map<Vertex, Vertex> disjoint_set;
 
   // Sort of the edges in the graph in decreasing order of their
   // weight. Also add the vertices of the graph to the Maximum
   // Spanning Tree graph and set each vertex to be its own connected
   // component in the disjoint_set structure.
-  const absl::flat_hash_set<Vertex>& vertices = graph.vertices();
+  const std::unordered_set<Vertex>& vertices = graph.vertices();
   for (const Vertex& vertex1 : vertices) {
     forest->AddVertex(vertex1, graph.VertexWeight(vertex1));
     disjoint_set[vertex1] = vertex1;
 
-    const absl::flat_hash_set<Vertex>& neighbors = graph.Neighbors(vertex1);
+    const std::unordered_set<Vertex>& neighbors = graph.Neighbors(vertex1);
     for (const Vertex& vertex2 : neighbors) {
       if (vertex1 >= vertex2) {
         continue;
@@ -338,6 +338,7 @@ std::unique_ptr<WeightedGraph<Vertex>> Degree2MaximumSpanningForest(
   return forest;
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_GRAPH_ALGORITHMS_H_

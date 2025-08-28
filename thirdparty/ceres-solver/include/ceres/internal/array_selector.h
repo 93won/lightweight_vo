@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2020 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,11 +35,11 @@
 #include <array>
 #include <vector>
 
-#include "absl/container/fixed_array.h"
-#include "absl/log/check.h"
+#include "ceres/internal/fixed_array.h"
 #include "ceres/types.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // StaticFixedArray selects the best array implementation based on template
 // arguments. If the size is not known at compile-time, pass
@@ -48,7 +48,7 @@ namespace ceres::internal {
 // Three different containers are selected in different scenarios:
 //
 //   num_elements == DYNAMIC:
-//      -> absl::FixedArray<T, max_stack_size>(size)
+//      -> ceres::internal::FixedArray<T, max_stack_size>(size)
 
 //   num_elements != DYNAMIC  &&  num_elements <= max_stack_size
 //      -> std::array<T,num_elements>
@@ -72,25 +72,24 @@ struct ArraySelector<T,
                      max_num_elements_on_stack,
                      true,
                      fits_on_stack>
-    : absl::FixedArray<T, max_num_elements_on_stack> {
-  explicit ArraySelector(int s)
-      : absl::FixedArray<T, max_num_elements_on_stack>(s) {}
+    : ceres::internal::FixedArray<T, max_num_elements_on_stack> {
+  ArraySelector(int s)
+      : ceres::internal::FixedArray<T, max_num_elements_on_stack>(s) {}
 };
 
 template <typename T, int num_elements, int max_num_elements_on_stack>
 struct ArraySelector<T, num_elements, max_num_elements_on_stack, false, true>
     : std::array<T, num_elements> {
-  explicit ArraySelector(int s) { CHECK_EQ(s, num_elements); }
+  ArraySelector(int s) { CHECK_EQ(s, num_elements); }
 };
 
 template <typename T, int num_elements, int max_num_elements_on_stack>
 struct ArraySelector<T, num_elements, max_num_elements_on_stack, false, false>
     : std::vector<T> {
-  explicit ArraySelector(int s) : std::vector<T>(s) {
-    CHECK_EQ(s, num_elements);
-  }
+  ArraySelector(int s) : std::vector<T>(s) { CHECK_EQ(s, num_elements); }
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_PUBLIC_INTERNAL_ARRAY_SELECTOR_H_

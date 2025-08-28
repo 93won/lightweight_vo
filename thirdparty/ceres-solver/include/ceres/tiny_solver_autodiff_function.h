@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -113,12 +113,12 @@ class TinySolverAutoDiffFunction {
   // as a member a Jet type, which itself has a fixed-size Eigen type as member.
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  explicit TinySolverAutoDiffFunction(const CostFunctor& cost_functor)
+  TinySolverAutoDiffFunction(const CostFunctor& cost_functor)
       : cost_functor_(cost_functor) {
     Initialize<kNumResiduals>(cost_functor);
   }
 
-  using Scalar = T;
+  typedef T Scalar;
   enum {
     NUM_PARAMETERS = kNumParameters,
     NUM_RESIDUALS = kNumResiduals,
@@ -127,7 +127,7 @@ class TinySolverAutoDiffFunction {
   // This is similar to AutoDifferentiate(), but since there is only one
   // parameter block it is easier to inline to avoid overhead.
   bool operator()(const T* parameters, T* residuals, T* jacobian) const {
-    if (jacobian == nullptr) {
+    if (jacobian == NULL) {
       // No jacobian requested, so just directly call the cost function with
       // doubles, skipping jets and derivatives.
       return cost_functor_(parameters, residuals);
@@ -171,7 +171,7 @@ class TinySolverAutoDiffFunction {
   const CostFunctor& cost_functor_;
 
   // The number of residuals at runtime.
-  // This will be overridden if NUM_RESIDUALS == Eigen::Dynamic.
+  // This will be overriden if NUM_RESIDUALS == Eigen::Dynamic.
   int num_residuals_ = kNumResiduals;
 
   // To evaluate the cost function with jets, temporary storage is needed. These

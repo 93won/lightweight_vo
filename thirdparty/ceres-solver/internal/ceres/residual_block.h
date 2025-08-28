@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -39,10 +39,9 @@
 #include <string>
 #include <vector>
 
-#include "absl/strings/str_format.h"
 #include "ceres/cost_function.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
+#include "ceres/stringprintf.h"
 #include "ceres/types.h"
 
 namespace ceres {
@@ -66,7 +65,7 @@ class ParameterBlock;
 //
 // The residual block stores pointers to but does not own the cost functions,
 // loss functions, and parameter blocks.
-class CERES_NO_EXPORT ResidualBlock {
+class CERES_EXPORT_INTERNAL ResidualBlock {
  public:
   // Construct the residual block with the given cost/loss functions. Loss may
   // be null. The index is the index of the residual block in the Program's
@@ -78,10 +77,10 @@ class CERES_NO_EXPORT ResidualBlock {
 
   // Evaluates the residual term, storing the scalar cost in *cost, the residual
   // components in *residuals, and the jacobians between the parameters and
-  // residuals in jacobians[i], in row-major order. If residuals is nullptr, the
-  // residuals are not computed. If jacobians is nullptr, no jacobians are
-  // computed. If jacobians[i] is nullptr, then the jacobian for that parameter
-  // is not computed.
+  // residuals in jacobians[i], in row-major order. If residuals is NULL, the
+  // residuals are not computed. If jacobians is NULL, no jacobians are
+  // computed. If jacobians[i] is NULL, then the jacobian for that parameter is
+  // not computed.
   //
   // cost must not be null.
   //
@@ -93,10 +92,10 @@ class CERES_NO_EXPORT ResidualBlock {
   // false, the caller should expect the output memory locations to have
   // been modified.
   //
-  // The returned cost and jacobians have had robustification and manifold
-  // projection applied already; for example, the jacobian for a 4-dimensional
-  // quaternion parameter using the "Quaternion" manifold is num_residuals by 3
-  // instead of num_residuals by 4.
+  // The returned cost and jacobians have had robustification and local
+  // parameterizations applied already; for example, the jacobian for a
+  // 4-dimensional quaternion parameter using the "QuaternionParameterization"
+  // is num_residuals by 3 instead of num_residuals by 4.
   //
   // apply_loss_function as the name implies allows the user to switch
   // the application of the loss function on and off.
@@ -131,7 +130,7 @@ class CERES_NO_EXPORT ResidualBlock {
   void set_index(int index) { index_ = index; }
 
   std::string ToString() const {
-    return absl::StrFormat("{residual block; index=%d}", index_);
+    return StringPrintf("{residual block; index=%d}", index_);
   }
 
  private:
@@ -147,7 +146,5 @@ class CERES_NO_EXPORT ResidualBlock {
 
 }  // namespace internal
 }  // namespace ceres
-
-#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_INTERNAL_RESIDUAL_BLOCK_H_

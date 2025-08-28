@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2018 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,18 +30,15 @@
 
 #include "ceres/iterative_refiner.h"
 
-#include <utility>
-
 #include "Eigen/Dense"
-#include "absl/log/check.h"
-#include "absl/log/log.h"
-#include "ceres/dense_cholesky.h"
 #include "ceres/internal/eigen.h"
 #include "ceres/sparse_cholesky.h"
 #include "ceres/sparse_matrix.h"
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Macros to help us define virtual methods which we do not expect to
 // use/call in this test.
@@ -56,16 +53,17 @@ namespace ceres::internal {
 // A fake SparseMatrix, which uses an Eigen matrix to do the real work.
 class FakeSparseMatrix : public SparseMatrix {
  public:
-  explicit FakeSparseMatrix(Matrix m) : m_(std::move(m)) {}
+  FakeSparseMatrix(const Matrix& m) : m_(m) {}
+  virtual ~FakeSparseMatrix() {}
 
   // y += Ax
-  void RightMultiplyAndAccumulate(const double* x, double* y) const final {
+  void RightMultiply(const double* x, double* y) const final {
     VectorRef(y, m_.cols()) += m_ * ConstVectorRef(x, m_.cols());
   }
   // y += A'x
-  void LeftMultiplyAndAccumulate(const double* x, double* y) const final {
+  void LeftMultiply(const double* x, double* y) const final {
     // We will assume that this is a symmetric matrix.
-    RightMultiplyAndAccumulate(x, y);
+    RightMultiply(x, y);
   }
 
   double* mutable_values() final { return m_.data(); }
@@ -91,39 +89,8 @@ class FakeSparseMatrix : public SparseMatrix {
 template <typename Scalar>
 class FakeSparseCholesky : public SparseCholesky {
  public:
-  explicit FakeSparseCholesky(const Matrix& lhs) { lhs_ = lhs.cast<Scalar>(); }
-
-  LinearSolverTerminationType Solve(const double* rhs_ptr,
-                                    double* solution_ptr,
-                                    std::string* message) final {
-    const int num_cols = lhs_.cols();
-    VectorRef solution(solution_ptr, num_cols);
-    ConstVectorRef rhs(rhs_ptr, num_cols);
-    auto llt = lhs_.llt();
-    CHECK_EQ(llt.info(), Eigen::Success);
-    solution = llt.solve(rhs.cast<Scalar>()).template cast<double>();
-    return LinearSolverTerminationType::SUCCESS;
-  }
-
-  // The following methods are not needed for tests in this file.
-  CompressedRowSparseMatrix::StorageType StorageType() const final
-      DO_NOT_CALL_WITH_RETURN(
-          CompressedRowSparseMatrix::StorageType::UPPER_TRIANGULAR);
-  LinearSolverTerminationType Factorize(CompressedRowSparseMatrix* lhs,
-                                        std::string* message) final
-      DO_NOT_CALL_WITH_RETURN(LinearSolverTerminationType::FAILURE);
-
- private:
-  Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic> lhs_;
-};
-
-// A fake DenseCholesky which uses Eigen's Cholesky factorization to
-// do the real work. The template parameter allows us to work in
-// doubles or floats, even though the source matrix is double.
-template <typename Scalar>
-class FakeDenseCholesky : public DenseCholesky {
- public:
-  explicit FakeDenseCholesky(const Matrix& lhs) { lhs_ = lhs.cast<Scalar>(); }
+  FakeSparseCholesky(const Matrix& lhs) { lhs_ = lhs.cast<Scalar>(); }
+  virtual ~FakeSparseCholesky() {}
 
   LinearSolverTerminationType Solve(const double* rhs_ptr,
                                     double* solution_ptr,
@@ -132,13 +99,21 @@ class FakeDenseCholesky : public DenseCholesky {
     VectorRef solution(solution_ptr, num_cols);
     ConstVectorRef rhs(rhs_ptr, num_cols);
     solution = lhs_.llt().solve(rhs.cast<Scalar>()).template cast<double>();
-    return LinearSolverTerminationType::SUCCESS;
+    return LINEAR_SOLVER_SUCCESS;
   }
 
-  LinearSolverTerminationType Factorize(int num_cols,
-                                        double* lhs,
+  // The following methods are not needed for tests in this file.
+  CompressedRowSparseMatrix::StorageType StorageType() const final
+      DO_NOT_CALL_WITH_RETURN(CompressedRowSparseMatrix::UPPER_TRIANGULAR);
+  LinearSolverTerminationType Factorize(CompressedRowSparseMatrix* lhs,
                                         std::string* message) final
-      DO_NOT_CALL_WITH_RETURN(LinearSolverTerminationType::FAILURE);
+      DO_NOT_CALL_WITH_RETURN(LINEAR_SOLVER_FAILURE);
+
+  LinearSolverTerminationType FactorAndSolve(CompressedRowSparseMatrix* lhs,
+                                             const double* rhs,
+                                             double* solution,
+                                             std::string* message) final
+      DO_NOT_CALL_WITH_RETURN(LINEAR_SOLVER_FAILURE);
 
  private:
   Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic> lhs_;
@@ -147,9 +122,9 @@ class FakeDenseCholesky : public DenseCholesky {
 #undef DO_NOT_CALL
 #undef DO_NOT_CALL_WITH_RETURN
 
-class SparseIterativeRefinerTest : public ::testing::Test {
+class IterativeRefinerTest : public ::testing::Test {
  public:
-  void SetUp() override {
+  void SetUp() {
     num_cols_ = 5;
     max_num_iterations_ = 30;
     Matrix m(num_cols_, num_cols_);
@@ -167,11 +142,10 @@ class SparseIterativeRefinerTest : public ::testing::Test {
   Vector rhs_, solution_;
 };
 
-TEST_F(SparseIterativeRefinerTest,
-       RandomSolutionWithExactFactorizationConverges) {
+TEST_F(IterativeRefinerTest, RandomSolutionWithExactFactorizationConverges) {
   FakeSparseMatrix lhs(lhs_);
   FakeSparseCholesky<double> sparse_cholesky(lhs_);
-  SparseIterativeRefiner refiner(max_num_iterations_);
+  IterativeRefiner refiner(max_num_iterations_);
   Vector refined_solution(num_cols_);
   refined_solution.setRandom();
   refiner.Refine(lhs, rhs_.data(), &sparse_cholesky, refined_solution.data());
@@ -180,13 +154,13 @@ TEST_F(SparseIterativeRefinerTest,
               std::numeric_limits<double>::epsilon() * 10);
 }
 
-TEST_F(SparseIterativeRefinerTest,
+TEST_F(IterativeRefinerTest,
        RandomSolutionWithApproximationFactorizationConverges) {
   FakeSparseMatrix lhs(lhs_);
   // Use a single precision Cholesky factorization of the double
   // precision matrix. This will give us an approximate factorization.
   FakeSparseCholesky<float> sparse_cholesky(lhs_);
-  SparseIterativeRefiner refiner(max_num_iterations_);
+  IterativeRefiner refiner(max_num_iterations_);
   Vector refined_solution(num_cols_);
   refined_solution.setRandom();
   refiner.Refine(lhs, rhs_.data(), &sparse_cholesky, refined_solution.data());
@@ -195,60 +169,5 @@ TEST_F(SparseIterativeRefinerTest,
               std::numeric_limits<double>::epsilon() * 10);
 }
 
-class DenseIterativeRefinerTest : public ::testing::Test {
- public:
-  void SetUp() override {
-    num_cols_ = 5;
-    max_num_iterations_ = 30;
-    Matrix m(num_cols_, num_cols_);
-    m.setRandom();
-    lhs_ = m * m.transpose();
-    solution_.resize(num_cols_);
-    solution_.setRandom();
-    rhs_ = lhs_ * solution_;
-  };
-
- protected:
-  int num_cols_;
-  int max_num_iterations_;
-  Matrix lhs_;
-  Vector rhs_, solution_;
-};
-
-TEST_F(DenseIterativeRefinerTest,
-       RandomSolutionWithExactFactorizationConverges) {
-  Matrix lhs = lhs_;
-  FakeDenseCholesky<double> dense_cholesky(lhs);
-  DenseIterativeRefiner refiner(max_num_iterations_);
-  Vector refined_solution(num_cols_);
-  refined_solution.setRandom();
-  refiner.Refine(lhs.cols(),
-                 lhs.data(),
-                 rhs_.data(),
-                 &dense_cholesky,
-                 refined_solution.data());
-  EXPECT_NEAR((lhs_ * refined_solution - rhs_).norm(),
-              0.0,
-              std::numeric_limits<double>::epsilon() * 10);
-}
-
-TEST_F(DenseIterativeRefinerTest,
-       RandomSolutionWithApproximationFactorizationConverges) {
-  Matrix lhs = lhs_;
-  // Use a single precision Cholesky factorization of the double
-  // precision matrix. This will give us an approximate factorization.
-  FakeDenseCholesky<float> dense_cholesky(lhs_);
-  DenseIterativeRefiner refiner(max_num_iterations_);
-  Vector refined_solution(num_cols_);
-  refined_solution.setRandom();
-  refiner.Refine(lhs.cols(),
-                 lhs.data(),
-                 rhs_.data(),
-                 &dense_cholesky,
-                 refined_solution.data());
-  EXPECT_NEAR((lhs_ * refined_solution - rhs_).norm(),
-              0.0,
-              std::numeric_limits<double>::epsilon() * 10);
-}
-
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

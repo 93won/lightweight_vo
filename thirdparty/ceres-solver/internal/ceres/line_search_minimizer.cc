@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
 //
 // Generic loop for line search based optimization algorithms.
 //
-// This is primarily inspired by the minFunc packaged written by Mark
+// This is primarily inpsired by the minFunc packaged written by Mark
 // Schmidt.
 //
 // http://www.di.ens.fr/~mschmidt/Software/minFunc.html
@@ -48,20 +48,19 @@
 #include <vector>
 
 #include "Eigen/Dense"
-#include "absl/log/check.h"
-#include "absl/log/log.h"
-#include "absl/strings/str_format.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
 #include "ceres/array_utils.h"
 #include "ceres/evaluator.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/line_search.h"
 #include "ceres/line_search_direction.h"
+#include "ceres/stringprintf.h"
 #include "ceres/types.h"
+#include "ceres/wall_time.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 namespace {
 
 bool EvaluateGradientNorms(Evaluator* evaluator,
@@ -88,8 +87,8 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
                                    double* parameters,
                                    Solver::Summary* summary) {
   const bool is_not_silent = !options.is_silent;
-  const absl::Time start_time = absl::Now();
-  absl::Time iteration_start_time = start_time;
+  double start_time = WallTimeInSeconds();
+  double iteration_start_time = start_time;
 
   CHECK(options.evaluator != nullptr);
   Evaluator* evaluator = options.evaluator.get();
@@ -147,10 +146,10 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
   iteration_summary.gradient_norm = sqrt(current_state.gradient_squared_norm);
   iteration_summary.gradient_max_norm = current_state.gradient_max_norm;
   if (iteration_summary.gradient_max_norm <= options.gradient_tolerance) {
-    summary->message = absl::StrFormat(
-        "Gradient tolerance reached. Gradient max norm: %e <= %e",
-        iteration_summary.gradient_max_norm,
-        options.gradient_tolerance);
+    summary->message =
+        StringPrintf("Gradient tolerance reached. Gradient max norm: %e <= %e",
+                     iteration_summary.gradient_max_norm,
+                     options.gradient_tolerance);
     summary->termination_type = CONVERGENCE;
     if (is_not_silent) {
       VLOG(1) << "Terminating: " << summary->message;
@@ -158,12 +157,10 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
     return;
   }
 
-  absl::Time now = absl::Now();
   iteration_summary.iteration_time_in_seconds =
-      absl::ToDoubleSeconds(now - iteration_start_time);
+      WallTimeInSeconds() - iteration_start_time;
   iteration_summary.cumulative_time_in_seconds =
-      absl::ToDoubleSeconds(now - start_time) +
-      summary->preprocessor_time_in_seconds;
+      WallTimeInSeconds() - start_time + summary->preprocessor_time_in_seconds;
   summary->iterations.push_back(iteration_summary);
 
   LineSearchDirection::Options line_search_direction_options;
@@ -174,8 +171,8 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
   line_search_direction_options.max_lbfgs_rank = options.max_lbfgs_rank;
   line_search_direction_options.use_approximate_eigenvalue_bfgs_scaling =
       options.use_approximate_eigenvalue_bfgs_scaling;
-  std::unique_ptr<LineSearchDirection> line_search_direction =
-      LineSearchDirection::Create(line_search_direction_options);
+  std::unique_ptr<LineSearchDirection> line_search_direction(
+      LineSearchDirection::Create(line_search_direction_options));
 
   LineSearchFunction line_search_function(evaluator);
 
@@ -216,7 +213,7 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
       break;
     }
 
-    iteration_start_time = absl::Now();
+    iteration_start_time = WallTimeInSeconds();
     if (iteration_summary.iteration >= options.max_num_iterations) {
       summary->message = "Maximum number of iterations reached.";
       summary->termination_type = NO_CONVERGENCE;
@@ -226,9 +223,8 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
       break;
     }
 
-    const double total_solver_time =
-        absl::ToDoubleSeconds(iteration_start_time - start_time) +
-        summary->preprocessor_time_in_seconds;
+    const double total_solver_time = iteration_start_time - start_time +
+                                     summary->preprocessor_time_in_seconds;
     if (total_solver_time >= options.max_solver_time_in_seconds) {
       summary->message = "Maximum solver time reached.";
       summary->termination_type = NO_CONVERGENCE;
@@ -257,7 +253,7 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
       // Line search direction failed to generate a new direction, and we
       // have already reached our specified maximum number of restarts,
       // terminate optimization.
-      summary->message = absl::StrFormat(
+      summary->message = StringPrintf(
           "Line search direction failure: specified "
           "max_num_line_search_direction_restarts: %d reached.",
           options.max_num_line_search_direction_restarts);
@@ -284,8 +280,8 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
                      << options.max_num_line_search_direction_restarts
                      << " [max].";
       }
-      line_search_direction =
-          LineSearchDirection::Create(line_search_direction_options);
+      line_search_direction.reset(
+          LineSearchDirection::Create(line_search_direction_options));
       current_state.search_direction = -current_state.gradient;
     }
 
@@ -309,7 +305,7 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
     // direction in a line search, most likely cause for this being violated
     // would be a numerical failure in the line search direction calculation.
     if (initial_step_size < 0.0) {
-      summary->message = absl::StrFormat(
+      summary->message = StringPrintf(
           "Numerical failure in line search, initial_step_size is "
           "negative: %.5e, directional_derivative: %.5e, "
           "(current_cost - previous_cost): %.5e",
@@ -328,7 +324,7 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
                         current_state.directional_derivative,
                         &line_search_summary);
     if (!line_search_summary.success) {
-      summary->message = absl::StrFormat(
+      summary->message = StringPrintf(
           "Numerical failure in line search, failed to find "
           "a valid step size, (did not run out of iterations) "
           "using initial_step_size: %.5e, initial_cost: %.5e, "
@@ -349,7 +345,7 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
     current_state.step_size = optimal_point.x;
     previous_state = current_state;
     iteration_summary.step_solver_time_in_seconds =
-        absl::ToDoubleSeconds(absl::Now() - iteration_start_time);
+        WallTimeInSeconds() - iteration_start_time;
 
     if (optimal_point.vector_gradient_is_valid) {
       current_state.cost = optimal_point.value;
@@ -406,11 +402,10 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
         line_search_summary.num_gradient_evaluations;
     iteration_summary.line_search_iterations =
         line_search_summary.num_iterations;
-    const absl::Time now = absl::Now();
     iteration_summary.iteration_time_in_seconds =
-        absl::ToDoubleSeconds(now - iteration_start_time);
+        WallTimeInSeconds() - iteration_start_time;
     iteration_summary.cumulative_time_in_seconds =
-        absl::ToDoubleSeconds(now - start_time) +
+        WallTimeInSeconds() - start_time +
         summary->preprocessor_time_in_seconds;
     summary->iterations.push_back(iteration_summary);
 
@@ -422,19 +417,19 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
     // minimization.
     summary->num_line_search_steps += line_search_summary.num_iterations;
     summary->line_search_cost_evaluation_time_in_seconds +=
-        absl::ToDoubleSeconds(line_search_summary.cost_evaluation_time);
+        line_search_summary.cost_evaluation_time_in_seconds;
     summary->line_search_gradient_evaluation_time_in_seconds +=
-        absl::ToDoubleSeconds(line_search_summary.gradient_evaluation_time);
+        line_search_summary.gradient_evaluation_time_in_seconds;
     summary->line_search_polynomial_minimization_time_in_seconds +=
-        absl::ToDoubleSeconds(line_search_summary.polynomial_minimization_time);
+        line_search_summary.polynomial_minimization_time_in_seconds;
     summary->line_search_total_time_in_seconds +=
-        absl::ToDoubleSeconds(line_search_summary.total_time);
+        line_search_summary.total_time_in_seconds;
     ++summary->num_successful_steps;
 
     const double step_size_tolerance =
         options.parameter_tolerance * (x_norm + options.parameter_tolerance);
     if (iteration_summary.step_norm <= step_size_tolerance) {
-      summary->message = absl::StrFormat(
+      summary->message = StringPrintf(
           "Parameter tolerance reached. "
           "Relative step_norm: %e <= %e.",
           (iteration_summary.step_norm /
@@ -448,7 +443,7 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
     }
 
     if (iteration_summary.gradient_max_norm <= options.gradient_tolerance) {
-      summary->message = absl::StrFormat(
+      summary->message = StringPrintf(
           "Gradient tolerance reached. "
           "Gradient max norm: %e <= %e",
           iteration_summary.gradient_max_norm,
@@ -464,7 +459,7 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
         options.function_tolerance * std::abs(previous_state.cost);
     if (std::abs(iteration_summary.cost_change) <=
         absolute_function_tolerance) {
-      summary->message = absl::StrFormat(
+      summary->message = StringPrintf(
           "Function tolerance reached. "
           "|cost_change|/cost: %e <= %e",
           std::abs(iteration_summary.cost_change) / previous_state.cost,
@@ -478,4 +473,5 @@ void LineSearchMinimizer::Minimize(const Minimizer::Options& options,
   }
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

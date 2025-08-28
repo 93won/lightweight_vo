@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,18 +32,16 @@
 
 #include <cstdint>
 #include <memory>
-#include <utility>
-#include <vector>
 
 #include "ceres/autodiff_cost_function.h"
-#include "ceres/cost_function.h"
 #include "ceres/dynamic_autodiff_cost_function.h"
 #include "ceres/dynamic_cost_function_to_functor.h"
-#include "ceres/types.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
+using std::vector;
 const double kTolerance = 1e-18;
 
 static void ExpectCostFunctionsAreEqual(
@@ -52,9 +50,9 @@ static void ExpectCostFunctionsAreEqual(
   EXPECT_EQ(cost_function.num_residuals(),
             actual_cost_function.num_residuals());
   const int num_residuals = cost_function.num_residuals();
-  const std::vector<int32_t>& parameter_block_sizes =
+  const vector<int32_t>& parameter_block_sizes =
       cost_function.parameter_block_sizes();
-  const std::vector<int32_t>& actual_parameter_block_sizes =
+  const vector<int32_t>& actual_parameter_block_sizes =
       actual_cost_function.parameter_block_sizes();
   EXPECT_EQ(parameter_block_sizes.size(), actual_parameter_block_sizes.size());
 
@@ -94,9 +92,9 @@ static void ExpectCostFunctionsAreEqual(
   }
 
   EXPECT_TRUE(
-      cost_function.Evaluate(parameter_blocks.get(), residuals.get(), nullptr));
+      cost_function.Evaluate(parameter_blocks.get(), residuals.get(), NULL));
   EXPECT_TRUE(actual_cost_function.Evaluate(
-      parameter_blocks.get(), actual_residuals.get(), nullptr));
+      parameter_blocks.get(), actual_residuals.get(), NULL));
   for (int i = 0; i < num_residuals; ++i) {
     EXPECT_NEAR(residuals[i], actual_residuals[i], kTolerance)
         << "residual id: " << i;
@@ -304,11 +302,11 @@ class DynamicTwoParameterBlockFunctor {
 // Check that AutoDiff(Functor1) == AutoDiff(CostToFunctor(AutoDiff(Functor1)))
 #define TEST_BODY(Functor1)                                                    \
   TEST(CostFunctionToFunctor, Functor1) {                                      \
-    using CostFunction1 =                                                      \
-        AutoDiffCostFunction<Functor1, 2, PARAMETER_BLOCK_SIZES>;              \
-    using FunctionToFunctor = CostFunctionToFunctor<2, PARAMETER_BLOCK_SIZES>; \
-    using CostFunction2 =                                                      \
-        AutoDiffCostFunction<FunctionToFunctor, 2, PARAMETER_BLOCK_SIZES>;     \
+    typedef AutoDiffCostFunction<Functor1, 2, PARAMETER_BLOCK_SIZES>           \
+        CostFunction1;                                                         \
+    typedef CostFunctionToFunctor<2, PARAMETER_BLOCK_SIZES> FunctionToFunctor; \
+    typedef AutoDiffCostFunction<FunctionToFunctor, 2, PARAMETER_BLOCK_SIZES>  \
+        CostFunction2;                                                         \
                                                                                \
     std::unique_ptr<CostFunction> cost_function(new CostFunction2(             \
         new FunctionToFunctor(new CostFunction1(new Functor1))));              \
@@ -378,9 +376,10 @@ TEST(CostFunctionToFunctor, DynamicNumberOfResiduals) {
 }
 
 TEST(CostFunctionToFunctor, DynamicCostFunctionToFunctor) {
-  auto* actual_cost_function(
-      new DynamicAutoDiffCostFunction<DynamicTwoParameterBlockFunctor>(
-          new DynamicTwoParameterBlockFunctor));
+  DynamicAutoDiffCostFunction<DynamicTwoParameterBlockFunctor>*
+      actual_cost_function(
+          new DynamicAutoDiffCostFunction<DynamicTwoParameterBlockFunctor>(
+              new DynamicTwoParameterBlockFunctor));
   actual_cost_function->AddParameterBlock(2);
   actual_cost_function->AddParameterBlock(2);
   actual_cost_function->SetNumResiduals(2);
@@ -394,39 +393,5 @@ TEST(CostFunctionToFunctor, DynamicCostFunctionToFunctor) {
   ExpectCostFunctionsAreEqual(cost_function, *actual_cost_function);
 }
 
-TEST(CostFunctionToFunctor, UniquePtrArgumentForwarding) {
-  auto cost_function = std::make_unique<
-      AutoDiffCostFunction<CostFunctionToFunctor<ceres::DYNAMIC, 2, 2>,
-                           ceres::DYNAMIC,
-                           2,
-                           2>>(
-      std::make_unique<CostFunctionToFunctor<ceres::DYNAMIC, 2, 2>>(
-          std::make_unique<
-              AutoDiffCostFunction<TwoParameterBlockFunctor, 2, 2, 2>>()),
-      2);
-
-  auto actual_cost_function = std::make_unique<
-      AutoDiffCostFunction<TwoParameterBlockFunctor, 2, 2, 2>>();
-  ExpectCostFunctionsAreEqual(*cost_function, *actual_cost_function);
-}
-
-TEST(CostFunctionToFunctor, DynamicCostFunctionToFunctorUniquePtr) {
-  auto actual_cost_function = std::make_unique<
-      DynamicAutoDiffCostFunction<DynamicTwoParameterBlockFunctor>>();
-  actual_cost_function->AddParameterBlock(2);
-  actual_cost_function->AddParameterBlock(2);
-  actual_cost_function->SetNumResiduals(2);
-
-  // Use deduction guides for a more compact variable definition
-  DynamicAutoDiffCostFunction cost_function(
-      std::make_unique<DynamicCostFunctionToFunctor>(
-          std::move(actual_cost_function)));
-  cost_function.AddParameterBlock(2);
-  cost_function.AddParameterBlock(2);
-  cost_function.SetNumResiduals(2);
-
-  ExpectCostFunctionsAreEqual(cost_function,
-                              *cost_function.functor().function());
-}
-
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

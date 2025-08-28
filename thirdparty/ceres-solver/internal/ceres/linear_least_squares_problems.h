@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -35,23 +35,23 @@
 #include <string>
 #include <vector>
 
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/sparse_matrix.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Structure defining a linear least squares problem and if possible
 // ground truth solutions. To be used by various LinearSolver tests.
-struct CERES_NO_EXPORT LinearLeastSquaresProblem {
-  LinearLeastSquaresProblem() = default;
+struct CERES_EXPORT_INTERNAL LinearLeastSquaresProblem {
+  LinearLeastSquaresProblem() : num_eliminate_blocks(0) {}
 
   std::unique_ptr<SparseMatrix> A;
   std::unique_ptr<double[]> b;
   std::unique_ptr<double[]> D;
   // If using the schur eliminator then how many of the variable
   // blocks are e_type blocks.
-  int num_eliminate_blocks{0};
+  int num_eliminate_blocks;
 
   // Solution to min_x |Ax - b|^2
   std::unique_ptr<double[]> x;
@@ -60,27 +60,17 @@ struct CERES_NO_EXPORT LinearLeastSquaresProblem {
 };
 
 // Factories for linear least squares problem.
-CERES_NO_EXPORT std::unique_ptr<LinearLeastSquaresProblem>
+CERES_EXPORT_INTERNAL LinearLeastSquaresProblem*
 CreateLinearLeastSquaresProblemFromId(int id);
 
-CERES_NO_EXPORT
-std::unique_ptr<LinearLeastSquaresProblem> LinearLeastSquaresProblem0();
-CERES_NO_EXPORT
-std::unique_ptr<LinearLeastSquaresProblem> LinearLeastSquaresProblem1();
-CERES_NO_EXPORT
-std::unique_ptr<LinearLeastSquaresProblem> LinearLeastSquaresProblem2();
-CERES_NO_EXPORT
-std::unique_ptr<LinearLeastSquaresProblem> LinearLeastSquaresProblem3();
-CERES_NO_EXPORT
-std::unique_ptr<LinearLeastSquaresProblem> LinearLeastSquaresProblem4();
-CERES_NO_EXPORT
-std::unique_ptr<LinearLeastSquaresProblem> LinearLeastSquaresProblem5();
-CERES_NO_EXPORT
-std::unique_ptr<LinearLeastSquaresProblem> LinearLeastSquaresProblem6();
+LinearLeastSquaresProblem* LinearLeastSquaresProblem0();
+LinearLeastSquaresProblem* LinearLeastSquaresProblem1();
+LinearLeastSquaresProblem* LinearLeastSquaresProblem2();
+LinearLeastSquaresProblem* LinearLeastSquaresProblem3();
+LinearLeastSquaresProblem* LinearLeastSquaresProblem4();
 
 // Write the linear least squares problem to disk. The exact format
 // depends on dump_format_type.
-CERES_NO_EXPORT
 bool DumpLinearLeastSquaresProblem(const std::string& filename_base,
                                    DumpFormatType dump_format_type,
                                    const SparseMatrix* A,
@@ -88,8 +78,7 @@ bool DumpLinearLeastSquaresProblem(const std::string& filename_base,
                                    const double* b,
                                    const double* x,
                                    int num_eliminate_blocks);
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_LINEAR_LEAST_SQUARES_PROBLEMS_H_

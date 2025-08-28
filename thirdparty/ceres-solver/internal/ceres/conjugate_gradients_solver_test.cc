@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -37,12 +37,12 @@
 
 #include "ceres/internal/eigen.h"
 #include "ceres/linear_solver.h"
-#include "ceres/preconditioner.h"
 #include "ceres/triplet_sparse_matrix.h"
 #include "ceres/types.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 TEST(ConjugateGradientTest, Solves3x3IdentitySystem) {
   double diagonal[] = {1.0, 1.0, 1.0};
@@ -59,27 +59,17 @@ TEST(ConjugateGradientTest, Solves3x3IdentitySystem) {
   x(1) = 1;
   x(2) = 1;
 
-  ConjugateGradientsSolverOptions cg_options;
-  cg_options.min_num_iterations = 1;
-  cg_options.max_num_iterations = 10;
-  cg_options.residual_reset_period = 20;
-  cg_options.q_tolerance = 0.0;
-  cg_options.r_tolerance = 1e-9;
+  LinearSolver::Options options;
+  options.max_num_iterations = 10;
 
-  Vector scratch[4];
-  for (int i = 0; i < 4; ++i) {
-    scratch[i] = Vector::Zero(A->num_cols());
-  }
+  LinearSolver::PerSolveOptions per_solve_options;
+  per_solve_options.r_tolerance = 1e-9;
 
-  IdentityPreconditioner identity(A->num_cols());
-  LinearOperatorAdapter lhs(*A);
-  LinearOperatorAdapter preconditioner(identity);
-  Vector* scratch_array[4] = {
-      &scratch[0], &scratch[1], &scratch[2], &scratch[3]};
-  auto summary = ConjugateGradientsSolver(
-      cg_options, lhs, b, preconditioner, scratch_array, x);
+  ConjugateGradientsSolver solver(options);
+  LinearSolver::Summary summary =
+      solver.Solve(A.get(), b.data(), per_solve_options, x.data());
 
-  EXPECT_EQ(summary.termination_type, LinearSolverTerminationType::SUCCESS);
+  EXPECT_EQ(summary.termination_type, LINEAR_SOLVER_SUCCESS);
   ASSERT_EQ(summary.num_iterations, 1);
 
   ASSERT_DOUBLE_EQ(1, x(0));
@@ -125,31 +115,22 @@ TEST(ConjuateGradientTest, Solves3x3SymmetricSystem) {
   x(1) = 1;
   x(2) = 1;
 
-  ConjugateGradientsSolverOptions cg_options;
-  cg_options.min_num_iterations = 1;
-  cg_options.max_num_iterations = 10;
-  cg_options.residual_reset_period = 20;
-  cg_options.q_tolerance = 0.0;
-  cg_options.r_tolerance = 1e-9;
+  LinearSolver::Options options;
+  options.max_num_iterations = 10;
 
-  Vector scratch[4];
-  for (int i = 0; i < 4; ++i) {
-    scratch[i] = Vector::Zero(A->num_cols());
-  }
-  Vector* scratch_array[4] = {
-      &scratch[0], &scratch[1], &scratch[2], &scratch[3]};
-  IdentityPreconditioner identity(A->num_cols());
-  LinearOperatorAdapter lhs(*A);
-  LinearOperatorAdapter preconditioner(identity);
+  LinearSolver::PerSolveOptions per_solve_options;
+  per_solve_options.r_tolerance = 1e-9;
 
-  auto summary = ConjugateGradientsSolver(
-      cg_options, lhs, b, preconditioner, scratch_array, x);
+  ConjugateGradientsSolver solver(options);
+  LinearSolver::Summary summary =
+      solver.Solve(A.get(), b.data(), per_solve_options, x.data());
 
-  EXPECT_EQ(summary.termination_type, LinearSolverTerminationType::SUCCESS);
+  EXPECT_EQ(summary.termination_type, LINEAR_SOLVER_SUCCESS);
 
   ASSERT_DOUBLE_EQ(0, x(0));
   ASSERT_DOUBLE_EQ(1, x(1));
   ASSERT_DOUBLE_EQ(2, x(2));
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

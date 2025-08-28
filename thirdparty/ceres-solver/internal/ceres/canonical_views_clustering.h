@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -41,14 +41,14 @@
 #ifndef CERES_INTERNAL_CANONICAL_VIEWS_CLUSTERING_H_
 #define CERES_INTERNAL_CANONICAL_VIEWS_CLUSTERING_H_
 
+#include <unordered_map>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
 #include "ceres/graph.h"
-#include "ceres/internal/disable_warnings.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 struct CanonicalViewsClusteringOptions;
 
@@ -95,13 +95,13 @@ struct CanonicalViewsClusteringOptions;
 // It is possible depending on the configuration of the clustering
 // algorithm that some of the vertices may not be assigned to any
 // cluster. In this case they are assigned to a cluster with id = -1;
-CERES_NO_EXPORT void ComputeCanonicalViewsClustering(
+CERES_EXPORT_INTERNAL void ComputeCanonicalViewsClustering(
     const CanonicalViewsClusteringOptions& options,
     const WeightedGraph<int>& graph,
     std::vector<int>* centers,
-    absl::flat_hash_map<int, int>* membership);
+    std::unordered_map<int, int>* membership);
 
-struct CERES_NO_EXPORT CanonicalViewsClusteringOptions {
+struct CERES_EXPORT_INTERNAL CanonicalViewsClusteringOptions {
   // The minimum number of canonical views to compute.
   int min_views = 3;
 
@@ -119,8 +119,7 @@ struct CERES_NO_EXPORT CanonicalViewsClusteringOptions {
   double view_score_weight = 0.0;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_CANONICAL_VIEWS_CLUSTERING_H_

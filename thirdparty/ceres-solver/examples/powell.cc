@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -44,14 +44,17 @@
 // Garbow and Kenneth E. Hillstrom in ACM Transactions on Mathematical Software,
 // Vol 7(1), March 1981.
 
-#include <iostream>
-#include <string>
+#include <vector>
 
-#include "absl/flags/flag.h"
-#include "absl/flags/parse.h"
-#include "absl/log/initialize.h"
-#include "absl/log/log.h"
 #include "ceres/ceres.h"
+#include "gflags/gflags.h"
+#include "glog/logging.h"
+
+using ceres::AutoDiffCostFunction;
+using ceres::CostFunction;
+using ceres::Problem;
+using ceres::Solve;
+using ceres::Solver;
 
 struct F1 {
   template <typename T>
@@ -89,37 +92,37 @@ struct F4 {
   }
 };
 
-ABSL_FLAG(std::string,
-          minimizer,
-          "trust_region",
-          "Minimizer type to use, choices are: line_search & trust_region");
+DEFINE_string(minimizer,
+              "trust_region",
+              "Minimizer type to use, choices are: line_search & trust_region");
 
 int main(int argc, char** argv) {
-  absl::InitializeLog();
-  absl::ParseCommandLine(argc, argv);
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
+  google::InitGoogleLogging(argv[0]);
+
   double x1 = 3.0;
   double x2 = -1.0;
   double x3 = 0.0;
   double x4 = 1.0;
 
-  ceres::Problem problem;
-  // Add residual terms to the problem using the autodiff
+  Problem problem;
+  // Add residual terms to the problem using the using the autodiff
   // wrapper to get the derivatives automatically. The parameters, x1 through
   // x4, are modified in place.
   problem.AddResidualBlock(
-      new ceres::AutoDiffCostFunction<F1, 1, 1, 1>(), nullptr, &x1, &x2);
+      new AutoDiffCostFunction<F1, 1, 1, 1>(new F1), NULL, &x1, &x2);
   problem.AddResidualBlock(
-      new ceres::AutoDiffCostFunction<F2, 1, 1, 1>(), nullptr, &x3, &x4);
+      new AutoDiffCostFunction<F2, 1, 1, 1>(new F2), NULL, &x3, &x4);
   problem.AddResidualBlock(
-      new ceres::AutoDiffCostFunction<F3, 1, 1, 1>(), nullptr, &x2, &x3);
+      new AutoDiffCostFunction<F3, 1, 1, 1>(new F3), NULL, &x2, &x3);
   problem.AddResidualBlock(
-      new ceres::AutoDiffCostFunction<F4, 1, 1, 1>(), nullptr, &x1, &x4);
+      new AutoDiffCostFunction<F4, 1, 1, 1>(new F4), NULL, &x1, &x4);
 
-  ceres::Solver::Options options;
-  LOG_IF(FATAL,
-         !ceres::StringToMinimizerType(absl::GetFlag(FLAGS_minimizer),
-                                       &options.minimizer_type))
-      << "Invalid minimizer: " << absl::GetFlag(FLAGS_minimizer)
+  Solver::Options options;
+  LOG_IF(
+      FATAL,
+      !ceres::StringToMinimizerType(FLAGS_minimizer, &options.minimizer_type))
+      << "Invalid minimizer: " << FLAGS_minimizer
       << ", valid options are: trust_region and line_search.";
 
   options.max_num_iterations = 100;
@@ -135,8 +138,8 @@ int main(int argc, char** argv) {
   // clang-format on
 
   // Run the solver!
-  ceres::Solver::Summary summary;
-  ceres::Solve(options, &problem, &summary);
+  Solver::Summary summary;
+  Solve(options, &problem, &summary);
 
   std::cout << summary.FullReport() << "\n";
   // clang-format off

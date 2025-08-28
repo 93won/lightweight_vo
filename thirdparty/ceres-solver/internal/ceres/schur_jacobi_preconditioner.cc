@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,42 +30,39 @@
 
 #include "ceres/schur_jacobi_preconditioner.h"
 
-#include <memory>
 #include <utility>
 #include <vector>
 
-#include "absl/log/check.h"
 #include "ceres/block_random_access_diagonal_matrix.h"
 #include "ceres/block_sparse_matrix.h"
 #include "ceres/linear_solver.h"
 #include "ceres/schur_eliminator.h"
+#include "glog/logging.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 SchurJacobiPreconditioner::SchurJacobiPreconditioner(
-    const CompressedRowBlockStructure& bs, Preconditioner::Options options)
-    : options_(std::move(options)) {
+    const CompressedRowBlockStructure& bs,
+    const Preconditioner::Options& options)
+    : options_(options) {
   CHECK_GT(options_.elimination_groups.size(), 1);
   CHECK_GT(options_.elimination_groups[0], 0);
   const int num_blocks = bs.cols.size() - options_.elimination_groups[0];
   CHECK_GT(num_blocks, 0) << "Jacobian should have at least 1 f_block for "
                           << "SCHUR_JACOBI preconditioner.";
-  CHECK(options_.context != nullptr);
+  CHECK(options_.context != NULL);
 
-  std::vector<Block> blocks(num_blocks);
-  int position = 0;
+  std::vector<int> blocks(num_blocks);
   for (int i = 0; i < num_blocks; ++i) {
-    blocks[i] =
-        Block(bs.cols[i + options_.elimination_groups[0]].size, position);
-    position += blocks[i].size;
+    blocks[i] = bs.cols[i + options_.elimination_groups[0]].size;
   }
 
-  m_ = std::make_unique<BlockRandomAccessDiagonalMatrix>(
-      blocks, options_.context, options_.num_threads);
+  m_.reset(new BlockRandomAccessDiagonalMatrix(blocks));
   InitEliminator(bs);
 }
 
-SchurJacobiPreconditioner::~SchurJacobiPreconditioner() = default;
+SchurJacobiPreconditioner::~SchurJacobiPreconditioner() {}
 
 // Initialize the SchurEliminator.
 void SchurJacobiPreconditioner::InitEliminator(
@@ -77,7 +74,7 @@ void SchurJacobiPreconditioner::InitEliminator(
   eliminator_options.f_block_size = options_.f_block_size;
   eliminator_options.row_block_size = options_.row_block_size;
   eliminator_options.context = options_.context;
-  eliminator_ = SchurEliminatorBase::Create(eliminator_options);
+  eliminator_.reset(SchurEliminatorBase::Create(eliminator_options));
   const bool kFullRankETE = true;
   eliminator_->Init(
       eliminator_options.elimination_groups[0], kFullRankETE, &bs);
@@ -96,11 +93,12 @@ bool SchurJacobiPreconditioner::UpdateImpl(const BlockSparseMatrix& A,
   return true;
 }
 
-void SchurJacobiPreconditioner::RightMultiplyAndAccumulate(const double* x,
-                                                           double* y) const {
-  m_->RightMultiplyAndAccumulate(x, y);
+void SchurJacobiPreconditioner::RightMultiply(const double* x,
+                                              double* y) const {
+  m_->RightMultiply(x, y);
 }
 
 int SchurJacobiPreconditioner::num_rows() const { return m_->num_rows(); }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

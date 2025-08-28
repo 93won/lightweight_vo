@@ -58,4 +58,3 @@ For the rest, read on.
    numerical_derivatives
    automatic_derivatives
    interfacing_with_autodiff
-   inverse_and_implicit_function_theorems

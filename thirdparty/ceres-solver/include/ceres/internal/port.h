@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2024 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,77 +31,80 @@
 #ifndef CERES_PUBLIC_INTERNAL_PORT_H_
 #define CERES_PUBLIC_INTERNAL_PORT_H_
 
-#include <cmath>  // Necessary for __cpp_lib_math_special_functions feature test
+// This file needs to compile as c code.
+#include "ceres/internal/config.h"
 
-// A macro to mark a function/variable/class as deprecated.
-// We use compiler specific attributes rather than the c++
-// attribute because they do not mix well with each other.
-#if defined(_MSC_VER)
-#define CERES_DEPRECATED_WITH_MSG(message) __declspec(deprecated(message))
-#elif defined(__GNUC__)
-#define CERES_DEPRECATED_WITH_MSG(message) __attribute__((deprecated(message)))
+#if defined(CERES_USE_OPENMP)
+#if defined(CERES_USE_CXX_THREADS) || defined(CERES_NO_THREADS)
+#error CERES_USE_OPENMP is mutually exclusive to CERES_USE_CXX_THREADS and CERES_NO_THREADS
+#endif
+#elif defined(CERES_USE_CXX_THREADS)
+#if defined(CERES_USE_OPENMP) || defined(CERES_NO_THREADS)
+#error CERES_USE_CXX_THREADS is mutually exclusive to CERES_USE_OPENMP, CERES_USE_CXX_THREADS and CERES_NO_THREADS
+#endif
+#elif defined(CERES_NO_THREADS)
+#if defined(CERES_USE_OPENMP) || defined(CERES_USE_CXX_THREADS)
+#error CERES_NO_THREADS is mutually exclusive to CERES_USE_OPENMP and CERES_USE_CXX_THREADS
+#endif
 #else
-// In the worst case fall back to c++ attribute.
-#define CERES_DEPRECATED_WITH_MSG(message) [[deprecated(message)]]
+#  error One of CERES_USE_OPENMP, CERES_USE_CXX_THREADS or CERES_NO_THREADS must be defined.
 #endif
 
-// Indicates whether C++20 is currently active
-#ifndef CERES_HAS_CPP20
-#if __cplusplus >= 202002L || (defined(_MSVC_LANG) && _MSVC_LANG >= 202002L)
-#define CERES_HAS_CPP20
-#endif  // __cplusplus >= 202002L || (defined(_MSVC_LANG) && _MSVC_LANG >=
-        // 202002L)
-#endif  // !defined(CERES_HAS_CPP20)
+// CERES_NO_SPARSE should be automatically defined by config.h if Ceres was
+// compiled without any sparse back-end.  Verify that it has not subsequently
+// been inconsistently redefined.
+#if defined(CERES_NO_SPARSE)
+#if !defined(CERES_NO_SUITESPARSE)
+#error CERES_NO_SPARSE requires CERES_NO_SUITESPARSE.
+#endif
+#if !defined(CERES_NO_CXSPARSE)
+#error CERES_NO_SPARSE requires CERES_NO_CXSPARSE
+#endif
+#if !defined(CERES_NO_ACCELERATE_SPARSE)
+#error CERES_NO_SPARSE requires CERES_NO_ACCELERATE_SPARSE
+#endif
+#if defined(CERES_USE_EIGEN_SPARSE)
+#error CERES_NO_SPARSE requires !CERES_USE_EIGEN_SPARSE
+#endif
+#endif
 
-// Prevents symbols from being substituted by the corresponding macro definition
-// under the same name. For instance, min and max are defined as macros on
-// Windows (unless NOMINMAX is defined) which causes compilation errors when
-// defining or referencing symbols under the same name.
-//
-// To be robust in all cases particularly when NOMINMAX cannot be used, use this
-// macro to annotate min/max declarations/definitions. Examples:
-//
-//   int max CERES_PREVENT_MACRO_SUBSTITUTION();
-//   min CERES_PREVENT_MACRO_SUBSTITUTION(a, b);
-//   max CERES_PREVENT_MACRO_SUBSTITUTION(a, b);
-//
-// NOTE: In case the symbols for which the substitution must be prevented are
-// used within another macro, the substitution must be inhibited using parens as
-//
-//   (std::numerical_limits<double>::max)()
-//
-// since the helper macro will not work here. Do not use this technique in
-// general case, because it will prevent argument-dependent lookup (ADL).
-//
-#define CERES_PREVENT_MACRO_SUBSTITUTION  // Yes, it's empty
-
-// CERES_DISABLE_DEPRECATED_WARNING and CERES_RESTORE_DEPRECATED_WARNING allow
-// to temporarily disable deprecation warnings
+// A macro to signal which functions and classes are exported when
+// building a shared library.
 #if defined(_MSC_VER)
-#define CERES_DISABLE_DEPRECATED_WARNING \
-  _Pragma("warning(push)") _Pragma("warning(disable : 4996)")
-#define CERES_RESTORE_DEPRECATED_WARNING _Pragma("warning(pop)")
-#else  // defined(_MSC_VER)
-#define CERES_DISABLE_DEPRECATED_WARNING
-#define CERES_RESTORE_DEPRECATED_WARNING
-#endif  // defined(_MSC_VER)
+#define CERES_API_SHARED_IMPORT __declspec(dllimport)
+#define CERES_API_SHARED_EXPORT __declspec(dllexport)
+#elif defined(__GNUC__)
+#define CERES_API_SHARED_IMPORT __attribute__((visibility("default")))
+#define CERES_API_SHARED_EXPORT __attribute__((visibility("default")))
+#else
+#define CERES_API_SHARED_IMPORT
+#define CERES_API_SHARED_EXPORT
+#endif
 
-#if defined(__cpp_lib_math_special_functions) &&      \
-    ((__cpp_lib_math_special_functions >= 201603L) || \
-     defined(__STDCPP_MATH_SPEC_FUNCS__) &&           \
-         (__STDCPP_MATH_SPEC_FUNCS__ >= 201003L))
-// If defined, indicates whether C++17 Bessel functions (of the first kind) are
-// available. Some standard library implementations, such as libc++ (Android
-// NDK, Apple, Clang) do not yet provide these functions. Implementations that
-// do not support C++17, but support ISO 29124:2010, provide the functions if
-// __STDCPP_MATH_SPEC_FUNCS__ is defined by the implementation to a value at
-// least 201003L and if the user defines __STDCPP_WANT_MATH_SPEC_FUNCS__ before
-// including any standard library headers. Standard library Bessel functions are
-// preferred over any other implementation.
-#define CERES_HAS_CPP17_BESSEL_FUNCTIONS
-#elif defined(_SVID_SOURCE) || defined(_BSD_SOURCE) || defined(_XOPEN_SOURCE)
-// If defined, indicates that j0, j1, and jn from <math.h> are available.
-#define CERES_HAS_POSIX_BESSEL_FUNCTIONS
+// CERES_BUILDING_SHARED_LIBRARY is only defined locally when Ceres itself is
+// compiled as a shared library, it is never exported to users.  In order that
+// we do not have to configure config.h separately when building Ceres as either
+// a static or dynamic library, we define both CERES_USING_SHARED_LIBRARY and
+// CERES_BUILDING_SHARED_LIBRARY when building as a shared library.
+#if defined(CERES_USING_SHARED_LIBRARY)
+#if defined(CERES_BUILDING_SHARED_LIBRARY)
+// Compiling Ceres itself as a shared library.
+#define CERES_EXPORT CERES_API_SHARED_EXPORT
+#else
+// Using Ceres as a shared library.
+#define CERES_EXPORT CERES_API_SHARED_IMPORT
+#endif
+#else
+// Ceres was compiled as a static library, export everything.
+#define CERES_EXPORT
+#endif
+
+// Unit tests reach in and test internal functionality so we need a way to make
+// those symbols visible
+#ifdef CERES_EXPORT_INTERNAL_SYMBOLS
+#define CERES_EXPORT_INTERNAL CERES_EXPORT
+#else
+#define CERES_EXPORT_INTERNAL
 #endif
 
 #endif  // CERES_PUBLIC_INTERNAL_PORT_H_

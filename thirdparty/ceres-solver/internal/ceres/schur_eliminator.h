@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2019 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,23 +31,21 @@
 #ifndef CERES_INTERNAL_SCHUR_ELIMINATOR_H_
 #define CERES_INTERNAL_SCHUR_ELIMINATOR_H_
 
+#include <map>
 #include <memory>
 #include <mutex>
 #include <vector>
 
 #include "Eigen/Dense"
-#include "absl/container/btree_map.h"
-#include "absl/log/check.h"
 #include "ceres/block_random_access_matrix.h"
 #include "ceres/block_sparse_matrix.h"
 #include "ceres/block_structure.h"
-#include "ceres/internal/config.h"
-#include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/export.h"
+#include "ceres/internal/port.h"
 #include "ceres/linear_solver.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Classes implementing the SchurEliminatorBase interface implement
 // variable elimination for linear least squares problems. Assuming
@@ -58,8 +56,9 @@ namespace ceres::internal {
 // Where x = [y;z] is a partition of the variables.  The partitioning
 // of the variables is such that, E'E is a block diagonal matrix. Or
 // in other words, the parameter blocks in E form an independent set
-// of the graph implied by the block matrix A'A. Then, this class
-// provides the functionality to compute the Schur complement system
+// of the of the graph implied by the block matrix A'A. Then, this
+// class provides the functionality to compute the Schur complement
+// system
 //
 //   S z = r
 //
@@ -84,7 +83,7 @@ namespace ceres::internal {
 //
 // The rows of A are ordered so that for every variable block in y,
 // all the rows containing that variable block occur as a vertically
-// contiguous block. i.e. the matrix A looks like
+// contiguous block. i.e the matrix A looks like
 //
 //              E                 F                   chunk
 //  A = [ y1   0   0   0 |  z1    0    0   0    z5]     1
@@ -136,7 +135,7 @@ namespace ceres::internal {
 //  1. E'E is a block diagonal matrix.
 //
 //  2. When E'F is computed, only the terms within a single chunk
-//  interact, i.e. for y1 column blocks when transposed and multiplied
+//  interact, i.e for y1 column blocks when transposed and multiplied
 //  with F, the only non-zero contribution comes from the blocks in
 //  chunk1.
 //
@@ -165,13 +164,13 @@ namespace ceres::internal {
 // 2008 for an example of such use].
 //
 // Example usage: Please see schur_complement_solver.cc
-class CERES_NO_EXPORT SchurEliminatorBase {
+class CERES_EXPORT_INTERNAL SchurEliminatorBase {
  public:
-  virtual ~SchurEliminatorBase();
+  virtual ~SchurEliminatorBase() {}
 
-  // Initialize the eliminator. It is the user's responsibility to call
+  // Initialize the eliminator. It is the user's responsibilty to call
   // this function before calling Eliminate or BackSubstitute. It is
-  // also the caller's responsibility to ensure that the
+  // also the caller's responsibilty to ensure that the
   // CompressedRowBlockStructure object passed to this method is the
   // same one (or is equivalent to) the one associated with the
   // BlockSparseMatrix objects below.
@@ -211,8 +210,7 @@ class CERES_NO_EXPORT SchurEliminatorBase {
                               const double* z,
                               double* y) = 0;
   // Factory
-  static std::unique_ptr<SchurEliminatorBase> Create(
-      const LinearSolver::Options& options);
+  static SchurEliminatorBase* Create(const LinearSolver::Options& options);
 };
 
 // Templated implementation of the SchurEliminatorBase interface. The
@@ -225,7 +223,7 @@ class CERES_NO_EXPORT SchurEliminatorBase {
 template <int kRowBlockSize = Eigen::Dynamic,
           int kEBlockSize = Eigen::Dynamic,
           int kFBlockSize = Eigen::Dynamic>
-class CERES_NO_EXPORT SchurEliminator final : public SchurEliminatorBase {
+class SchurEliminator : public SchurEliminatorBase {
  public:
   explicit SchurEliminator(const LinearSolver::Options& options)
       : num_threads_(options.num_threads), context_(options.context) {
@@ -233,7 +231,7 @@ class CERES_NO_EXPORT SchurEliminator final : public SchurEliminatorBase {
   }
 
   // SchurEliminatorBase Interface
-  ~SchurEliminator() override;
+  virtual ~SchurEliminator();
   void Init(int num_eliminate_blocks,
             bool assume_full_rank_ete,
             const CompressedRowBlockStructure* bs) final;
@@ -274,9 +272,9 @@ class CERES_NO_EXPORT SchurEliminator final : public SchurEliminatorBase {
   // buffer_layout[z1] = 0
   // buffer_layout[z5] = y1 * z1
   // buffer_layout[z2] = y1 * z1 + y1 * z5
-  using BufferLayoutType = absl::btree_map<int, int>;
+  typedef std::map<int, int> BufferLayoutType;
   struct Chunk {
-    explicit Chunk(int start) : size(0), start(start) {}
+    Chunk() : size(0) {}
     int size;
     int start;
     BufferLayoutType buffer_layout;
@@ -380,12 +378,11 @@ class CERES_NO_EXPORT SchurEliminator final : public SchurEliminatorBase {
 template <int kRowBlockSize = Eigen::Dynamic,
           int kEBlockSize = Eigen::Dynamic,
           int kFBlockSize = Eigen::Dynamic>
-class CERES_NO_EXPORT SchurEliminatorForOneFBlock final
-    : public SchurEliminatorBase {
+class SchurEliminatorForOneFBlock : public SchurEliminatorBase {
  public:
-  // TODO(sameeragarwal) Find out why "assume_full_rank_ete" is not used here
+  virtual ~SchurEliminatorForOneFBlock() {}
   void Init(int num_eliminate_blocks,
-            bool /*assume_full_rank_ete*/,
+            bool assume_full_rank_ete,
             const CompressedRowBlockStructure* bs) override {
     CHECK_GT(num_eliminate_blocks, 0)
         << "SchurComplementSolver cannot be initialized with "
@@ -448,7 +445,7 @@ class CERES_NO_EXPORT SchurEliminatorForOneFBlock final
     const CompressedRowBlockStructure* bs = A.block_structure();
     const double* values = A.values();
 
-    // Add the diagonal to the Schur complement.
+    // Add the diagonal to the schur complement.
     if (D != nullptr) {
       typename EigenTypes<kFBlockSize>::ConstVectorRef diag(
           D + bs->cols[num_eliminate_blocks_].position, kFBlockSize);
@@ -480,14 +477,14 @@ class CERES_NO_EXPORT SchurEliminatorForOneFBlock final
       const Chunk& chunk = chunks_[i];
       const int e_block_id = bs->rows[chunk.start].cells.front().block_id;
 
-      // Naming convention, e_t_e = e_block.transpose() * e_block;
+      // Naming covention, e_t_e = e_block.transpose() * e_block;
       Eigen::Matrix<double, kEBlockSize, kEBlockSize> e_t_e;
       Eigen::Matrix<double, kEBlockSize, kFBlockSize> e_t_f;
       Eigen::Matrix<double, kEBlockSize, 1> e_t_b;
       Eigen::Matrix<double, kFBlockSize, 1> f_t_b;
 
       // Add the square of the diagonal to e_t_e.
-      if (D != nullptr) {
+      if (D != NULL) {
         const typename EigenTypes<kEBlockSize>::ConstVectorRef diag(
             D + bs->cols[e_block_id].position, kEBlockSize);
         e_t_e = diag.array().square().matrix().asDiagonal();
@@ -571,7 +568,7 @@ class CERES_NO_EXPORT SchurEliminatorForOneFBlock final
   // y_i = e_t_e_inverse * sum_i e_i^T * (b_i - f_i * z);
   void BackSubstitute(const BlockSparseMatrixData& A,
                       const double* b,
-                      const double* /*D*/,
+                      const double* D,
                       const double* z_ptr,
                       double* y) override {
     typename EigenTypes<kFBlockSize>::ConstVectorRef z(z_ptr, kFBlockSize);
@@ -624,8 +621,7 @@ class CERES_NO_EXPORT SchurEliminatorForOneFBlock final
   std::vector<double> e_t_e_inverse_matrices_;
 };
 
-}  // namespace ceres::internal
-
-#include "ceres/internal/reenable_warnings.h"
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_SCHUR_ELIMINATOR_H_

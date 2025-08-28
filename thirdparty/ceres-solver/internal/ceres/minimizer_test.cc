@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,10 +34,12 @@
 #include "ceres/solver.h"
 #include "gtest/gtest.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 class FakeIterationCallback : public IterationCallback {
  public:
+  virtual ~FakeIterationCallback() {}
   CallbackReturnType operator()(const IterationSummary& summary) final {
     return SOLVER_CONTINUE;
   }
@@ -60,6 +62,7 @@ TEST(Minimizer, InitializationCopiesCallbacks) {
 
 class AbortingIterationCallback : public IterationCallback {
  public:
+  virtual ~AbortingIterationCallback() {}
   CallbackReturnType operator()(const IterationSummary& summary) final {
     return SOLVER_ABORT;
   }
@@ -77,6 +80,7 @@ TEST(Minimizer, UserAbortUpdatesSummaryMessage) {
 
 class SucceedingIterationCallback : public IterationCallback {
  public:
+  virtual ~SucceedingIterationCallback() {}
   CallbackReturnType operator()(const IterationSummary& summary) final {
     return SOLVER_TERMINATE_SUCCESSFULLY;
   }
@@ -93,4 +97,5 @@ TEST(Minimizer, UserSuccessUpdatesSummaryMessage) {
             "User callback returned SOLVER_TERMINATE_SUCCESSFULLY.");
 }
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres

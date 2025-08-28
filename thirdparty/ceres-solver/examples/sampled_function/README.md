@@ -32,7 +32,7 @@ interpolation schemes by using a `SizedCostFunction` and defining the
 
 ```c++
 bool Evaluate(double const* const* parameters, double* residuals, double** jacobians) const {
-  if (jacobians == nullptr || jacobians[0] == nullptr)
+  if (jacobians == NULL || jacobians[0] == NULL)
     interpolator_.Evaluate(parameters[0][0], residuals);
   else
     interpolator_.Evaluate(parameters[0][0], residuals, jacobians[0]);

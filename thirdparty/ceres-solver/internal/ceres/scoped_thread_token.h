@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,29 +31,31 @@
 #ifndef CERES_INTERNAL_SCOPED_THREAD_TOKEN_H_
 #define CERES_INTERNAL_SCOPED_THREAD_TOKEN_H_
 
-#include "ceres/internal/export.h"
 #include "ceres/thread_token_provider.h"
 
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // Helper class for ThreadTokenProvider. This object acquires a token in its
 // constructor and puts that token back with destruction.
-class CERES_NO_EXPORT ScopedThreadToken {
+class ScopedThreadToken {
  public:
-  explicit ScopedThreadToken(ThreadTokenProvider* provider)
+  ScopedThreadToken(ThreadTokenProvider* provider)
       : provider_(provider), token_(provider->Acquire()) {}
 
   ~ScopedThreadToken() { provider_->Release(token_); }
-  ScopedThreadToken(ScopedThreadToken&) = delete;
-  ScopedThreadToken& operator=(ScopedThreadToken&) = delete;
 
   int token() const { return token_; }
 
  private:
   ThreadTokenProvider* provider_;
   int token_;
+
+  ScopedThreadToken(ScopedThreadToken&);
+  ScopedThreadToken& operator=(ScopedThreadToken&);
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_SCOPED_THREAD_TOKEN_H_

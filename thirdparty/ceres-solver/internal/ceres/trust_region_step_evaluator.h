@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2016 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,9 +31,8 @@
 #ifndef CERES_INTERNAL_TRUST_REGION_STEP_EVALUATOR_H_
 #define CERES_INTERNAL_TRUST_REGION_STEP_EVALUATOR_H_
 
-#include "ceres/internal/export.h"
-
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 // The job of the TrustRegionStepEvaluator is to evaluate the quality
 // of a step, i.e., how the cost of a step compares with the reduction
@@ -75,7 +74,7 @@ namespace ceres::internal {
 //   x = x + delta;
 //   step_evaluator->StepAccepted(cost, model_cost_change);
 // }
-class CERES_NO_EXPORT TrustRegionStepEvaluator {
+class TrustRegionStepEvaluator {
  public:
   // initial_cost is as the name implies the cost of the starting
   // state of the trust region minimizer.
@@ -117,6 +116,7 @@ class CERES_NO_EXPORT TrustRegionStepEvaluator {
   int num_consecutive_nonmonotonic_steps_;
 };
 
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
 
 #endif  // CERES_INTERNAL_TRUST_REGION_STEP_EVALUATOR_H_

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -27,35 +27,34 @@
 // POSSIBILITY OF SUCH DAMAGE.
 //
 // Author: sameeragarwal@google.com (Sameer Agarwal)
-//
-// Example of minimizing the Rosenbrock function
-// (https://en.wikipedia.org/wiki/Rosenbrock_function) using
-// GradientProblemSolver using automatically computed derivatives.
 
-#include <memory>
-
-#include "absl/log/initialize.h"
 #include "ceres/ceres.h"
+#include "glog/logging.h"
 
 // f(x,y) = (1-x)^2 + 100(y - x^2)^2;
-struct Rosenbrock {
-  template <typename T>
-  bool operator()(const T* parameters, T* cost) const {
-    const T x = parameters[0];
-    const T y = parameters[1];
+class Rosenbrock : public ceres::FirstOrderFunction {
+ public:
+  virtual ~Rosenbrock() {}
+
+  virtual bool Evaluate(const double* parameters,
+                        double* cost,
+                        double* gradient) const {
+    const double x = parameters[0];
+    const double y = parameters[1];
+
     cost[0] = (1.0 - x) * (1.0 - x) + 100.0 * (y - x * x) * (y - x * x);
+    if (gradient != NULL) {
+      gradient[0] = -2.0 * (1.0 - x) - 200.0 * (y - x * x) * 2.0 * x;
+      gradient[1] = 200.0 * (y - x * x);
+    }
     return true;
   }
 
-  static std::unique_ptr<ceres::FirstOrderFunction> Create() {
-    constexpr int kNumParameters = 2;
-    return std::make_unique<
-        ceres::AutoDiffFirstOrderFunction<Rosenbrock, kNumParameters>>();
-  }
+  virtual int NumParameters() const { return 2; }
 };
 
 int main(int argc, char** argv) {
-  absl::InitializeLog();
+  google::InitGoogleLogging(argv[0]);
 
   double parameters[2] = {-1.2, 1.0};
 
@@ -63,7 +62,7 @@ int main(int argc, char** argv) {
   options.minimizer_progress_to_stdout = true;
 
   ceres::GradientProblemSolver::Summary summary;
-  ceres::GradientProblem problem(Rosenbrock::Create());
+  ceres::GradientProblem problem(new Rosenbrock());
   ceres::Solve(options, problem, parameters, &summary);
 
   std::cout << summary.FullReport() << "\n";

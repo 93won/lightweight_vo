@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2023 Google Inc. All rights reserved.
+// Copyright 2015 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,11 +30,8 @@
 
 #include "ceres/block_structure.h"
 
-#include <vector>
-
-#include "absl/log/check.h"
-
-namespace ceres::internal {
+namespace ceres {
+namespace internal {
 
 bool CellLessThan(const Cell& lhs, const Cell& rhs) {
   if (lhs.block_id == rhs.block_id) {
@@ -43,28 +40,5 @@ bool CellLessThan(const Cell& lhs, const Cell& rhs) {
   return (lhs.block_id < rhs.block_id);
 }
 
-std::vector<Block> Tail(const std::vector<Block>& blocks, int n) {
-  CHECK_LE(n, blocks.size());
-  std::vector<Block> tail;
-  const int num_blocks = blocks.size();
-  const int start = num_blocks - n;
-
-  int position = 0;
-  tail.reserve(n);
-  for (int i = start; i < num_blocks; ++i) {
-    tail.emplace_back(blocks[i].size, position);
-    position += blocks[i].size;
-  }
-
-  return tail;
-}
-
-int SumSquaredSizes(const std::vector<Block>& blocks) {
-  int sum = 0;
-  for (const auto& b : blocks) {
-    sum += b.size * b.size;
-  }
-  return sum;
-}
-
-}  // namespace ceres::internal
+}  // namespace internal
+}  // namespace ceres
