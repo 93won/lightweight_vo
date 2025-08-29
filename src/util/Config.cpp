@@ -5,16 +5,12 @@
 namespace lightweight_vio {
 
 bool Config::load(const std::string& config_file) {
-    std::cout << "[DEBUG] Trying to load config file: " << config_file << std::endl;
-    
     cv::FileStorage fs(config_file, cv::FileStorage::READ);
     
     if (!fs.isOpened()) {
         std::cerr << "Failed to open config file: " << config_file << std::endl;
         return false;
     }
-    
-    std::cout << "[DEBUG] Config file opened successfully" << std::endl;
     
     // Feature Detection Parameters
     cv::FileNode feature_detection = fs["feature_detection"];
@@ -56,19 +52,29 @@ bool Config::load(const std::string& config_file) {
         epipolar_threshold = (double)stereo_matching["epipolar_threshold"];
     }
     
-    // Triangulation Parameters
+    // Global Depth Parameters (used throughout the VIO system)
+    cv::FileNode depth = fs["depth"];
+    if (!depth.empty()) {
+        min_depth = (double)depth["min_depth"];
+        max_depth = (double)depth["max_depth"];
+    }
+    
+    // Triangulation Parameters (specific to 3D point generation)
     cv::FileNode triangulation = fs["triangulation"];
     if (!triangulation.empty()) {
-        min_depth = (double)triangulation["min_depth"];
-        max_depth = (double)triangulation["max_depth"];
         max_reprojection_error = (double)triangulation["max_reprojection_error"];
         min_parallax = (double)triangulation["min_parallax"];
+    }
+    
+    // Keyframe Parameters
+    cv::FileNode keyframe = fs["keyframe"];
+    if (!keyframe.empty()) {
+        keyframe_interval = (int)keyframe["interval"];
     }
     
     // Camera Parameters
     cv::FileNode camera = fs["camera"];
     if (!camera.empty()) {
-        std::cout << "Loading camera parameters..." << std::endl;
         image_width = (int)camera["image_width"];
         image_height = (int)camera["image_height"];
         border_size = (int)camera["border_size"];
@@ -79,17 +85,11 @@ bool Config::load(const std::string& config_file) {
         cv::FileNode left_distortion = camera["left_distortion"];
         cv::FileNode right_distortion = camera["right_distortion"];
         
-        std::cout << "Left intrinsics size: " << left_intrinsics.size() << std::endl;
-        std::cout << "Right intrinsics size: " << right_intrinsics.size() << std::endl;
-        
         if (!left_intrinsics.empty() && left_intrinsics.size() == 4) {
             left_camera_matrix = (cv::Mat_<double>(3, 3) << 
                 (double)left_intrinsics[0], 0, (double)left_intrinsics[2],
                 0, (double)left_intrinsics[1], (double)left_intrinsics[3],
                 0, 0, 1);
-            std::cout << "Left camera matrix loaded successfully" << std::endl;
-        } else {
-            std::cout << "Failed to load left intrinsics" << std::endl;
         }
         
         if (!right_intrinsics.empty() && right_intrinsics.size() == 4) {
@@ -97,35 +97,23 @@ bool Config::load(const std::string& config_file) {
                 (double)right_intrinsics[0], 0, (double)right_intrinsics[2],
                 0, (double)right_intrinsics[1], (double)right_intrinsics[3],
                 0, 0, 1);
-            std::cout << "Right camera matrix loaded successfully" << std::endl;
-        } else {
-            std::cout << "Failed to load right intrinsics" << std::endl;
         }
         
         if (!left_distortion.empty() && left_distortion.size() == 4) {
             left_dist_coeffs = (cv::Mat_<double>(1, 4) << 
                 (double)left_distortion[0], (double)left_distortion[1],
                 (double)left_distortion[2], (double)left_distortion[3]);
-            std::cout << "Left distortion coefficients loaded successfully" << std::endl;
-        } else {
-            std::cout << "Failed to load left distortion coefficients" << std::endl;
         }
         
         if (!right_distortion.empty() && right_distortion.size() == 4) {
             right_dist_coeffs = (cv::Mat_<double>(1, 4) << 
                 (double)right_distortion[0], (double)right_distortion[1],
                 (double)right_distortion[2], (double)right_distortion[3]);
-            std::cout << "Right distortion coefficients loaded successfully" << std::endl;
-        } else {
-            std::cout << "Failed to load right distortion coefficients" << std::endl;
         }
         
         // Load extrinsics and compute relative transform
         cv::FileNode left_T_BS = camera["left_T_BS"];
         cv::FileNode right_T_BS = camera["right_T_BS"];
-        
-        std::cout << "Left T_BS size: " << left_T_BS.size() << std::endl;
-        std::cout << "Right T_BS size: " << right_T_BS.size() << std::endl;
         
         if (!left_T_BS.empty() && !right_T_BS.empty() && 
             left_T_BS.size() == 16 && right_T_BS.size() == 16) {
@@ -143,12 +131,7 @@ bool Config::load(const std::string& config_file) {
                 (double)right_T_BS[12], (double)right_T_BS[13], (double)right_T_BS[14], (double)right_T_BS[15]);
             
             // Compute T_left_right = T_B_right.inv() * T_B_left
-            // This gives us the transform from left camera to right camera coordinate system
-            // Following T_ab convention: T_rl transforms points from left to right
             T_left_right = T_B_right.inv() * T_B_left;
-            std::cout << "Camera extrinsics loaded and T_rl (left-to-right) transform computed successfully" << std::endl;
-        } else {
-            std::cout << "Failed to load camera extrinsics" << std::endl;
         }
     }
     
@@ -160,12 +143,6 @@ bool Config::load(const std::string& config_file) {
     }
     
     fs.release();
-    
-    std::cout << "Loaded configuration from: " << config_file << std::endl;
-    std::cout << "Max features: " << max_features << std::endl;
-    std::cout << "Window size: " << window_size << std::endl;
-    std::cout << "Fundamental threshold: " << fundamental_threshold << std::endl;
-    
     return true;
 }
 

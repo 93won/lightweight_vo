@@ -41,13 +41,22 @@ stereo_matching:
   max_y_difference: 20.0      # Maximum Y-coordinate difference for stereo pairs (pixels)
   epipolar_threshold: 1.0     # Maximum distance from epipolar line using estimated F matrix (pixels)
 
+# Global Depth Parameters
+# Controls depth validation throughout the entire VIO system
+depth:
+  min_depth: 0.1              # Minimum depth for valid 3D points (meters) - used in all depth validation
+  max_depth: 100.0            # Maximum depth for valid 3D points (meters) - used in all depth validation
+
 # Triangulation Parameters
 # Controls 3D point generation from stereo matches
 triangulation:
-  min_depth: 0.1              # Minimum depth for valid 3D points (meters)
-  max_depth: 100.0            # Maximum depth for valid 3D points (meters)
   max_reprojection_error: 10.0 # Maximum reprojection error for valid triangulation (pixels)
   min_parallax: 0.5           # Minimum parallax angle for reliable triangulation (degrees)
+
+# Keyframe Parameters
+# Controls when to create new keyframes for mapping
+keyframe:
+  interval: 10                # Create keyframe every N frames (prevents excessive map point creation)
 
 # Camera Parameters (EuRoC dataset specific)
 # Image dimensions and processing parameters

@@ -1,6 +1,11 @@
-#include "PoseOptimizer.h"
-#include "../database/Frame.h"
-#include "../database/MapPoint.h"
+#include <module/PoseOptimizer.h>
+#include <database/Frame.h>
+#include <database/MapPoint.h>
+#include <factor/Parameters.h>
+#include <spdlog/spdlog.h>
+#include <sstream>
+#include <algorithm>
+#include <numeric>
 
 namespace lightweight_vio
 {
@@ -14,27 +19,22 @@ namespace lightweight_vio
     {
         OptimizationResult result;
 
-        std::cout << "[DEBUG] Starting pose optimization..." << std::endl;
-
         // Create Ceres problem
         ceres::Problem problem;
 
         // Convert frame pose to SE3 tangent space
         Eigen::Vector6d pose_params = frame_to_se3_tangent(frame);
-        std::cout << "[DEBUG] Pose params: [" << pose_params.transpose() << "]" << std::endl;
 
         // Add parameter block first
         problem.AddParameterBlock(pose_params.data(), 6);
-        std::cout << "[DEBUG] Parameter block added" << std::endl;
 
         // Set SE3 local parameterization for pose parameterization
-        // problem.SetParameterization(pose_params.data(), m_se3_local_param.get());
-        // std::cout << "[DEBUG] SE3 local parameterization set" << std::endl;
+        auto se3_local_param = new factor::SE3LocalParameterization();
+        problem.SetParameterization(pose_params.data(), se3_local_param);
 
         // Get camera parameters from frame
         double fx, fy, cx, cy;
         frame->get_camera_intrinsics(fx, fy, cx, cy);
-        std::cout << "[DEBUG] Camera intrinsics: fx=" << fx << ", fy=" << fy << ", cx=" << cx << ", cy=" << cy << std::endl;
         factor::CameraParameters camera_params(fx, fy, cx, cy);
 
         // Add observations to the problem
@@ -42,13 +42,8 @@ namespace lightweight_vio
         std::vector<int> feature_indices; // Track which features correspond to observations
         int num_valid_observations = 0;
 
-        std::cout << "[DEBUG] Adding observations to problem..." << std::endl;
-
-        // Outlier flags will be initialized when features are undistorted
-
         // Add mono PnP observations from frame's map points
         const auto &map_points = frame->get_map_points();
-        std::cout << "[DEBUG] Frame has " << map_points.size() << " map points" << std::endl;
         
         for (size_t i = 0; i < map_points.size(); ++i)
         {
@@ -74,9 +69,15 @@ namespace lightweight_vio
             cv::Point2f undistorted_point = frame->undistort_point(distorted_point);
             Eigen::Vector2d observation(undistorted_point.x, undistorted_point.y);
 
-            // Add mono PnP observation
-            auto obs_info = add_mono_observation(
-                problem, pose_params.data(), world_point, observation, camera_params);
+            // Add mono PnP observation with desired pixel noise standard deviation
+            auto obs_info = add_mono_observation(problem, pose_params.data(), world_point, observation, camera_params, 2.0);
+
+            // Debug: Check if projection makes sense for first few features
+            if (num_valid_observations < 3) {
+                spdlog::debug("[PROJECTION] Feature {}: pixel=({:.2f},{:.2f}), world=({:.2f},{:.2f},{:.2f})", 
+                             i, observation.x(), observation.y(), 
+                             world_point.x(), world_point.y(), world_point.z());
+            }
 
             if (obs_info.residual_id)
             {
@@ -87,10 +88,8 @@ namespace lightweight_vio
         }
 
         // Check if we have enough observations
-        std::cout << "[DEBUG] Total valid observations: " << num_valid_observations << std::endl;
         if (num_valid_observations < 5)
         {
-            std::cout << "[DEBUG] Not enough observations for optimization" << std::endl;
             result.success = false;
             result.num_inliers = 0;
             return result;
@@ -108,24 +107,22 @@ namespace lightweight_vio
                 ceres::Solver::Summary summary;
                 ceres::Solve(options, &problem, &summary);
 
+                // Brief report
+                spdlog::info("[CERES] Round {}: {}", round + 1, summary.BriefReport());
+
                 // Detect outliers and update frame's outlier flags
                 double *pose_data = pose_params.data();
-                detect_outliers(const_cast<double const *const *>(&pose_data),
-                                observations, feature_indices, frame);
+                int num_inliers = detect_outliers(const_cast<double const *const *>(&pose_data), observations, feature_indices, frame);
+                int num_outliers = observations.size() - num_inliers;
+                
+                spdlog::info("[OUTLIER] Round {}: {} inliers, {} outliers", 
+                            round + 1, num_inliers, num_outliers);
 
                 // Remove outlier residual blocks for next iteration
                 if (round < m_config.outlier_detection_rounds - 1)
                 {
-                    // Disable outlier residuals by setting them to level 1
-                    for (size_t i = 0; i < observations.size(); ++i)
-                    {
-                        int feature_idx = feature_indices[i];
-                        if (frame->get_outlier_flag(feature_idx))
-                        {
-                            // Note: Ceres doesn't have SetLevel, so we'll handle this differently
-                            // For now, we'll recreate the problem without outliers
-                        }
-                    }
+                    // Outliers are already disabled via set_outlier() in detect_outliers()
+                    // The cost functions will return zero residuals and jacobians for outliers
                 }
 
                 // Update result
@@ -139,6 +136,15 @@ namespace lightweight_vio
             // Single solve without outlier detection
             ceres::Solver::Summary summary;
             ceres::Solve(options, &problem, &summary);
+
+            // Brief report
+            spdlog::info("[CERES] {}", summary.BriefReport());
+
+            // Check outliers for final report even without outlier detection rounds
+            double *pose_data = pose_params.data();
+            int num_inliers = detect_outliers(const_cast<double const *const *>(&pose_data), observations, feature_indices, frame);
+            int num_outliers = observations.size() - num_inliers;
+            spdlog::info("[OUTLIER] Final: {} inliers, {} outliers", num_inliers, num_outliers);
 
             result.success = (summary.termination_type == ceres::CONVERGENCE);
             result.final_cost = summary.final_cost;
@@ -164,6 +170,7 @@ namespace lightweight_vio
         // Update result
         result.optimized_pose = se3_tangent_to_matrix(pose_params);
 
+
         // Update frame pose if optimization was successful
         if (result.success)
         {
@@ -172,8 +179,8 @@ namespace lightweight_vio
 
         if (m_config.print_summary)
         {
-            std::cout << "Pose optimization: " << result.num_inliers << " inliers, "
-                      << result.num_outliers << " outliers" << std::endl;
+            spdlog::info("[POSE] Optimization: {} inliers, {} outliers", 
+                        result.num_inliers, result.num_outliers);
         }
 
         return result;
@@ -185,15 +192,19 @@ namespace lightweight_vio
         double *pose_params,
         const Eigen::Vector3d &world_point,
         const Eigen::Vector2d &observation,
-        const factor::CameraParameters &camera_params)
+        const factor::CameraParameters &camera_params,
+        double pixel_noise_std)
     {
 
         // Create information matrix for pixel observations
-        // You can adjust pixel_noise based on feature detection accuracy
-        Eigen::Matrix2d information = create_information_matrix(1.0); // 1 pixel std dev
+        Eigen::Matrix2d information = create_information_matrix(pixel_noise_std);
 
-        // Create mono PnP cost function with information matrix
-        auto cost_function = new factor::MonoPnPFactor(observation, world_point, camera_params, information);
+        // For now, assume camera is at body frame (identity transformation)
+        // TODO: Get actual Tcb from frame configuration
+        Eigen::Matrix4d Tcb = Eigen::Matrix4d::Identity();
+
+        // Create mono PnP cost function with information matrix and Tcb
+        auto cost_function = new factor::MonoPnPFactor(observation, world_point, camera_params, Tcb, information);
 
         // Create robust loss function if enabled
         ceres::LossFunction *loss_function = nullptr;
@@ -216,8 +227,12 @@ namespace lightweight_vio
     {
         int num_inliers = 0;
 
-        // Chi-square threshold for 2DOF (95% confidence)
-        const double chi2_threshold = 5.99;
+        // Chi-square threshold for 2DOF - use more relaxed threshold
+        const double chi2_threshold = 5.991;  // Much more relaxed than 5.99
+
+        // Collect chi2 values for statistics
+        std::vector<double> inlier_chi2_values;
+        std::vector<double> outlier_chi2_values;
 
         for (size_t i = 0; i < observations.size(); ++i)
         {
@@ -229,16 +244,91 @@ namespace lightweight_vio
             int feature_idx = feature_indices[i];
             frame->set_outlier_flag(feature_idx, is_outlier);
 
+            // Set outlier flag in the cost function to disable it for next optimization round
+            observations[i].cost_function->set_outlier(is_outlier);
+
             if (!is_outlier)
             {
                 num_inliers++;
+                inlier_chi2_values.push_back(chi2_error);
             }
-
-            // Debug output
-            if (m_config.print_summary && is_outlier)
+            else
             {
-                std::cout << "Outlier detected: feature " << feature_idx
-                          << ", chi2 = " << chi2_error << std::endl;
+                outlier_chi2_values.push_back(chi2_error);
+            }
+        }
+
+        // Print chi2 statistics
+        if (!inlier_chi2_values.empty())
+        {
+            auto inlier_minmax = std::minmax_element(inlier_chi2_values.begin(), inlier_chi2_values.end());
+            double inlier_sum = std::accumulate(inlier_chi2_values.begin(), inlier_chi2_values.end(), 0.0);
+            double inlier_mean = inlier_sum / inlier_chi2_values.size();
+            
+            spdlog::info("[CHI2_STATS] Inliers ({}): min={:.3f}, max={:.3f}, mean={:.3f}", 
+                        inlier_chi2_values.size(), *inlier_minmax.first, 
+                        *inlier_minmax.second, inlier_mean);
+        }
+
+        if (!outlier_chi2_values.empty())
+        {
+            auto outlier_minmax = std::minmax_element(outlier_chi2_values.begin(), outlier_chi2_values.end());
+            double outlier_sum = std::accumulate(outlier_chi2_values.begin(), outlier_chi2_values.end(), 0.0);
+            double outlier_mean = outlier_sum / outlier_chi2_values.size();
+            
+            spdlog::info("[CHI2_STATS] Outliers ({}): min={:.3f}, max={:.3f}, mean={:.3f}", 
+                        outlier_chi2_values.size(), *outlier_minmax.first, 
+                        *outlier_minmax.second, outlier_mean);
+        }
+
+        // Debug: Print details for some outliers to understand what's wrong
+        int debug_count = 0;
+        Eigen::Map<const Eigen::Vector6d> se3_tangent(pose_params[0]);
+        Sophus::SE3d current_pose = Sophus::SE3d::exp(se3_tangent);
+        
+        // Convert matrix to string for logging
+        std::stringstream ss;
+        ss << current_pose.matrix();
+        spdlog::debug("[OUTLIER_DEBUG] Current pose Twb:\n{}", ss.str());
+        
+        for (size_t i = 0; i < observations.size() && debug_count < 3; ++i)
+        {
+            double chi2_error = observations[i].cost_function->compute_chi_square(pose_params);
+            if (chi2_error > chi2_threshold)
+            {
+                int feature_idx = feature_indices[i];
+                auto feature = frame->get_features()[feature_idx];
+                auto mp = frame->get_map_points()[feature_idx];
+                
+                // Manually project to see what the expected pixel should be
+                Eigen::Vector3d world_pos = mp->get_position().cast<double>();
+                
+                // Transform to camera coordinates: Pc = Rcw * Pw + tcw
+                Eigen::Matrix3d Rwb = current_pose.rotationMatrix();
+                Eigen::Vector3d twb = current_pose.translation();
+                Eigen::Matrix3d Rbw = Rwb.transpose();
+                Eigen::Vector3d tbw = -Rbw * twb;
+                
+                // Assuming Tcb = Identity (camera at body frame)
+                Eigen::Vector3d point_camera = Rbw * world_pos + tbw;
+                
+                // Project to image plane
+                double fx, fy, cx, cy;
+                frame->get_camera_intrinsics(fx, fy, cx, cy);
+                
+                if (point_camera.z() > 0) {
+                    double u_proj = fx * point_camera.x() / point_camera.z() + cx;
+                    double v_proj = fy * point_camera.y() / point_camera.z() + cy;
+                    
+                    auto map_point = frame->get_map_point(feature_idx);
+                    spdlog::debug("[OUTLIER_DEBUG] Feature {}: chi2={:.3f}, observed=({:.1f},{:.1f}), projected=({:.1f},{:.1f}), world=({:.2f},{:.2f},{:.2f})", 
+                                 feature_idx, chi2_error, feature->get_u(), feature->get_v(),
+                                 u_proj, v_proj, world_pos.x(), world_pos.y(), world_pos.z());
+                } else {
+                    spdlog::debug("[OUTLIER_DEBUG] Feature {}: chi2={:.3f}, BEHIND_CAMERA: z={:.2f}", 
+                                 feature_idx, chi2_error, point_camera.z());
+                }
+                debug_count++;
             }
         }
 
@@ -257,7 +347,8 @@ namespace lightweight_vio
         options.linear_solver_type = m_config.linear_solver_type;
         options.use_explicit_schur_complement = m_config.use_explicit_schur_complement;
 
-        options.minimizer_progress_to_stdout = m_config.minimizer_progress_to_stdout;
+        // Brief report only, no verbose stdout output
+        options.minimizer_progress_to_stdout = false;
 
         return options;
     }
@@ -270,6 +361,19 @@ namespace lightweight_vio
         // Convert to double precision
         Eigen::Matrix4d Twb_d = Twb.cast<double>();
 
+        // Ensure rotation matrix orthogonality using SVD
+        Eigen::Matrix3d R = Twb_d.block<3, 3>(0, 0);
+        Eigen::JacobiSVD<Eigen::Matrix3d> svd(R, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        R = svd.matrixU() * svd.matrixV().transpose();
+        
+        // Ensure proper rotation (det(R) = 1)
+        if (R.determinant() < 0) {
+            R = -R;
+        }
+        
+        // Reconstruct the pose matrix with orthogonalized rotation
+        Twb_d.block<3, 3>(0, 0) = R;
+
         // Convert to Sophus SE3 and extract tangent space
         Sophus::SE3d se3(Twb_d);
         return se3.log();
@@ -280,8 +384,24 @@ namespace lightweight_vio
         // Convert tangent space to SE3
         Sophus::SE3d se3 = Sophus::SE3d::exp(se3_tangent);
 
+        // Get the transformation matrix
+        Eigen::Matrix4d pose_matrix = se3.matrix();
+        
+        // Ensure rotation matrix orthogonality using SVD
+        Eigen::Matrix3d R = pose_matrix.block<3, 3>(0, 0);
+        Eigen::JacobiSVD<Eigen::Matrix3d> svd(R, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        R = svd.matrixU() * svd.matrixV().transpose();
+        
+        // Ensure proper rotation (det(R) = 1)
+        if (R.determinant() < 0) {
+            R = -R;
+        }
+        
+        // Reconstruct the pose matrix with orthogonalized rotation
+        pose_matrix.block<3, 3>(0, 0) = R;
+
         // Convert to 4x4 matrix and cast to float
-        return se3.matrix().cast<float>();
+        return pose_matrix.cast<float>();
     }
 
     ceres::LossFunction *PoseOptimizer::create_robust_loss(double delta) const

@@ -1,4 +1,9 @@
-#include "FeatureTracker.h"
+#include <module/FeatureTracker.h>
+#include <database/Frame.h>
+#include <database/Feature.h>
+#include <database/MapPoint.h>
+#include <spdlog/spdlog.h>
+#include <Eigen/Dense>
 #include <algorithm>
 #include <iostream>
 #include <chrono>
@@ -38,9 +43,9 @@ void FeatureTracker::track_features(std::shared_ptr<Frame> current_frame,
         tracked_features = tracking_stats.first;
         new_map_points_from_tracking = tracking_stats.second;
         
-        // Reject outliers using essential matrix
+        // Reject outliers using comprehensive filtering
         auto outlier_start = std::chrono::high_resolution_clock::now();
-        reject_outliers_with_essential_matrix(current_frame, previous_frame);
+        reject_outliers(current_frame, previous_frame);
         auto outlier_end = std::chrono::high_resolution_clock::now();
         outlier_rejection_time = std::chrono::duration_cast<std::chrono::microseconds>(outlier_end - outlier_start).count() / 1000.0;
         
@@ -66,7 +71,10 @@ void FeatureTracker::track_features(std::shared_ptr<Frame> current_frame,
 
     // Now do batch stereo matching and map point creation for all features without map points
     auto batch_stereo_start = std::chrono::high_resolution_clock::now();
-    int batch_stereo_matches = batch_stereo_matching_and_map_point_creation(current_frame);
+    // Temporarily disable automatic map point creation in FeatureTracker
+    // Let Estimator handle map point creation instead
+    // int batch_stereo_matches = batch_stereo_matching_and_map_point_creation(current_frame);
+    int batch_stereo_matches = 0;
     auto batch_stereo_end = std::chrono::high_resolution_clock::now();
     auto batch_stereo_time = std::chrono::duration_cast<std::chrono::microseconds>(batch_stereo_end - batch_stereo_start).count() / 1000.0;
     
@@ -79,6 +87,7 @@ void FeatureTracker::track_features(std::shared_ptr<Frame> current_frame,
     
     // Count final valid map points
     int final_valid_map_points = 0;
+    
     for (size_t i = 0; i < current_frame->get_map_points().size(); ++i) {
         auto mp = current_frame->get_map_point(i);
         if (mp && !mp->is_bad()) {
@@ -89,26 +98,7 @@ void FeatureTracker::track_features(std::shared_ptr<Frame> current_frame,
     // Single comprehensive log with timing breakdown
     auto total_time = total_duration.count() / 1000.0;
     
-    if (total_time > 10.0) {  // Only show detailed timing for slow frames
-        std::cout << "[TRACKER] " << total_time << "ms | "
-                  << "Tracked: " << tracked_features 
-                  << " | New features: " << new_extracted_features 
-                  << " | Batch stereo matches: " << batch_stereo_matches
-                  << " | New map points: " << total_new_map_points 
-                  << " | Total valid map points: " << final_valid_map_points
-                  << " | TIMING: track=" << tracking_time << "ms"
-                  << ", outlier=" << outlier_rejection_time << "ms"
-                  << ", mask=" << mask_creation_time << "ms"
-                  << ", extract=" << feature_extraction_time << "ms"
-                  << ", batch_stereo=" << batch_stereo_time << "ms" << std::endl;
-    } else {
-        std::cout << "[TRACKER] " << total_time << "ms | "
-                  << "Tracked: " << tracked_features 
-                  << " | New features: " << new_extracted_features 
-                  << " | Batch stereo matches: " << batch_stereo_matches
-                  << " | New map points: " << total_new_map_points 
-                  << " | Total valid map points: " << final_valid_map_points << std::endl;
-    }
+   
     
     // Timing output removed for cleaner logs
 }
@@ -206,13 +196,12 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
     
     for (size_t i = 0; i < prev_pts.size(); ++i) {
         if (status[i] && is_in_border(cur_pts[i], current_frame->get_image().size())) {
-            // Additional checks for tracking quality
+            // Basic checks for tracking quality (relaxed thresholds - main filtering done later)
             float dx = cur_pts[i].x - prev_pts[i].x;
             float dy = cur_pts[i].y - prev_pts[i].y;
-            float movement = std::sqrt(dx * dx + dy * dy);
             
-            // Reject if error is too high or movement is too large
-            if (err[i] < Config::getInstance().getErrorThreshold() &&  movement < Config::getInstance().getMaxMovementDistance()) {
+            // Only reject extremely bad tracking results here, main outlier rejection done later
+            if (err[i] < Config::getInstance().getErrorThreshold() * 2.0) {  // Relaxed error threshold
                 // Get the original feature index
                 int original_feature_idx = feature_indices[i];
                 auto prev_feature = previous_frame->get_features()[original_feature_idx];
@@ -238,14 +227,19 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
                 auto prev_map_point = previous_frame->get_map_point(original_feature_idx);
                 
                 if (prev_map_point && !prev_map_point->is_bad()) {
+                    // Debug: Check if this association looks suspicious
+                    cv::Point2f current_pt = cur_pts[i];  // Use cur_pts[i] instead of tracked_features[j]
+                    cv::Point2f prev_pt = prev_pts[i];    // Use prev_pts[i] instead of previous_features
+                    float tracking_distance = cv::norm(current_pt - prev_pt);
+                    
                     // Associate with existing map point
                     current_frame->set_map_point(current_frame->get_feature_count() - 1, prev_map_point);
                     prev_map_point->add_observation(current_frame, current_frame->get_feature_count() - 1);
                     associated_map_points++;
-                } else {
-                    // Don't create map point here - will do batch processing later
-                    // Just mark that this feature needs map point creation
-                }
+                    
+                   
+                } 
+                
             }
         }
     }
@@ -267,8 +261,8 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
     return {tracked_features, new_map_points_created};
 }
 
-void FeatureTracker::reject_outliers_with_essential_matrix(std::shared_ptr<Frame> current_frame,
-                                                          std::shared_ptr<Frame> previous_frame) {
+void FeatureTracker::reject_outliers(std::shared_ptr<Frame> current_frame,
+                                     std::shared_ptr<Frame> previous_frame) {
     auto start_time = std::chrono::high_resolution_clock::now();
     
     if (current_frame->get_feature_count() < 5) {
@@ -309,7 +303,7 @@ void FeatureTracker::reject_outliers_with_essential_matrix(std::shared_ptr<Frame
     std::vector<int> ransac_outliers;
     std::vector<int> velocity_outliers;
 
-    // Step 1: Movement distance check (reject features that moved too far)
+    // Step 1: Movement distance check (main movement filtering done here)
     for (size_t i = 0; i < prev_pts.size(); ++i) {
         float dx = cur_pts[i].x - prev_pts[i].x;
         float dy = cur_pts[i].y - prev_pts[i].y;
@@ -321,24 +315,6 @@ void FeatureTracker::reject_outliers_with_essential_matrix(std::shared_ptr<Frame
             outlier_features.push_back(feature_ids[i]);
         }
     }
-
-    // // Step 2: Fundamental matrix RANSAC
-    // std::vector<uchar> status;
-    // if (prev_pts.size() >= 8) {
-    //     cv::findFundamentalMat(prev_pts, cur_pts, cv::FM_RANSAC, 
-    //                           Config::getInstance().getFundamentalThreshold(), 0.95, status);
-        
-    //     // Mark fundamental matrix outliers
-    //     for (size_t i = 0; i < status.size(); ++i) {
-    //         if (!status[i]) {
-    //             ransac_outliers.push_back(feature_ids[i]);
-    //             // Check if not already marked as outlier
-    //             if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
-    //                 outlier_features.push_back(feature_ids[i]);
-    //             }
-    //         }
-    //     }
-    // }
 
     // Step 2: Essential matrix RANSAC (more robust for VIO)
     std::vector<uchar> status;

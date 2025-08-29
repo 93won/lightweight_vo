@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.10)
 
 file(READ "SOPHUS_VERSION" SOPHUS_VERSION)
 project(Sophus VERSION ${SOPHUS_VERSION})

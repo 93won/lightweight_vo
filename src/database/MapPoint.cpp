@@ -1,6 +1,6 @@
-#include "MapPoint.h"
-#include "Frame.h"
-#include "Feature.h"
+#include <database/MapPoint.h>
+#include <database/Frame.h>
+#include <database/Feature.h>
 #include <algorithm>
 #include <iostream>
 

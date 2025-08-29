@@ -1,5 +1,10 @@
-#include "Estimator.h"
-#include "PoseOptimizer.h"
+#include <module/Estimator.h>
+#include <module/PoseOptimizer.h>
+#include <module/FeatureTracker.h>
+#include <database/Frame.h>
+#include <database/MapPoint.h>
+#include <util/Config.h>
+#include <spdlog/spdlog.h>
 #include <chrono>
 #include <iostream>
 
@@ -26,7 +31,7 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
     m_current_frame = create_frame(left_image, right_image, timestamp);
     
     if (!m_current_frame) {
-        std::cerr << "[ERROR] Failed to create frame!" << std::endl;
+        spdlog::error("[Estimator] Failed to create frame!");
         result.success = false;
         return result;
     }
@@ -55,17 +60,38 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
                 if (opt_result.success) {
                     m_current_pose = opt_result.optimized_pose;
                     m_current_frame->set_Twb(m_current_pose);
+                } else {
+                    // Optimization failed, keep the initial pose from previous frame
+                    m_current_pose = m_current_frame->get_Twb();
                 }
             } else {
-                // Use previous pose as initial guess
-                m_current_frame->set_Twb(m_current_pose);
+                // Use previous pose as initial guess (already set in create_frame)
+                m_current_pose = m_current_frame->get_Twb();
                 result.success = true;
             }
         } else {
-            // No tracking, use previous pose
-            m_current_frame->set_Twb(m_current_pose);
+            // No tracking, keep previous pose (already set in create_frame)
+            m_current_pose = m_current_frame->get_Twb();
             result.success = false;
         }
+
+        // NOTE: FeatureTracker already handles map point association during tracking
+        // No need to call associate_tracked_features_with_map_points() again
+        
+        // Decide whether to create keyframe first
+        bool is_keyframe = should_create_keyframe(m_current_frame);
+        
+        // Only create new map points for keyframes to avoid trajectory drift
+        if (is_keyframe) {
+            int new_map_points = create_new_map_points(m_current_frame);
+            spdlog::debug("[Estimator] Created {} new map points for keyframe", new_map_points);
+            create_keyframe(m_current_frame);
+            m_frames_since_last_keyframe = 0;
+        } else {
+            m_frames_since_last_keyframe++;
+        }
+        
+      
     } else {
         // First frame - extract features using FeatureTracker
         m_feature_tracker->track_features(m_current_frame, nullptr);
@@ -75,22 +101,15 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         // Compute stereo depth for all features
         m_current_frame->compute_stereo_depth();
         
-        // First frame - initialize at origin
-        m_current_pose = Eigen::Matrix4f::Identity();
-        m_current_frame->set_Twb(m_current_pose);
+        // First frame - keep identity pose (already set in create_frame)
+        m_current_pose = m_current_frame->get_Twb();
         
-        // Create initial map points
+        // Create initial map points (first frame is always considered keyframe)
         int initial_map_points = create_initial_map_points(m_current_frame);
-        
-        result.success = true;
-    }
-    
-    // Decide whether to create keyframe
-    if (should_create_keyframe(m_current_frame)) {
         create_keyframe(m_current_frame);
         m_frames_since_last_keyframe = 0;
-    } else {
-        m_frames_since_last_keyframe++;
+        
+        result.success = true;
     }
     
     // Update result
@@ -149,6 +168,14 @@ std::shared_ptr<Frame> Estimator::create_frame(const cv::Mat& left_image, const 
         m_config.baseline,
         cv::Mat(m_config.distortion_coeffs)
     );
+    
+    // Set initial pose to previous frame's pose (or identity for first frame)
+    if (m_previous_frame) {
+        frame->set_Twb(m_previous_frame->get_Twb());
+    } else {
+        // First frame - initialize at identity (already done in constructor)
+        frame->set_Twb(Eigen::Matrix4f::Identity());
+    }
     
     return frame;
 }
@@ -220,6 +247,123 @@ int lightweight_vio::Estimator::associate_features_with_map_points(std::shared_p
     return num_associated;
 }
 
+int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> frame) {
+    if (!frame) {
+        return 0;
+    }
+    
+    int num_created = 0;
+    const auto& features = frame->get_features();
+    
+    // Only create map points for features that:
+    // 1. Have valid stereo depth
+    // 2. Are not already associated with a map point
+    // 3. Are valid features
+    for (size_t i = 0; i < features.size(); ++i) {
+        auto feature = features[i];
+        
+        if (!feature || !feature->is_valid()) {
+            continue;
+        }
+        
+        if (!frame->has_depth(i)) {
+            continue;
+        }
+        
+        if (frame->has_map_point(i)) {
+            continue;
+        }
+        
+        double depth = frame->get_depth(i);
+        
+        // Validate depth range using global config parameters
+        auto& global_config = lightweight_vio::Config::getInstance();
+        if (depth < global_config.getMinDepth() || depth > global_config.getMaxDepth()) {
+            continue;  // Skip invalid depths
+        }
+        
+        // Unproject to 3D using camera parameters and stereo depth
+        double fx, fy, cx, cy;
+        frame->get_camera_intrinsics(fx, fy, cx, cy);
+        
+        cv::Point2f undistorted = frame->undistort_point(cv::Point2f(feature->get_u(), feature->get_v()));
+        
+        // Transform from image coordinates to camera coordinates
+        double x = (undistorted.x - cx) * depth / fx;
+        double y = (undistorted.y - cy) * depth / fy;
+        double z = depth;
+        
+        // Transform to world coordinates using frame pose
+        Eigen::Matrix4f Twb = frame->get_Twb();
+        
+        // For now, assume camera and body frames are aligned (Tcb = Identity)
+        // In real implementation, this would come from camera calibration
+        Eigen::Matrix4f Tcb = Eigen::Matrix4f::Identity();
+        Eigen::Vector4f camera_point(x, y, z, 1.0);
+        Eigen::Vector4f body_point = Tcb * camera_point;
+        Eigen::Vector4f world_point = Twb * body_point;
+        
+        Eigen::Vector3f world_pos = world_point.head<3>();
+        
+        // Create new map point
+        auto map_point = std::make_shared<MapPoint>(world_pos);
+        m_map_points.push_back(map_point);
+        
+        // Associate with current frame
+        frame->set_map_point(i, map_point);
+        num_created++;
+    }
+    
+    return num_created;
+}
+
+int lightweight_vio::Estimator::associate_tracked_features_with_map_points(std::shared_ptr<Frame> frame) {
+    if (!frame || !m_previous_frame) {
+        return 0;
+    }
+    
+    int num_associated = 0;
+    const auto& features = frame->get_features();
+    
+    // For each feature in current frame, check if it was tracked from previous frame
+    // and if the previous frame feature had a map point
+    for (size_t i = 0; i < features.size(); ++i) {
+        auto feature = features[i];
+        if (!feature || !feature->is_valid()) {
+            continue;
+        }
+        
+        // Skip if this feature already has a map point
+        if (frame->has_map_point(i)) {
+            continue;
+        }
+        
+        // Get feature track ID to find corresponding feature in previous frame
+        int track_id = feature->get_tracked_feature_id();
+        
+        // Find corresponding feature in previous frame by track ID
+        const auto& prev_features = m_previous_frame->get_features();
+        for (size_t j = 0; j < prev_features.size(); ++j) {
+            auto prev_feature = prev_features[j];
+            if (prev_feature && prev_feature->is_valid() && 
+                prev_feature->get_tracked_feature_id() == track_id && track_id >= 0) {
+                
+                // Check if previous feature has associated map point
+                auto prev_map_point = m_previous_frame->get_map_point(j);
+                if (prev_map_point && !prev_map_point->is_bad()) {
+                    // Associate with existing map point
+                    frame->set_map_point(i, prev_map_point);
+                    prev_map_point->add_observation(frame, i);
+                    num_associated++;
+                    break;
+                }
+            }
+        }
+    }
+    
+    return num_associated;
+}
+
 bool lightweight_vio::Estimator::should_create_keyframe(std::shared_ptr<Frame> frame) {
     if (!frame) {
         return false;
@@ -248,11 +392,6 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
     }
     frame->set_keyframe(true);
     m_keyframes.push_back(frame);
-    
-    if (m_config.pose_optimizer_config.print_summary) {
-        std::cout << "Created keyframe " << frame->get_frame_id() 
-                  << " (total: " << m_keyframes.size() << ")" << std::endl;
-    }
 }
 
 OptimizationResult lightweight_vio::Estimator::optimize_pose(std::shared_ptr<Frame> frame) {

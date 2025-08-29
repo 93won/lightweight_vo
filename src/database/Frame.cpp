@@ -1,6 +1,6 @@
-#include "Frame.h"
-#include "MapPoint.h"
-#include "../util/Config.h"
+#include <database/Frame.h>
+#include <database/MapPoint.h>
+#include <util/Config.h>
 #include <algorithm>
 #include <iostream>
 

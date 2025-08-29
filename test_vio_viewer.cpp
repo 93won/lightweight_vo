@@ -1,4 +1,5 @@
 #include <opencv2/opencv.hpp>
+#include <spdlog/spdlog.h>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -8,12 +9,13 @@
 #include <chrono>
 #include <thread>
 
-#include "src/database/Frame.h"
-#include "src/database/Feature.h"
-#include "src/module/FeatureTracker.h"
-#include "src/module/Estimator.h"
-#include "src/util/Config.h"
-#include "src/viewer/ImGuiViewer.h"
+#include <database/Frame.h>
+#include <database/Feature.h>
+#include <database/MapPoint.h>
+#include <module/FeatureTracker.h>
+#include <module/Estimator.h>
+#include <util/Config.h>
+#include <viewer/ImGuiViewer.h>
 
 using namespace lightweight_vio;
 
@@ -36,7 +38,7 @@ std::vector<ImageData> load_image_timestamps(const std::string& dataset_path) {
     
     std::ifstream file(data_file);
     if (!file.is_open()) {
-        std::cerr << "Cannot open data.csv file: " << data_file << std::endl;
+        spdlog::error("[Dataset] Cannot open data.csv file: {}", data_file);
         return image_data;
     }
     
@@ -57,7 +59,7 @@ std::vector<ImageData> load_image_timestamps(const std::string& dataset_path) {
         }
     }
     
-    std::cout << "Loaded " << image_data.size() << " image timestamps" << std::endl;
+    spdlog::info("[Dataset] Loaded {} image timestamps", image_data.size());
     return image_data;
 }
 
@@ -67,7 +69,7 @@ cv::Mat load_image(const std::string& dataset_path, const std::string& filename,
     cv::Mat image = cv::imread(full_path, cv::IMREAD_GRAYSCALE);
     
     if (image.empty()) {
-        std::cerr << "Cannot load image: " << full_path << std::endl;
+        spdlog::error("[Dataset] Cannot load image: {}", full_path);
     }
     
     return image;
@@ -93,37 +95,51 @@ std::vector<Eigen::Vector3f> extract_3d_points(std::shared_ptr<Frame> frame) {
     return points;
 }
 
+std::vector<Eigen::Vector3f> extract_all_map_points(const Estimator& estimator) {
+    std::vector<Eigen::Vector3f> points;
+    
+    const auto& map_points = estimator.get_map_points();
+    
+    for (const auto& mp : map_points) {
+        if (mp && !mp->is_bad()) {
+            Eigen::Vector3f position = mp->get_position();
+            points.push_back(position);
+        }
+    }
+    
+    return points;
+}
+
 int main(int argc, char* argv[]) {
     if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <euroc_dataset_path>" << std::endl;
-        std::cerr << "Example: " << argv[0] << " /path/to/MH_01_easy" << std::endl;
+        spdlog::error("Usage: {} <euroc_dataset_path>", argv[0]);
+        spdlog::error("Example: {} /path/to/MH_01_easy", argv[0]);
         return -1;
     }
     
     // Load configuration
     try {
         Config::getInstance().load("../config/euroc.yaml");
-        std::cout << "Configuration loaded successfully" << std::endl;
     } catch (const std::exception& e) {
-        std::cerr << "Failed to load configuration: " << e.what() << std::endl;
+        spdlog::error("[Config] Failed to load configuration: {}", e.what());
         return -1;
     }
     
     std::string dataset_path = argv[1];
-    std::cout << "Loading EuRoC dataset from: " << dataset_path << std::endl;
     
     // Load image timestamps
     std::vector<ImageData> image_data = load_image_timestamps(dataset_path);
     if (image_data.empty()) {
-        std::cerr << "No images found in dataset" << std::endl;
+        spdlog::error("[Dataset] No images found in dataset");
         return -1;
     }
     
+    spdlog::info("[Dataset] Loaded {} image timestamps", image_data.size());
+    
     // Initialize 3D viewer
-    std::cout << "Creating ImGui 3D viewer..." << std::endl;
     ImGuiViewer viewer;
     if (!viewer.initialize(3840, 1600)) {
-        std::cerr << "Failed to initialize 3D viewer" << std::endl;
+        spdlog::error("[Viewer] Failed to initialize 3D viewer");
         return -1;
     }
     
@@ -136,17 +152,18 @@ int main(int argc, char* argv[]) {
     bool step_mode = false;
     bool advance_frame = false;
     
-    std::cout << "Starting VIO estimation with 3D visualization..." << std::endl;
-    std::cout << "Controls:" << std::endl;
-    std::cout << "  3D Viewer: Mouse for camera control" << std::endl;
-    std::cout << "  SPACE: Toggle auto-play / step mode" << std::endl;
-    std::cout << "  N or ENTER: Next frame (in step mode)" << std::endl;
-    std::cout << "  ESC: Exit application" << std::endl;
+    spdlog::info("[VIO] Starting VIO estimation with 3D visualization...");
+    spdlog::info("[Controls] 3D Viewer: Mouse for camera control");
+    spdlog::info("[Controls] SPACE: Toggle auto-play / step mode");
+    spdlog::info("[Controls] N or ENTER: Next frame (in step mode)");
+    spdlog::info("[Controls] ESC: Exit application");
     
     // Initialize variables for tracking current state
     Estimator::EstimationResult last_estimation_result;
     std::shared_ptr<Frame> current_frame = nullptr;
     std::vector<Eigen::Vector3f> current_points;
+    std::vector<Eigen::Vector3f> all_map_points; // Store all accumulated map points
+    std::vector<Eigen::Vector3f> trajectory_points; // Store trajectory
     cv::Mat last_tracking_image;
     
     // Main processing loop
@@ -260,12 +277,25 @@ int main(int argc, char* argv[]) {
             
             previous_frame = current_frame;
             current_idx++;
+            
+            // Update trajectory only when new frame is processed
+            Eigen::Matrix4f current_pose = current_frame->get_Twb();
+            Eigen::Vector3f current_position = current_pose.block<3, 1>(0, 3);
+            trajectory_points.push_back(current_position);
         }
         
         // Always update viewer with current state (even if no new frame was processed)
         if (current_frame) {
-            // Update 3D viewer with current frame points only (no accumulation)
-            viewer.updatePoints(current_points);
+            // Update all accumulated map points from estimator
+            all_map_points = extract_all_map_points(estimator);
+            viewer.updatePoints(all_map_points);
+            
+            // Update current pose
+            Eigen::Matrix4f current_pose = current_frame->get_Twb();
+            viewer.updatePose(current_pose);
+            
+            // Update trajectory (no longer adding new points here)
+            viewer.updateTrajectory(trajectory_points);
             
             // Update tracking image in viewer
             viewer.updateTrackingImage(last_tracking_image);
@@ -285,7 +315,7 @@ int main(int argc, char* argv[]) {
     }
     
     exit_loop:
-    std::cout << "Visualization completed!" << std::endl;
+    spdlog::info("[VIO] Visualization completed!");
     
     return 0;
 }

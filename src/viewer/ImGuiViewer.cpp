@@ -28,6 +28,8 @@ ImGuiViewer::ImGuiViewer()
     , m_space_pressed(false)
     , m_next_pressed(false)
 {
+    // Initialize pose as identity matrix
+    m_current_pose = Eigen::Matrix4f::Identity();
 }
 
 ImGuiViewer::~ImGuiViewer() {
@@ -145,9 +147,16 @@ void ImGuiViewer::render() {
     drawAxis();
     drawOriginPoint();
     draw3DPoints(m_points);
+    drawPose(m_current_pose);
+    drawTrajectory(m_trajectory);
 
-    // ImGui UI
+    // ImGui UI with larger font size
+    ImGui::SetNextWindowSize(ImVec2(400, 600), ImGuiCond_FirstUseEver);
     ImGui::Begin("3D Viewer Controls");
+    
+    // Increase font scale for this window
+    ImGui::SetWindowFontScale(2.0f);
+    
     ImGui::Text("Camera Controls:");
     ImGui::SliderFloat("Distance", &m_camera_distance, 1.0f, 50.0f);
     ImGui::SliderFloat("Yaw (deg)", &m_camera_yaw, -180.0f, 180.0f);
@@ -157,13 +166,28 @@ void ImGuiViewer::render() {
         resetCamera();
     }
     ImGui::Separator();
-    ImGui::Text("3D Points: %zu", m_points.size());
+    ImGui::Text("VIO Information:");
+    ImGui::Text("Map Points: %zu", m_points.size());
+    ImGui::Text("Trajectory Length: %zu", m_trajectory.size());
+    
+    // Display current pose information
+    Eigen::Vector3f position = m_current_pose.block<3, 1>(0, 3);
+    ImGui::Text("Current Position: (%.2f, %.2f, %.2f)", position.x(), position.y(), position.z());
+    
+    ImGui::Separator();
     ImGui::Text("Mouse Controls:");
     ImGui::Text("  Left Click + Drag: Rotate camera");
     ImGui::Text("  Right Click + Drag: Pan camera");
     ImGui::Text("  Scroll Wheel: Zoom in/out");
-    ImGui::Text("Keyboard:");
+    
+    ImGui::Separator();
+    ImGui::Text("Keyboard Controls:");
+    ImGui::Text("  SPACE: Toggle play/pause");
+    ImGui::Text("  N/ENTER: Next frame (step mode)");
     ImGui::Text("  ESC: Exit application");
+    
+    // Reset font scale back to normal
+    ImGui::SetWindowFontScale(1.0f);
     ImGui::End();
 
     // Feature Tracking Image Window
@@ -282,8 +306,76 @@ void ImGuiViewer::draw3DPoints(const std::vector<Eigen::Vector3f>& points) {
     glPointSize(1.0f);
 }
 
+void ImGuiViewer::drawPose(const Eigen::Matrix4f& pose) {
+    // Extract position from pose matrix
+    Eigen::Vector3f position = pose.block<3, 1>(0, 3);
+    Eigen::Matrix3f rotation = pose.block<3, 3>(0, 0);
+    
+    // Draw camera position as a larger point
+    glPointSize(8.0f);
+    glBegin(GL_POINTS);
+    glColor3f(1.0f, 0.0f, 0.0f); // Red color for camera position
+    glVertex3f(position.x(), position.y(), position.z());
+    glEnd();
+    glPointSize(1.0f);
+    
+    // Draw camera orientation axes
+    float axis_length = 0.5f;
+    glLineWidth(3.0f);
+    glBegin(GL_LINES);
+    
+    // X-axis (right) - Red
+    glColor3f(1.0f, 0.0f, 0.0f);
+    Eigen::Vector3f x_axis = position + rotation.col(0) * axis_length;
+    glVertex3f(position.x(), position.y(), position.z());
+    glVertex3f(x_axis.x(), x_axis.y(), x_axis.z());
+    
+    // Y-axis (up) - Green
+    glColor3f(0.0f, 1.0f, 0.0f);
+    Eigen::Vector3f y_axis = position + rotation.col(1) * axis_length;
+    glVertex3f(position.x(), position.y(), position.z());
+    glVertex3f(y_axis.x(), y_axis.y(), y_axis.z());
+    
+    // Z-axis (forward) - Blue
+    glColor3f(0.0f, 0.0f, 1.0f);
+    Eigen::Vector3f z_axis = position + rotation.col(2) * axis_length;
+    glVertex3f(position.x(), position.y(), position.z());
+    glVertex3f(z_axis.x(), z_axis.y(), z_axis.z());
+    
+    glEnd();
+    glLineWidth(1.0f);
+}
+
+void ImGuiViewer::drawTrajectory(const std::vector<Eigen::Vector3f>& trajectory) {
+    if (trajectory.size() < 2) return;
+    
+    // Draw trajectory as a line strip
+    glLineWidth(2.0f);
+    glBegin(GL_LINE_STRIP);
+    glColor3f(1.0f, 1.0f, 0.0f); // Yellow color for trajectory
+    
+    for (const auto& position : trajectory) {
+        glVertex3f(position.x(), position.y(), position.z());
+    }
+    
+    glEnd();
+    glLineWidth(1.0f);
+}
+
 void ImGuiViewer::updatePoints(const std::vector<Eigen::Vector3f>& points) {
     m_points = points;
+}
+
+void ImGuiViewer::updatePose(const Eigen::Matrix4f& pose) {
+    m_current_pose = pose;
+    
+    // Update camera target to follow the current pose position
+    Eigen::Vector3f current_position = pose.block<3, 1>(0, 3);
+    m_camera_target = current_position;
+}
+
+void ImGuiViewer::updateTrajectory(const std::vector<Eigen::Vector3f>& trajectory) {
+    m_trajectory = trajectory;
 }
 
 void ImGuiViewer::setupOpenGL() {

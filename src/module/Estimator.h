@@ -4,11 +4,14 @@
 #include <vector>
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
+#include <module/PoseOptimizer.h>
 
-#include "../database/Frame.h"
-#include "../database/MapPoint.h"
-#include "FeatureTracker.h"
-#include "PoseOptimizer.h"
+// Forward declarations
+namespace lightweight_vio {
+    class Frame;
+    class MapPoint;
+    class FeatureTracker;
+}
 
 namespace lightweight_vio {
 
@@ -179,6 +182,20 @@ private:
      * @return Number of created map points
      */
     int create_initial_map_points(std::shared_ptr<Frame> frame);
+    
+    /**
+     * @brief Create new map points for untracked stereo features
+     * @param frame Frame to create map points for
+     * @return Number of created map points
+     */
+    int create_new_map_points(std::shared_ptr<Frame> frame);
+    
+    /**
+     * @brief Associate tracked features with existing map points from previous frames
+     * @param frame Frame to associate features
+     * @return Number of associated features
+     */
+    int associate_tracked_features_with_map_points(std::shared_ptr<Frame> frame);
     
     /**
      * @brief Associate features with existing map points

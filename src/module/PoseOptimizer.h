@@ -4,16 +4,21 @@
 #include <vector>
 #include <ceres/ceres.h>
 #include <Eigen/Dense>
-
-#include "../factor/Parameters.h"
-#include "../factor/PnPFactors.h"
-#include "../factor/Parameters.h"
-
-namespace lightweight_vio {
+#include <factor/Parameters.h>
+#include <factor/PnPFactors.h>
 
 // Forward declarations
-class Frame;
-class MapPoint;
+namespace lightweight_vio {
+    class Frame;
+    class MapPoint;
+    
+    namespace factor {
+        class MonoPnPFactor;
+        struct CameraParameters;
+    }
+}
+
+namespace lightweight_vio {
 
 /**
  * @brief Pose optimization result
@@ -122,7 +127,8 @@ private:
         double* pose_params,
         const Eigen::Vector3d& world_point,
         const Eigen::Vector2d& observation,
-        const factor::CameraParameters& camera_params);
+        const factor::CameraParameters& camera_params,
+        double pixel_noise_std = 1.0);
     
     /**
      * @brief Detect outliers using chi-square test

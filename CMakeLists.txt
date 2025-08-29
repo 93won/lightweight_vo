@@ -5,6 +5,9 @@ project(lightweight_vio)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Set OpenGL preference to avoid warnings
+set(OpenGL_GL_PREFERENCE GLVND)
+
 # Find packages
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
@@ -15,7 +18,15 @@ find_package(Threads REQUIRED)
 
 # Build Sophus from thirdparty first with tests disabled
 set(BUILD_TESTS OFF CACHE BOOL "Build Sophus tests" FORCE)
+set(BUILD_SOPHUS_TESTS OFF CACHE BOOL "Build Sophus tests" FORCE)
+set(BUILD_SOPHUS_EXAMPLES OFF CACHE BOOL "Build Sophus examples" FORCE)
 add_subdirectory(thirdparty/Sophus)
+
+# Build spdlog from thirdparty
+set(SPDLOG_BUILD_EXAMPLES OFF CACHE BOOL "Build spdlog examples" FORCE)
+set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "Build spdlog tests" FORCE)
+set(SPDLOG_BUILD_BENCH OFF CACHE BOOL "Build spdlog benchmarks" FORCE)
+add_subdirectory(thirdparty/spdlog)
 
 # Build Ceres from thirdparty without finding system version
 set(CERES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/ceres-solver)
@@ -23,6 +34,10 @@ set(BUILD_EXAMPLES OFF CACHE BOOL "Build Ceres examples" FORCE)
 set(BUILD_BENCHMARKS OFF CACHE BOOL "Build Ceres benchmarks" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "Build Ceres tests" FORCE)
 set(SUITESPARSE OFF CACHE BOOL "Enable SuiteSparse" FORCE)
+
+# Prevent finding system Ceres
+set(CMAKE_DISABLE_FIND_PACKAGE_Ceres ON)
+
 add_subdirectory(${CERES_DIR} EXCLUDE_FROM_ALL)
 
 # Find GLU for legacy OpenGL functions
@@ -35,6 +50,7 @@ include_directories(src)
 include_directories(thirdparty/imgui)
 include_directories(thirdparty/imgui/backends)
 include_directories(thirdparty/Sophus)
+include_directories(thirdparty/spdlog/include)
 include_directories(thirdparty/ceres-solver/include)
 include_directories(${CMAKE_BINARY_DIR}/thirdparty/ceres-solver/include)
 
@@ -87,6 +103,7 @@ target_link_libraries(test_vio_viewer
     Threads::Threads
     ceres
     Sophus::Sophus
+    spdlog::spdlog
 )
 
 

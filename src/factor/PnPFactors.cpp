@@ -8,19 +8,44 @@ namespace factor {
 MonoPnPFactor::MonoPnPFactor(const Eigen::Vector2d& observation,
                             const Eigen::Vector3d& world_point,
                             const CameraParameters& camera_params,
+                            const Eigen::Matrix4d& Tcb,
                             const Eigen::Matrix2d& information)
     : m_observation(observation), m_world_point(world_point), 
-      m_camera_params(camera_params), m_information(information) {}
+      m_camera_params(camera_params), m_Tcb(Tcb), m_information(information), m_is_outlier(false) {}
 
 bool MonoPnPFactor::Evaluate(double const* const* parameters,
                              double* residuals,
                              double** jacobians) const {
-    // Extract SE3 parameters from tangent space
+    // If marked as outlier, set residuals to zero and jacobians to zero
+    if (m_is_outlier) {
+        residuals[0] = 0.0;
+        residuals[1] = 0.0;
+        
+        if (jacobians && jacobians[0]) {
+            Eigen::Map<Eigen::Matrix<double, 2, 6, Eigen::RowMajor>> jac(jacobians[0]);
+            jac.setZero();
+        }
+        return true;
+    }
+
+    // Extract SE3 parameters from tangent space (Twb)
     Eigen::Map<const Eigen::Vector6d> se3_tangent(parameters[0]);
     
-    // Convert to SE3 and transform point to camera coordinates
-    Sophus::SE3d pose = Sophus::SE3d::exp(se3_tangent);
-    Eigen::Vector3d point_camera = pose * m_world_point;
+    // Convert to SE3 pose (Twb)
+    Sophus::SE3d Twb = Sophus::SE3d::exp(se3_tangent);
+    
+    // g2o 코드 참고: Twb를 사용하여 Tcw 계산
+    Eigen::Matrix3d Rwb = Twb.rotationMatrix();
+    Eigen::Vector3d twb = Twb.translation();
+    Eigen::Matrix3d Rbw = Rwb.transpose();
+    Eigen::Vector3d tbw = -Rbw * twb;
+    
+    // Tcw = Tcb * Tbw
+    Eigen::Matrix3d Rcw = m_Tcb.block<3, 3>(0, 0) * Rbw;
+    Eigen::Vector3d tcw = m_Tcb.block<3, 3>(0, 0) * tbw + m_Tcb.block<3, 1>(0, 3);
+    
+    // Transform world point to camera coordinates: Pc = Rcw * Pw + tcw
+    Eigen::Vector3d point_camera = Rcw * m_world_point + tcw;
     
     double x = point_camera.x();
     double y = point_camera.y();
@@ -31,15 +56,17 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters,
         return false;
     }
     
+    double z_inv = 1.0 / z;
+    
     // Project to image plane
-    double u = m_camera_params.fx * x / z + m_camera_params.cx;
-    double v = m_camera_params.fy * y / z + m_camera_params.cy;
+    double u = m_camera_params.fx * x * z_inv + m_camera_params.cx;
+    double v = m_camera_params.fy * y * z_inv + m_camera_params.cy;
     
     // Compute residuals: observation - projection
     Eigen::Vector2d residual_vec;
     residual_vec << m_observation.x() - u, m_observation.y() - v;
     
-    // Apply information matrix weighting: r_weighted = sqrt(Information) * r
+    // Apply information matrix weighting to residuals: r_weighted = sqrt(Info) * r
     Eigen::LLT<Eigen::Matrix2d> llt(m_information);
     if (llt.info() == Eigen::Success) {
         // Use Cholesky decomposition: Information = L * L^T
@@ -57,29 +84,34 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters,
     if (jacobians && jacobians[0]) {
         Eigen::Map<Eigen::Matrix<double, 2, 6, Eigen::RowMajor>> jac(jacobians[0]);
         
-        double z_inv = 1.0 / z;
         double z_inv_sq = z_inv * z_inv;
         
-        // Jacobian of projection w.r.t camera coordinates [2x3]
+        // g2o 코드 참고: Jacobian 계산
+        // Tcb의 회전 부분 캐싱
+        Eigen::Matrix3d Rcb = m_Tcb.block<3, 3>(0, 0);
+        
+        // Tbw에서의 body 좌표: Pb = Rbw * Pw + tbw
+        Eigen::Vector3d Pb = Rbw * m_world_point + tbw;
+        
+        // 카메라 투영 Jacobian 계산
         Eigen::Matrix<double, 2, 3> J_proj_camera;
-        J_proj_camera << 
-            m_camera_params.fx * z_inv,  0.0,                          -m_camera_params.fx * x * z_inv_sq,
-            0.0,                         m_camera_params.fy * z_inv,   -m_camera_params.fy * y * z_inv_sq;
+        J_proj_camera(0, 0) = -m_camera_params.fx * z_inv;
+        J_proj_camera(0, 1) = 0.0;
+        J_proj_camera(0, 2) = x * m_camera_params.fx * z_inv_sq;
+        J_proj_camera(1, 0) = 0.0;
+        J_proj_camera(1, 1) = -m_camera_params.fy * z_inv;
+        J_proj_camera(1, 2) = y * m_camera_params.fy * z_inv_sq;
         
-        // Jacobian of camera coordinates w.r.t SE3 tangent space [3x6]
-        Eigen::Matrix<double, 3, 6> J_camera_se3;
+        // g2o 코드 참고: Twb에 대한 Jacobian
+        Eigen::Matrix<double, 2, 3> JdPwb = J_proj_camera * (-Rcb);
+        Eigen::Matrix3d hatPb = Sophus::SO3d::hat(Pb);
+        Eigen::Matrix<double, 2, 3> JdRwb = J_proj_camera * Rcb * hatPb;
         
-        // Rotation part: d(R*p)/d(so3) = -R * hat(p)
-        Eigen::Matrix3d R = pose.rotationMatrix();
-        J_camera_se3.block<3, 3>(0, 0) = -R * Sophus::SO3d::hat(m_world_point);
+        // 전체 Jacobian 조합 [rotation | translation]
+        Eigen::Matrix<double, 2, 6> unweighted_jac;
+        unweighted_jac << JdRwb, JdPwb;
         
-        // Translation part: d(R*p + t)/d(t) = R
-        J_camera_se3.block<3, 3>(0, 3) = R;
-        
-        // Chain rule: J = -J_proj_camera * J_camera_se3
-        Eigen::Matrix<double, 2, 6> unweighted_jac = -J_proj_camera * J_camera_se3;
-        
-        // Apply information matrix weighting to Jacobian
+        // Apply information matrix weighting to Jacobian: J_weighted = sqrt(Info) * J
         Eigen::LLT<Eigen::Matrix2d> llt(m_information);
         if (llt.info() == Eigen::Success) {
             jac = llt.matrixL() * unweighted_jac;
@@ -92,12 +124,24 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters,
 }
 
 double MonoPnPFactor::compute_chi_square(double const* const* parameters) const {
-    // Extract SE3 parameters from tangent space
+    // Extract SE3 parameters from tangent space (Twb)
     Eigen::Map<const Eigen::Vector6d> se3_tangent(parameters[0]);
     
-    // Convert to SE3 and transform point to camera coordinates
-    Sophus::SE3d pose = Sophus::SE3d::exp(se3_tangent);
-    Eigen::Vector3d point_camera = pose * m_world_point;
+    // Convert to SE3 pose (Twb)
+    Sophus::SE3d Twb = Sophus::SE3d::exp(se3_tangent);
+    
+    // g2o 코드 참고: Twb를 사용하여 Tcw 계산
+    Eigen::Matrix3d Rwb = Twb.rotationMatrix();
+    Eigen::Vector3d twb = Twb.translation();
+    Eigen::Matrix3d Rbw = Rwb.transpose();
+    Eigen::Vector3d tbw = -Rbw * twb;
+    
+    // Tcw = Tcb * Tbw
+    Eigen::Matrix3d Rcw = m_Tcb.block<3, 3>(0, 0) * Rbw;
+    Eigen::Vector3d tcw = m_Tcb.block<3, 3>(0, 0) * tbw + m_Tcb.block<3, 1>(0, 3);
+    
+    // Transform world point to camera coordinates: Pc = Rcw * Pw + tcw
+    Eigen::Vector3d point_camera = Rcw * m_world_point + tcw;
     
     double x = point_camera.x();
     double y = point_camera.y();
@@ -108,9 +152,11 @@ double MonoPnPFactor::compute_chi_square(double const* const* parameters) const 
         return std::numeric_limits<double>::max(); // Invalid, return large chi-square
     }
     
+    double z_inv = 1.0 / z;
+    
     // Project to image plane
-    double u = m_camera_params.fx * x / z + m_camera_params.cx;
-    double v = m_camera_params.fy * y / z + m_camera_params.cy;
+    double u = m_camera_params.fx * x * z_inv + m_camera_params.cx;
+    double v = m_camera_params.fy * y * z_inv + m_camera_params.cy;
     
     // Compute residuals: observation - projection
     Eigen::Vector2d residual_vec;

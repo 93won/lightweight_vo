@@ -49,11 +49,16 @@ public:
     // Stereo Rectification Parameters
     double getMaxRectifiedYDifference() const { return max_rectified_y_difference; }
     
-    // Triangulation Parameters
+    // Global Depth Parameters (used throughout VIO system)
     double getMinDepth() const { return min_depth; }
     double getMaxDepth() const { return max_depth; }
+    
+    // Triangulation Parameters (specific to 3D point generation)
     double getMaxReprojectionError() const { return max_reprojection_error; }
     double getMinParallax() const { return min_parallax; }
+    
+    // Keyframe Parameters
+    int getKeyframeInterval() const { return keyframe_interval; }
     
     // Camera Parameters
     int getImageWidth() const { return image_width; }
@@ -113,11 +118,16 @@ private:
     // Stereo Rectification Parameters
     double max_rectified_y_difference = 2.0;
     
-    // Triangulation Parameters
+    // Global Depth Parameters (used throughout VIO system)
     double min_depth = 0.1;
     double max_depth = 100.0;
+    
+    // Triangulation Parameters (specific to 3D point generation)
     double max_reprojection_error = 2.0;
     double min_parallax = 0.5;
+    
+    // Keyframe Parameters
+    int keyframe_interval = 10;
     
     // Camera Parameters
     int image_width = 752;

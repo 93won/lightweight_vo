@@ -29,9 +29,13 @@ public:
     void drawOriginPoint();
     void drawAxis();
     void draw3DPoints(const std::vector<Eigen::Vector3f>& points);
+    void drawPose(const Eigen::Matrix4f& pose);
+    void drawTrajectory(const std::vector<Eigen::Vector3f>& trajectory);
     
     // Update functions
     void updatePoints(const std::vector<Eigen::Vector3f>& points);
+    void updatePose(const Eigen::Matrix4f& pose);
+    void updateTrajectory(const std::vector<Eigen::Vector3f>& trajectory);
     
     // Image display functions
     void updateTrackingImage(const cv::Mat& image);
@@ -47,6 +51,10 @@ private:
     
     // 3D points to render
     std::vector<Eigen::Vector3f> m_points;
+    
+    // Current pose and trajectory
+    Eigen::Matrix4f m_current_pose;
+    std::vector<Eigen::Vector3f> m_trajectory;
     
     // Camera parameters
     float m_camera_distance;

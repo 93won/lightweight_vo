@@ -3,10 +3,14 @@
 #include <opencv2/opencv.hpp>
 #include <memory>
 #include <vector>
-#include "../database/Frame.h"
-#include "../database/Feature.h"
-#include "../database/MapPoint.h"
-#include "../util/Config.h"
+#include <util/Config.h>
+
+// Forward declarations
+namespace lightweight_vio {
+    class Frame;
+    class Feature;
+    class MapPoint;
+}
 
 namespace lightweight_vio {
 
@@ -25,8 +29,8 @@ public:
                               std::shared_ptr<Frame> previous_frame);
     
     // Outlier rejection
-    void reject_outliers_with_essential_matrix(std::shared_ptr<Frame> current_frame,
-                                              std::shared_ptr<Frame> previous_frame);
+    void reject_outliers(std::shared_ptr<Frame> current_frame,
+                         std::shared_ptr<Frame> previous_frame);
 
     // Feature distribution
     void set_mask(std::shared_ptr<Frame> frame);

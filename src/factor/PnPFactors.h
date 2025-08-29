@@ -25,8 +25,9 @@ struct CameraParameters {
 
 /**
  * @brief Monocular PnP cost function with analytical Jacobian
+ * Uses Twb (body-to-world) pose with Tcb (camera-to-body) extrinsics
  * Residual: observed_pixel - projected_pixel
- * Parameters: SE3 pose in tangent space [6]
+ * Parameters: SE3 pose in tangent space [6] (Twb)
  * Residual dimension: [2]
  */
 class MonoPnPFactor : public ceres::SizedCostFunction<2, 6> {
@@ -36,12 +37,26 @@ public:
      * @param observation Observed 2D pixel coordinates [u, v]
      * @param world_point 3D point in world coordinates
      * @param camera_params Camera intrinsic parameters
+     * @param Tcb Camera-to-body transformation matrix [4x4]
      * @param information Information matrix (precision matrix) [2x2]
      */
     MonoPnPFactor(const Eigen::Vector2d& observation,
                   const Eigen::Vector3d& world_point,
                   const CameraParameters& camera_params,
+                  const Eigen::Matrix4d& Tcb,
                   const Eigen::Matrix2d& information = Eigen::Matrix2d::Identity());
+
+    /**
+     * @brief Set outlier flag to disable optimization for this factor
+     * @param is_outlier If true, this factor will not contribute to optimization
+     */
+    void set_outlier(bool is_outlier) { m_is_outlier = is_outlier; }
+    
+    /**
+     * @brief Get outlier flag
+     * @return true if this factor is marked as outlier
+     */
+    bool is_outlier() const { return m_is_outlier; }
 
     /**
      * @brief Evaluate residual and Jacobian
@@ -65,7 +80,9 @@ private:
     Eigen::Vector2d m_observation;    // Observed pixel coordinates
     Eigen::Vector3d m_world_point;    // 3D world coordinates
     CameraParameters m_camera_params; // Camera intrinsics
+    Eigen::Matrix4d m_Tcb;            // Camera-to-body transformation
     Eigen::Matrix2d m_information;    // Information matrix (precision matrix)
+    bool m_is_outlier;                // Outlier flag to disable optimization
 };
 
 } // namespace factor
