@@ -53,37 +53,9 @@ struct ObservationInfo {
 class PoseOptimizer {
 public:
     /**
-     * @brief Configuration parameters for optimization
-     */
-    struct Config {
-        int max_iterations = 10;
-        double function_tolerance = 1e-6;
-        double gradient_tolerance = 1e-10;
-        double parameter_tolerance = 1e-8;
-        
-        // Robust kernel parameters
-        bool use_robust_kernel = true;
-        double huber_delta_mono = 5.99;    // sqrt(chi2_2dof_95%)
-        double huber_delta_stereo = 7.81;  // sqrt(chi2_3dof_95%)
-        
-        // Solver parameters
-        ceres::LinearSolverType linear_solver_type = ceres::DENSE_QR;
-        bool use_explicit_schur_complement = false;
-        
-        // Outlier detection
-        bool enable_outlier_detection = true;
-        int outlier_detection_rounds = 3;
-        
-        // Logging
-        bool minimizer_progress_to_stdout = false;
-        bool print_summary = false;
-    };
-    
-    /**
      * @brief Constructor
-     * @param config Configuration parameters
      */
-    PoseOptimizer(const Config& config);
+    PoseOptimizer();
     
     /**
      * @brief Destructor
@@ -96,23 +68,8 @@ public:
      * @return Optimization result
      */
     OptimizationResult optimize_pose(std::shared_ptr<Frame> frame);
-    
-    /**
-     * @brief Set configuration
-     * @param config New configuration
-     */
-    void set_config(const Config& config) { m_config = config; }
-    
-    /**
-     * @brief Get current configuration
-     * @return Current configuration
-     */
-    const Config& get_config() const { return m_config; }
 
 private:
-    // Configuration
-    Config m_config;
-    
     /**
      * @brief Add monocular PnP observation to problem
      * @param problem Ceres problem

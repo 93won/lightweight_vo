@@ -2,6 +2,7 @@
 #include <database/Frame.h>
 #include <database/MapPoint.h>
 #include <factor/Parameters.h>
+#include <util/Config.h>
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <algorithm>
@@ -10,8 +11,7 @@
 namespace lightweight_vio
 {
 
-    PoseOptimizer::PoseOptimizer(const Config &config)
-        : m_config(config)
+    PoseOptimizer::PoseOptimizer()
     {
     }
 
@@ -41,6 +41,7 @@ namespace lightweight_vio
         std::vector<ObservationInfo> observations;
         std::vector<int> feature_indices; // Track which features correspond to observations
         int num_valid_observations = 0;
+        int num_excluded_outliers = 0;
 
         // Add mono PnP observations from frame's map points
         const auto &map_points = frame->get_map_points();
@@ -51,6 +52,15 @@ namespace lightweight_vio
             if (!mp || mp->is_bad())
             {
                 continue;
+            }
+
+            // Give outliers a second chance - don't exclude them immediately
+            // Only exclude if they've been consistently outliers for multiple frames
+            // For now, let all features with map points participate in optimization
+            bool is_previous_outlier = frame->get_outlier_flag(i);
+            if (is_previous_outlier) {
+                // Still include but track that it was an outlier
+                num_excluded_outliers++; // This now means "previous outliers given another chance"
             }
 
             // Get 3D world point
@@ -98,28 +108,45 @@ namespace lightweight_vio
         // Setup solver options
         ceres::Solver::Options options = setup_solver_options();
 
-        // Perform outlier detection rounds if enabled (ORB-SLAM3 style)
-        if (m_config.enable_outlier_detection)
+        // Get global config
+        const auto& config = Config::getInstance();
+
+        // Perform outlier detection rounds if enabled
+        if (config.m_enable_outlier_detection)
         {
-            for (int round = 0; round < m_config.outlier_detection_rounds; ++round)
+            double initial_cost = 0.0;
+            double final_cost = 0.0;
+            int total_iterations = 0;
+            
+            // Store initial pose parameters for resetting each round (ORB-SLAM style)
+            Eigen::Vector6d initial_pose_params = pose_params;
+            
+            for (int round = 0; round < config.m_outlier_detection_rounds; ++round)
             {
+                // Reset pose to initial value for each round
+                if (round > 0) {
+                    pose_params = initial_pose_params;
+                    spdlog::debug("[POSE_OPT] Round {}: Reset pose to initial value", round);
+                }
+                
                 // Solve
                 ceres::Solver::Summary summary;
                 ceres::Solve(options, &problem, &summary);
 
-                // Brief report
-                spdlog::info("[CERES] Round {}: {}", round + 1, summary.BriefReport());
+                // Store costs for summary
+                if (round == 0) {
+                    initial_cost = summary.initial_cost;
+                }
+                final_cost = summary.final_cost;
+                total_iterations += summary.iterations.size();
 
                 // Detect outliers and update frame's outlier flags
                 double *pose_data = pose_params.data();
                 int num_inliers = detect_outliers(const_cast<double const *const *>(&pose_data), observations, feature_indices, frame);
                 int num_outliers = observations.size() - num_inliers;
-                
-                spdlog::info("[OUTLIER] Round {}: {} inliers, {} outliers", 
-                            round + 1, num_inliers, num_outliers);
 
                 // Remove outlier residual blocks for next iteration
-                if (round < m_config.outlier_detection_rounds - 1)
+                if (round < config.m_outlier_detection_rounds - 1)
                 {
                     // Outliers are already disabled via set_outlier() in detect_outliers()
                     // The cost functions will return zero residuals and jacobians for outliers
@@ -130,6 +157,15 @@ namespace lightweight_vio
                 result.num_iterations += summary.iterations.size();
                 result.success = (summary.termination_type == ceres::CONVERGENCE);
             }
+            
+            // Print consolidated optimization summary
+            double *pose_data = pose_params.data();
+            int final_inliers = detect_outliers(const_cast<double const *const *>(&pose_data), observations, feature_indices, frame);
+            int final_outliers = observations.size() - final_inliers;
+            
+            spdlog::info("[POSE_OPT] {} rounds: cost {:.3e} -> {:.3e}, {} iters, {} inliers/{} outliers", 
+                        config.m_outlier_detection_rounds, initial_cost, final_cost, 
+                        total_iterations, final_inliers, final_outliers);
         }
         else
         {
@@ -137,34 +173,53 @@ namespace lightweight_vio
             ceres::Solver::Summary summary;
             ceres::Solve(options, &problem, &summary);
 
-            // Brief report
-            spdlog::info("[CERES] {}", summary.BriefReport());
-
             // Check outliers for final report even without outlier detection rounds
             double *pose_data = pose_params.data();
             int num_inliers = detect_outliers(const_cast<double const *const *>(&pose_data), observations, feature_indices, frame);
             int num_outliers = observations.size() - num_inliers;
-            spdlog::info("[OUTLIER] Final: {} inliers, {} outliers", num_inliers, num_outliers);
+            
+            spdlog::info("[POSE_OPT] Single solve: cost {:.3e} -> {:.3e}, {} iters, {} inliers/{} outliers", 
+                        summary.initial_cost, summary.final_cost, summary.iterations.size(),
+                        num_inliers, num_outliers);
 
             result.success = (summary.termination_type == ceres::CONVERGENCE);
             result.final_cost = summary.final_cost;
             result.num_iterations = summary.iterations.size();
         }
 
-        // Count final inliers/outliers
+        // Count final inliers/outliers and disconnect outlier map points
         result.num_inliers = 0;
         result.num_outliers = 0;
+        int disconnected_map_points = 0;
+        
         const auto &outlier_flags = frame->get_outlier_flags();
-        for (bool is_outlier : outlier_flags)
+        for (size_t i = 0; i < outlier_flags.size(); ++i)
         {
+            bool is_outlier = outlier_flags[i];
             if (is_outlier)
             {
                 result.num_outliers++;
+                
+                // Disconnect outlier feature from its map point
+                auto map_point = frame->get_map_point(i);
+                if (map_point && !map_point->is_bad()) {
+                    // Remove observation from map point
+                    map_point->remove_observation(frame);
+                    
+                    // Remove map point from frame
+                    frame->set_map_point(i, nullptr);
+                    
+                    disconnected_map_points++;
+                }
             }
             else
             {
                 result.num_inliers++;
             }
+        }
+        
+        if (disconnected_map_points > 0) {
+            spdlog::warn("[POSE_OPT] Disconnected {} outlier map points", disconnected_map_points);
         }
 
         // Update result
@@ -177,11 +232,12 @@ namespace lightweight_vio
             frame->set_Twb(result.optimized_pose);
         }
 
-        if (m_config.print_summary)
-        {
-            spdlog::info("[POSE] Optimization: {} inliers, {} outliers", 
-                        result.num_inliers, result.num_outliers);
-        }
+        // Summary is already printed in the optimization loop above
+        // if (config.m_print_summary)
+        // {
+        //     spdlog::info("[POSE] Optimization: {} inliers, {} outliers", 
+        //                 result.num_inliers, result.num_outliers);
+        // }
 
         return result;
     }
@@ -208,9 +264,10 @@ namespace lightweight_vio
 
         // Create robust loss function if enabled
         ceres::LossFunction *loss_function = nullptr;
-        if (m_config.use_robust_kernel)
+        const auto& config = Config::getInstance();
+        if (config.m_use_robust_kernel)
         {
-            loss_function = create_robust_loss(m_config.huber_delta_mono);
+            loss_function = create_robust_loss(config.m_huber_delta_mono);
         }
 
         // Add residual block
@@ -242,6 +299,11 @@ namespace lightweight_vio
             // Mark as outlier if above threshold
             bool is_outlier = (chi2_error > chi2_threshold);
             int feature_idx = feature_indices[i];
+            
+            // Get previous outlier status
+            bool was_outlier = frame->get_outlier_flag(feature_idx);
+            
+            // Update outlier flag - can be both set and cleared based on current chi2 test
             frame->set_outlier_flag(feature_idx, is_outlier);
 
             // Set outlier flag in the cost function to disable it for next optimization round
@@ -251,35 +313,47 @@ namespace lightweight_vio
             {
                 num_inliers++;
                 inlier_chi2_values.push_back(chi2_error);
+                
+                // Log recovery if this feature was previously an outlier
+                if (was_outlier) {
+                    spdlog::debug("[POSE_OPT] Feature {} recovered from outlier (chi2: {:.3f})", 
+                                 feature_idx, chi2_error);
+                }
             }
             else
             {
                 outlier_chi2_values.push_back(chi2_error);
+                
+                // Log new outlier detection
+                if (!was_outlier) {
+                    spdlog::debug("[POSE_OPT] Feature {} marked as outlier (chi2: {:.3f})", 
+                                 feature_idx, chi2_error);
+                }
             }
         }
 
-        // Print chi2 statistics
-        if (!inlier_chi2_values.empty())
-        {
-            auto inlier_minmax = std::minmax_element(inlier_chi2_values.begin(), inlier_chi2_values.end());
-            double inlier_sum = std::accumulate(inlier_chi2_values.begin(), inlier_chi2_values.end(), 0.0);
-            double inlier_mean = inlier_sum / inlier_chi2_values.size();
-            
-            spdlog::info("[CHI2_STATS] Inliers ({}): min={:.3f}, max={:.3f}, mean={:.3f}", 
-                        inlier_chi2_values.size(), *inlier_minmax.first, 
-                        *inlier_minmax.second, inlier_mean);
-        }
+        // Print chi2 statistics (commented out to reduce log verbosity)
+        // if (!inlier_chi2_values.empty())
+        // {
+        //     auto inlier_minmax = std::minmax_element(inlier_chi2_values.begin(), inlier_chi2_values.end());
+        //     double inlier_sum = std::accumulate(inlier_chi2_values.begin(), inlier_chi2_values.end(), 0.0);
+        //     double inlier_mean = inlier_sum / inlier_chi2_values.size();
+        //     
+        //     spdlog::info("[CHI2_STATS] Inliers ({}): min={:.3f}, max={:.3f}, mean={:.3f}", 
+        //                 inlier_chi2_values.size(), *inlier_minmax.first, 
+        //                 *inlier_minmax.second, inlier_mean);
+        // }
 
-        if (!outlier_chi2_values.empty())
-        {
-            auto outlier_minmax = std::minmax_element(outlier_chi2_values.begin(), outlier_chi2_values.end());
-            double outlier_sum = std::accumulate(outlier_chi2_values.begin(), outlier_chi2_values.end(), 0.0);
-            double outlier_mean = outlier_sum / outlier_chi2_values.size();
-            
-            spdlog::info("[CHI2_STATS] Outliers ({}): min={:.3f}, max={:.3f}, mean={:.3f}", 
-                        outlier_chi2_values.size(), *outlier_minmax.first, 
-                        *outlier_minmax.second, outlier_mean);
-        }
+        // if (!outlier_chi2_values.empty())
+        // {
+        //     auto outlier_minmax = std::minmax_element(outlier_chi2_values.begin(), outlier_chi2_values.end());
+        //     double outlier_sum = std::accumulate(outlier_chi2_values.begin(), outlier_chi2_values.end(), 0.0);
+        //     double outlier_mean = outlier_sum / outlier_chi2_values.size();
+        //     
+        //     spdlog::info("[CHI2_STATS] Outliers ({}): min={:.3f}, max={:.3f}, mean={:.3f}", 
+        //                 outlier_chi2_values.size(), *outlier_minmax.first, 
+        //                 *outlier_minmax.second, outlier_mean);
+        // }
 
         // Debug: Print details for some outliers to understand what's wrong
         int debug_count = 0;
@@ -338,17 +412,20 @@ namespace lightweight_vio
     ceres::Solver::Options PoseOptimizer::setup_solver_options() const
     {
         ceres::Solver::Options options;
+        const auto& config = Config::getInstance();
 
-        options.max_num_iterations = m_config.max_iterations;
-        options.function_tolerance = m_config.function_tolerance;
-        options.gradient_tolerance = m_config.gradient_tolerance;
-        options.parameter_tolerance = m_config.parameter_tolerance;
+        options.max_num_iterations = config.m_pose_max_iterations;
+        options.function_tolerance = config.m_pose_function_tolerance;
+        options.gradient_tolerance = config.m_pose_gradient_tolerance;
+        options.parameter_tolerance = config.m_pose_parameter_tolerance;
 
-        options.linear_solver_type = m_config.linear_solver_type;
-        options.use_explicit_schur_complement = m_config.use_explicit_schur_complement;
+        // Use fixed solver configuration for now
+        options.linear_solver_type = ceres::DENSE_QR;
+        options.use_explicit_schur_complement = false;
 
-        // Brief report only, no verbose stdout output
-        options.minimizer_progress_to_stdout = false;
+        // Logging configuration
+        options.logging_type = config.m_enable_pose_solver_logging ? ceres::PER_MINIMIZER_ITERATION : ceres::SILENT;
+        options.minimizer_progress_to_stdout = config.m_enable_pose_solver_logging;
 
         return options;
     }

@@ -17,33 +17,34 @@ public:
     bool initialize(int width = 2400, int height = 1200);
     void shutdown();
     
-    bool shouldClose() const;
+    bool should_close() const;
+    bool is_ready() const;
     void render();
     
     // Camera controls
-    void setCameraPosition(float distance, float yaw, float pitch);
-    void resetCamera();
+    void set_camera_position(float distance, float yaw, float pitch);
+    void reset_camera();
     
     // 3D drawing functions
-    void drawGrid();
-    void drawOriginPoint();
-    void drawAxis();
-    void draw3DPoints(const std::vector<Eigen::Vector3f>& points);
-    void drawPose(const Eigen::Matrix4f& pose);
-    void drawTrajectory(const std::vector<Eigen::Vector3f>& trajectory);
+    void draw_grid();
+    void draw_origin_point();
+    void draw_axis();
+    void draw_3d_points(const std::vector<Eigen::Vector3f>& points);
+    void draw_pose(const Eigen::Matrix4f& pose);
+    void draw_trajectory(const std::vector<Eigen::Vector3f>& trajectory);
     
     // Update functions
-    void updatePoints(const std::vector<Eigen::Vector3f>& points);
-    void updatePose(const Eigen::Matrix4f& pose);
-    void updateTrajectory(const std::vector<Eigen::Vector3f>& trajectory);
+    void update_points(const std::vector<Eigen::Vector3f>& points);
+    void update_pose(const Eigen::Matrix4f& pose);
+    void update_trajectory(const std::vector<Eigen::Vector3f>& trajectory);
     
     // Image display functions
-    void updateTrackingImage(const cv::Mat& image);
-    void updateStereoImage(const cv::Mat& image);
-    GLuint createTextureFromMat(const cv::Mat& mat);
+    void update_tracking_image(const cv::Mat& image);
+    void update_stereo_image(const cv::Mat& image);
+    GLuint create_texture_from_mat(const cv::Mat& mat);
     
     // Input handling
-    void processKeyboardInput(bool& auto_play, bool& step_mode, bool& advance_frame);
+    void process_keyboard_input(bool& auto_play, bool& step_mode, bool& advance_frame);
     
 private:
     GLFWwindow* m_window;

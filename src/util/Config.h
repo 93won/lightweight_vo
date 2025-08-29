@@ -3,147 +3,126 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 
-namespace lightweight_vio {
+namespace lightweight_vio
+{
 
-class Config {
-public:
-    static Config& getInstance() {
-        static Config instance;
-        return instance;
-    }
-    
-    bool load(const std::string& config_file);
-    
-    // Feature Detection Parameters
-    int getMaxFeatures() const { return max_features; }
-    double getQualityLevel() const { return quality_level; }
-    double getMinDistance() const { return min_distance; }
-    
-    // Optical Flow Parameters
-    int getWindowSize() const { return window_size; }
-    int getMaxLevel() const { return max_level; }
-    int getMaxIterations() const { return max_iterations; }
-    double getEpsilon() const { return epsilon; }
-    double getErrorThreshold() const { return error_threshold; }
-    double getMaxMovement() const { return max_movement; }
-    cv::TermCriteria getTermCriteria() const { 
-        return cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 
-                               max_iterations, epsilon); 
-    }
-    double getMinEigenThreshold() const { return min_eigen_threshold; }
-    
-    // Outlier Rejection Parameters
-    double getFundamentalThreshold() const { return fundamental_threshold; }
-    double getFundamentalConfidence() const { return fundamental_confidence; }
-    double getMaxMovementDistance() const { return max_movement_distance; }
-    double getMaxVelocityChange() const { return max_velocity_change; }
-    int getMinPointsForRansac() const { return min_points_for_ransac; }
-    
-    // Stereo Matching Parameters
-    double getStereoErrorThreshold() const { return stereo_error_threshold; }
-    double getMinDisparity() const { return min_disparity; }
-    double getMaxDisparity() const { return max_disparity; }
-    double getMaxYDifference() const { return max_y_difference; }
-    double getEpipolarThreshold() const { return epipolar_threshold; }
-    
-    // Stereo Rectification Parameters
-    double getMaxRectifiedYDifference() const { return max_rectified_y_difference; }
-    
-    // Global Depth Parameters (used throughout VIO system)
-    double getMinDepth() const { return min_depth; }
-    double getMaxDepth() const { return max_depth; }
-    
-    // Triangulation Parameters (specific to 3D point generation)
-    double getMaxReprojectionError() const { return max_reprojection_error; }
-    double getMinParallax() const { return min_parallax; }
-    
+    class Config
+    {
+    public:
+        static Config &getInstance()
+        {
+            static Config instance;
+            return instance;
+        }
+
+        bool load(const std::string &config_file);
+
+        // Functions for complex types only
+        cv::TermCriteria term_criteria() const
+        {
+            return cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS,
+                                    m_max_iterations, m_epsilon);
+        }
+        cv::TermCriteria stereo_term_criteria() const
+        {
+            return cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS,
+                                    m_stereo_max_iterations, m_epsilon);
+        }
+
+        cv::Mat left_camera_matrix() const { return m_left_camera_matrix.clone(); }
+        cv::Mat right_camera_matrix() const { return m_right_camera_matrix.clone(); }
+        cv::Mat left_dist_coeffs() const { return m_left_dist_coeffs.clone(); }
+        cv::Mat right_dist_coeffs() const { return m_right_dist_coeffs.clone(); }
+        cv::Mat left_to_right_transform() const { return m_T_left_right.clone(); }
+
+        // Public member variables for simple access
+
+        // Feature Detection Parameters
+        int m_max_features = 150;
+        double m_quality_level = 0.01;
+        double m_min_distance = 30.0;
+
+        // Optical Flow Parameters
+        int m_window_size = 21;
+        int m_max_level = 3;
+        int m_max_iterations = 30;
+        double m_epsilon = 0.01;
+        double m_error_threshold = 30.0;
+        double m_max_movement = 100.0;
+        double m_min_eigen_threshold = 5e-2;
+
+        // Outlier Rejection Parameters
+        double m_fundamental_threshold = 5.0;
+        double m_fundamental_confidence = 0.99;
+        double m_max_movement_distance = 50.0;
+        double m_max_velocity_change = 20.0;
+        int m_min_points_for_ransac = 8;
+
+        // Stereo Matching Parameters
+        int m_stereo_window_size = 31;
+        int m_stereo_max_level = 4;
+        int m_stereo_max_iterations = 50;
+        double m_stereo_min_eigen_threshold = 1e-3;
+
+        double m_stereo_error_threshold = 50.0;
+        double m_min_disparity = 0.1;
+        double m_max_disparity = 300.0;
+        double m_max_y_difference = 20.0;
+        double m_epipolar_threshold = 5.0;
+
+        // Stereo Rectification Parameters
+        double m_max_rectified_y_difference = 2.0;
+
+        // Global Depth Parameters
+        double m_min_depth = 0.1;
+        double m_max_depth = 100.0;
+
+        // Triangulation Parameters
+        double m_max_reprojection_error = 10.0;
+        double m_min_parallax = 0.5;
+
     // Keyframe Parameters
-    int getKeyframeInterval() const { return keyframe_interval; }
+    int m_keyframe_interval = 10;
+    
+    // Pose Optimization Parameters
+    int m_pose_max_iterations = 10;
+    double m_pose_function_tolerance = 1e-6;
+    double m_pose_gradient_tolerance = 1e-10;
+    double m_pose_parameter_tolerance = 1e-8;
+    bool m_enable_pose_solver_logging = false;
+    
+    // Robust kernel parameters
+    bool m_use_robust_kernel = true;
+    double m_huber_delta_mono = 5.99;    // sqrt(chi2_2dof_95%)
+    double m_huber_delta_stereo = 7.81;  // sqrt(chi2_3dof_95%)
+    
+    // Outlier detection
+    bool m_enable_outlier_detection = true;
+    int m_outlier_detection_rounds = 3;
+    
+    // Logging
+    bool m_minimizer_progress_to_stdout = false;
+    bool m_print_summary = false;
     
     // Camera Parameters
-    int getImageWidth() const { return image_width; }
-    int getImageHeight() const { return image_height; }
-    int getBorderSize() const { return border_size; }
-    
-    // Camera Calibration
-    cv::Mat getLeftCameraMatrix() const { return left_camera_matrix.clone(); }
-    cv::Mat getRightCameraMatrix() const { return right_camera_matrix.clone(); }
-    cv::Mat getLeftDistCoeffs() const { return left_dist_coeffs.clone(); }
-    cv::Mat getRightDistCoeffs() const { return right_dist_coeffs.clone(); }
-    cv::Mat getLeftToRightTransform() const { return T_left_right.clone(); }  // T_rl: left to right transform
-    
-    // Convenient camera parameter getters
-    double getFx() const { return left_camera_matrix.at<double>(0, 0); }
-    double getFy() const { return left_camera_matrix.at<double>(1, 1); }
-    double getCx() const { return left_camera_matrix.at<double>(0, 2); }
-    double getCy() const { return left_camera_matrix.at<double>(1, 2); }
-    double getBaseline() const { return 0.11; }  // EuRoC stereo baseline (meters)
-    cv::Mat getDistortionCoeffs() const { return left_dist_coeffs.clone(); }
-    
-    // Performance Parameters
-    bool isTimingEnabled() const { return enable_timing; }
-    bool isDebugOutputEnabled() const { return enable_debug_output; }
+    int m_image_width = 752;
+    int m_image_height = 480;
+    int m_border_size = 1;        // Baseline for convenience (EuRoC dataset)
+        double m_baseline = 0.11;
 
-private:
-    Config() = default;
-    
-    // Feature Detection Parameters
-    int max_features = 150;
-    double quality_level = 0.01;
-    double min_distance = 30.0;
-    
-    // Optical Flow Parameters
-    int window_size = 21;
-    int max_level = 3;
-    int max_iterations = 30;
-    double epsilon = 0.01;
-    double error_threshold = 30.0;
-    double max_movement = 100.0;
-    double min_eigen_threshold = 1e-4;
-    
-    // Outlier Rejection Parameters
-    double fundamental_threshold = 1.0;
-    double fundamental_confidence = 0.99;
-    double max_movement_distance = 50.0;
-    double max_velocity_change = 20.0;
-    int min_points_for_ransac = 8;
-    
-    // Stereo Matching Parameters
-    double stereo_error_threshold = 50.0;
-    double min_disparity = 0.1;
-    double max_disparity = 300.0;
-    double max_y_difference = 20.0;
-    double epipolar_threshold = 5.0;
-    
-    // Stereo Rectification Parameters
-    double max_rectified_y_difference = 2.0;
-    
-    // Global Depth Parameters (used throughout VIO system)
-    double min_depth = 0.1;
-    double max_depth = 100.0;
-    
-    // Triangulation Parameters (specific to 3D point generation)
-    double max_reprojection_error = 2.0;
-    double min_parallax = 0.5;
-    
-    // Keyframe Parameters
-    int keyframe_interval = 10;
-    
-    // Camera Parameters
-    int image_width = 752;
-    int image_height = 480;
-    int border_size = 1;
-    
-    // Camera Calibration Matrices
-    cv::Mat left_camera_matrix;
-    cv::Mat right_camera_matrix;
-    cv::Mat left_dist_coeffs;
-    cv::Mat right_dist_coeffs;
-    cv::Mat T_left_right;  // T_rl: Transform from left to right camera (following T_ab = b->a convention)
-    
-    // Performance Parameters
-    bool enable_timing = true;
-    bool enable_debug_output = true;
-};
+        // Performance Parameters
+        bool m_enable_timing = true;
+        bool m_enable_debug_output = true;
+
+    private:
+        Config() = default;
+
+        // Private camera matrices (accessed through functions)
+        cv::Mat m_left_camera_matrix;
+        cv::Mat m_right_camera_matrix;
+        cv::Mat m_left_dist_coeffs;
+        cv::Mat m_right_dist_coeffs;
+        cv::Mat m_T_left_right;
+    };
 
 } // namespace lightweight_vio

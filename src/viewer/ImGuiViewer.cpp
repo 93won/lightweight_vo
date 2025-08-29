@@ -82,7 +82,7 @@ bool ImGuiViewer::initialize(int width, int height) {
     setupOpenGL();
 
     m_initialized = true;
-    std::cout << "ImGui 3D Viewer initialized successfully" << std::endl;
+    // Removed viewer initialization log
     return true;
 }
 
@@ -112,8 +112,12 @@ void ImGuiViewer::shutdown() {
     m_initialized = false;
 }
 
-bool ImGuiViewer::shouldClose() const {
+bool ImGuiViewer::should_close() const {
     return m_window ? glfwWindowShouldClose(m_window) : true;
+}
+
+bool ImGuiViewer::is_ready() const {
+    return m_initialized && m_window != nullptr;
 }
 
 void ImGuiViewer::render() {
@@ -143,12 +147,12 @@ void ImGuiViewer::render() {
     setupCamera();
 
     // Draw 3D content
-    drawGrid();
-    drawAxis();
-    drawOriginPoint();
-    draw3DPoints(m_points);
-    drawPose(m_current_pose);
-    drawTrajectory(m_trajectory);
+    draw_grid();
+    draw_axis();
+    draw_origin_point();
+    draw_3d_points(m_points);
+    draw_pose(m_current_pose);
+    draw_trajectory(m_trajectory);
 
     // ImGui UI with larger font size
     ImGui::SetNextWindowSize(ImVec2(400, 600), ImGuiCond_FirstUseEver);
@@ -163,7 +167,7 @@ void ImGuiViewer::render() {
     ImGui::SliderFloat("Pitch (deg)", &m_camera_pitch, -89.0f, 89.0f);
     ImGui::SliderFloat3("Target", m_camera_target.data(), -10.0f, 10.0f);
     if (ImGui::Button("Reset Camera")) {
-        resetCamera();
+        reset_camera();
     }
     ImGui::Separator();
     ImGui::Text("VIO Information:");
@@ -213,20 +217,20 @@ void ImGuiViewer::render() {
     glfwSwapBuffers(m_window);
 }
 
-void ImGuiViewer::setCameraPosition(float distance, float yaw, float pitch) {
+void ImGuiViewer::set_camera_position(float distance, float yaw, float pitch) {
     m_camera_distance = distance;
     m_camera_yaw = yaw;
     m_camera_pitch = pitch;
 }
 
-void ImGuiViewer::resetCamera() {
+void ImGuiViewer::reset_camera() {
     m_camera_distance = 10.0f;
     m_camera_yaw = 0.0f;       // degrees
     m_camera_pitch = -17.0f;   // degrees  
     m_camera_target = Eigen::Vector3f(0.0f, 0.0f, 0.0f);
 }
 
-void ImGuiViewer::drawGrid() {
+void ImGuiViewer::draw_grid() {
     glDisable(GL_DEPTH_TEST);
     glLineWidth(1.0f);
     glBegin(GL_LINES);
@@ -259,7 +263,7 @@ void ImGuiViewer::drawGrid() {
     glEnable(GL_DEPTH_TEST);
 }
 
-void ImGuiViewer::drawOriginPoint() {
+void ImGuiViewer::draw_origin_point() {
     glPointSize(10.0f);
     glBegin(GL_POINTS);
     glColor3f(1.0f, 0.0f, 0.0f); // Red color
@@ -267,7 +271,7 @@ void ImGuiViewer::drawOriginPoint() {
     glEnd();
 }
 
-void ImGuiViewer::drawAxis() {
+void ImGuiViewer::draw_axis() {
     glLineWidth(3.0f);
     glBegin(GL_LINES);
     
@@ -290,7 +294,7 @@ void ImGuiViewer::drawAxis() {
     glLineWidth(1.0f);
 }
 
-void ImGuiViewer::draw3DPoints(const std::vector<Eigen::Vector3f>& points) {
+void ImGuiViewer::draw_3d_points(const std::vector<Eigen::Vector3f>& points) {
     if (points.empty()) return;
     
     glPointSize(3.0f);
@@ -306,7 +310,7 @@ void ImGuiViewer::draw3DPoints(const std::vector<Eigen::Vector3f>& points) {
     glPointSize(1.0f);
 }
 
-void ImGuiViewer::drawPose(const Eigen::Matrix4f& pose) {
+void ImGuiViewer::draw_pose(const Eigen::Matrix4f& pose) {
     // Extract position from pose matrix
     Eigen::Vector3f position = pose.block<3, 1>(0, 3);
     Eigen::Matrix3f rotation = pose.block<3, 3>(0, 0);
@@ -346,7 +350,7 @@ void ImGuiViewer::drawPose(const Eigen::Matrix4f& pose) {
     glLineWidth(1.0f);
 }
 
-void ImGuiViewer::drawTrajectory(const std::vector<Eigen::Vector3f>& trajectory) {
+void ImGuiViewer::draw_trajectory(const std::vector<Eigen::Vector3f>& trajectory) {
     if (trajectory.size() < 2) return;
     
     // Draw trajectory as a line strip
@@ -362,11 +366,11 @@ void ImGuiViewer::drawTrajectory(const std::vector<Eigen::Vector3f>& trajectory)
     glLineWidth(1.0f);
 }
 
-void ImGuiViewer::updatePoints(const std::vector<Eigen::Vector3f>& points) {
+void ImGuiViewer::update_points(const std::vector<Eigen::Vector3f>& points) {
     m_points = points;
 }
 
-void ImGuiViewer::updatePose(const Eigen::Matrix4f& pose) {
+void ImGuiViewer::update_pose(const Eigen::Matrix4f& pose) {
     m_current_pose = pose;
     
     // Update camera target to follow the current pose position
@@ -374,7 +378,7 @@ void ImGuiViewer::updatePose(const Eigen::Matrix4f& pose) {
     m_camera_target = current_position;
 }
 
-void ImGuiViewer::updateTrajectory(const std::vector<Eigen::Vector3f>& trajectory) {
+void ImGuiViewer::update_trajectory(const std::vector<Eigen::Vector3f>& trajectory) {
     m_trajectory = trajectory;
 }
 
@@ -487,7 +491,7 @@ void ImGuiViewer::scrollCallback(GLFWwindow* window, double xoffset, double yoff
     }
 }
 
-void ImGuiViewer::updateTrackingImage(const cv::Mat& image) {
+void ImGuiViewer::update_tracking_image(const cv::Mat& image) {
     if (image.empty()) return;
     
     // Convert to RGB if needed
@@ -506,12 +510,12 @@ void ImGuiViewer::updateTrackingImage(const cv::Mat& image) {
     }
     
     // Create new texture
-    m_tracking_texture = createTextureFromMat(rgb_image);
+    m_tracking_texture = create_texture_from_mat(rgb_image);
     m_tracking_width = rgb_image.cols;
     m_tracking_height = rgb_image.rows;
 }
 
-void ImGuiViewer::updateStereoImage(const cv::Mat& image) {
+void ImGuiViewer::update_stereo_image(const cv::Mat& image) {
     if (image.empty()) return;
     
     // Convert to RGB if needed
@@ -530,12 +534,12 @@ void ImGuiViewer::updateStereoImage(const cv::Mat& image) {
     }
     
     // Create new texture
-    m_stereo_texture = createTextureFromMat(rgb_image);
+    m_stereo_texture = create_texture_from_mat(rgb_image);
     m_stereo_width = rgb_image.cols;
     m_stereo_height = rgb_image.rows;
 }
 
-GLuint ImGuiViewer::createTextureFromMat(const cv::Mat& mat) {
+GLuint ImGuiViewer::create_texture_from_mat(const cv::Mat& mat) {
     GLuint texture;
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D, texture);
@@ -550,17 +554,17 @@ GLuint ImGuiViewer::createTextureFromMat(const cv::Mat& mat) {
     return texture;
 }
 
-void ImGuiViewer::processKeyboardInput(bool& auto_play, bool& step_mode, bool& advance_frame) {
+void ImGuiViewer::process_keyboard_input(bool& auto_play, bool& step_mode, bool& advance_frame) {
     // Handle space key press - toggle between auto and step mode
     if (m_space_pressed) {
         if (auto_play) {
             auto_play = false;
             step_mode = true;
-            std::cout << "Switched to STEP MODE - Press N or ENTER to advance frames" << std::endl;
+            // Removed step mode message - already shown in viewer UI
         } else {
             auto_play = true;
             step_mode = false;
-            std::cout << "Switched to AUTO MODE - Press SPACE to return to step mode" << std::endl;
+            // Removed auto mode message - already shown in viewer UI
         }
         m_space_pressed = false;  // Reset flag
     }

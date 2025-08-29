@@ -1,6 +1,7 @@
 #include <database/Frame.h>
 #include <database/MapPoint.h>
 #include <util/Config.h>
+#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <iostream>
 
@@ -65,7 +66,7 @@ Frame::Frame(long long timestamp, int frame_id,
 {
     // Get camera parameters from Config
     const Config& config = Config::getInstance();
-    cv::Mat left_K = config.getLeftCameraMatrix();
+    cv::Mat left_K = config.left_camera_matrix();
     
     if (!left_K.empty()) {
         m_fx = left_K.at<double>(0, 0);
@@ -79,7 +80,7 @@ Frame::Frame(long long timestamp, int frame_id,
     }
     
     // Get distortion coefficients
-    cv::Mat left_D = config.getLeftDistCoeffs();
+    cv::Mat left_D = config.left_dist_coeffs();
     if (!left_D.empty()) {
         m_distortion_coeffs.clear();
         for (int i = 0; i < left_D.rows; ++i) {
@@ -136,6 +137,14 @@ std::shared_ptr<Feature> Frame::get_feature(int feature_id) {
         return m_features[it->second];
     }
     return nullptr;
+}
+
+int Frame::get_feature_index(int feature_id) const {
+    auto it = m_feature_id_to_index.find(feature_id);
+    if (it != m_feature_id_to_index.end()) {
+        return static_cast<int>(it->second);
+    }
+    return -1;  // Feature not found
 }
 
 std::shared_ptr<const Feature> Frame::get_feature(int feature_id) const {
@@ -418,15 +427,20 @@ void Frame::compute_stereo_matches() {
         return;
     }
 
-    // Perform optical flow tracking from left to right image with improved parameters
-    int window_size = Config::getInstance().getWindowSize();
+    // Perform optical flow tracking from left to right image with stereo-specific parameters
+    int stereo_window_size = Config::getInstance().m_stereo_window_size;
     cv::calcOpticalFlowPyrLK(m_left_image, m_right_image, left_pts, right_pts, 
-                            status, err, cv::Size(window_size, window_size), 
-                            Config::getInstance().getMaxLevel(),
-                            Config::getInstance().getTermCriteria(),
-                            0, Config::getInstance().getMinEigenThreshold()); // Lower eigenvalue threshold for better tracking
+                            status, err, cv::Size(stereo_window_size, stereo_window_size), 
+                            Config::getInstance().m_stereo_max_level,
+                            Config::getInstance().stereo_term_criteria(),
+                            0, Config::getInstance().m_stereo_min_eigen_threshold); // Stereo-specific eigenvalue threshold
 
     int matches_found = 0;
+    int optical_flow_failed = 0;
+    int error_threshold_failed = 0;
+    int epipolar_failed = 0;
+    int y_diff_failed = 0;
+    int total_features = 0;
     
     // For unrectified stereo, we need more sophisticated matching
     // First, try to estimate fundamental matrix from initial matches
@@ -436,7 +450,7 @@ void Frame::compute_stereo_matches() {
     size_t feature_idx = 0;
     for (auto& feature : m_features) {
         if (feature->is_valid() && feature_idx < status.size()) {
-            if (status[feature_idx] && err[feature_idx] < Config::getInstance().getStereoErrorThreshold()) { // Very loose error threshold
+            if (status[feature_idx] && err[feature_idx] < Config::getInstance().m_stereo_error_threshold) { // Very loose error threshold
                 good_left_pts.push_back(left_pts[feature_idx]);
                 good_right_pts.push_back(right_pts[feature_idx]);
             }
@@ -451,8 +465,8 @@ void Frame::compute_stereo_matches() {
         // Estimate fundamental matrix with RANSAC
         fundamental_matrix = cv::findFundamentalMat(
             good_left_pts, good_right_pts, cv::FM_RANSAC, 
-            Config::getInstance().getFundamentalThreshold(), 
-            Config::getInstance().getFundamentalConfidence(), inlier_mask
+            Config::getInstance().m_fundamental_threshold, 
+            Config::getInstance().m_fundamental_confidence, inlier_mask
         );
         
         // Debug output removed for cleaner logs
@@ -462,57 +476,74 @@ void Frame::compute_stereo_matches() {
     feature_idx = 0;
     for (auto& feature : m_features) {
         if (feature->is_valid() && feature_idx < status.size()) {
-            if (status[feature_idx] && err[feature_idx] < Config::getInstance().getStereoErrorThreshold()) {
-                cv::Point2f left_pt = left_pts[feature_idx];
-                cv::Point2f right_pt = right_pts[feature_idx];
+            total_features++;
+            
+            if (!status[feature_idx]) {
+                // Optical flow tracking failed
+                optical_flow_failed++;
+                feature->set_stereo_match(cv::Point2f(-1, -1), -1.0f);
+                feature_idx++;
+                continue;
+            }
+            
+            if (err[feature_idx] >= Config::getInstance().m_stereo_error_threshold) {
+                // Error threshold exceeded
+                error_threshold_failed++;
+                feature->set_stereo_match(cv::Point2f(-1, -1), -1.0f);
+                feature_idx++;
+                continue;
+            }
+            
+            cv::Point2f left_pt = left_pts[feature_idx];
+            cv::Point2f right_pt = right_pts[feature_idx];
+            
+            bool is_valid_match = true;
+            
+            // Check epipolar constraint if fundamental matrix is available
+            if (!fundamental_matrix.empty()) {
+                // Convert points to homogeneous coordinates with correct type
+                cv::Mat left_homo = (cv::Mat_<double>(3, 1) << left_pt.x, left_pt.y, 1.0);
+                cv::Mat right_homo = (cv::Mat_<double>(3, 1) << right_pt.x, right_pt.y, 1.0);
                 
-                bool is_valid_match = true;
-                
-                // Check epipolar constraint if fundamental matrix is available
-                if (!fundamental_matrix.empty()) {
-                    // Convert points to homogeneous coordinates with correct type
-                    cv::Mat left_homo = (cv::Mat_<double>(3, 1) << left_pt.x, left_pt.y, 1.0);
-                    cv::Mat right_homo = (cv::Mat_<double>(3, 1) << right_pt.x, right_pt.y, 1.0);
-                    
-                    // Ensure fundamental matrix is double type
-                    cv::Mat F_double;
-                    if (fundamental_matrix.type() != CV_64F) {
-                        fundamental_matrix.convertTo(F_double, CV_64F);
-                    } else {
-                        F_double = fundamental_matrix;
-                    }
-                    
-                    // Compute epipolar error: x2^T * F * x1
-                    cv::Mat epipolar_error = right_homo.t() * F_double * left_homo;
-                    double error = std::abs(epipolar_error.at<double>(0, 0));
-                    
-                    // Reject if epipolar error is too large
-                    if (error > Config::getInstance().getEpipolarThreshold()) {
-                        is_valid_match = false;
-                    }
+                // Ensure fundamental matrix is double type
+                cv::Mat F_double;
+                if (fundamental_matrix.type() != CV_64F) {
+                    fundamental_matrix.convertTo(F_double, CV_64F);
+                } else {
+                    F_double = fundamental_matrix;
                 }
                 
-                // Additional basic checks (remove disparity-based checks)
-                float y_diff = std::abs(left_pt.y - right_pt.y);
+                // Compute epipolar error: x2^T * F * x1
+                cv::Mat epipolar_error = right_homo.t() * F_double * left_homo;
+                double error = std::abs(epipolar_error.at<double>(0, 0));
                 
-                // Reject if y-coordinate difference is too large (basic sanity check)
-                if (y_diff > Config::getInstance().getMaxYDifference()) {
+                // Reject if epipolar error is too large
+                if (error > Config::getInstance().m_epipolar_threshold) {
+                    epipolar_failed++;
                     is_valid_match = false;
                 }
-                
-                if (is_valid_match) {
-                    feature->set_stereo_match(right_pt, -1.0f); // No disparity stored
-                    matches_found++;
-                } else {
-                    // Invalid match - reset stereo match data
-                    feature->set_stereo_match(cv::Point2f(-1, -1), -1.0f);
-                }
+            }
+            
+            // Additional basic checks (remove disparity-based checks)
+            float y_diff = std::abs(left_pt.y - right_pt.y);
+            
+            // Reject if y-coordinate difference is too large (basic sanity check)
+            if (y_diff > Config::getInstance().m_max_y_difference) {
+                y_diff_failed++;
+                is_valid_match = false;
+            }
+            
+            if (is_valid_match) {
+                feature->set_stereo_match(right_pt, -1.0f); // No disparity stored
+                matches_found++;
             } else {
-                // No match found - set invalid disparity
+                // Invalid match - reset stereo match data
                 feature->set_stereo_match(cv::Point2f(-1, -1), -1.0f);
             }
+            
             feature_idx++;
         } else if (feature->is_valid()) {
+            total_features++;
             // Feature is valid but no corresponding tracking result - set invalid disparity
             feature->set_stereo_match(cv::Point2f(-1, -1), -1.0f);
         }
@@ -521,7 +552,13 @@ void Frame::compute_stereo_matches() {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     
-    // Timing output removed for cleaner logs
+    // Log stereo matching statistics
+    spdlog::debug("[STEREO] Total features: {}, Successful matches: {}", total_features, matches_found);
+    spdlog::debug("[STEREO] Optical flow failed: {}, Error threshold failed: {}", optical_flow_failed, error_threshold_failed);
+    spdlog::debug("[STEREO] Epipolar constraint failed: {}, Y-diff failed: {}", epipolar_failed, y_diff_failed);
+    
+    float success_rate = total_features > 0 ? (float)matches_found / total_features * 100.0f : 0.0f;
+    spdlog::debug("[STEREO] Success rate: {:.1f}% ({}/{})", success_rate, matches_found, total_features);
 }
 
 void Frame::undistort_features() {
@@ -531,10 +568,10 @@ void Frame::undistort_features() {
     initialize_outlier_flags();
     
     const Config& config = Config::getInstance();
-    cv::Mat left_K = config.getLeftCameraMatrix();
-    cv::Mat left_D = config.getLeftDistCoeffs();
-    cv::Mat right_K = config.getRightCameraMatrix();
-    cv::Mat right_D = config.getRightDistCoeffs();
+    cv::Mat left_K = config.left_camera_matrix();
+    cv::Mat left_D = config.left_dist_coeffs();
+    cv::Mat right_K = config.right_camera_matrix();
+    cv::Mat right_D = config.right_dist_coeffs();
     
     if (left_K.empty() || left_D.empty()) {
         std::cerr << "Camera calibration not available for undistortion" << std::endl;
@@ -616,11 +653,11 @@ void Frame::triangulate_stereo_points() {
     auto start_time = std::chrono::high_resolution_clock::now();
     
     const Config& config = Config::getInstance();
-    cv::Mat left_K = config.getLeftCameraMatrix();
-    cv::Mat left_D = config.getLeftDistCoeffs();
-    cv::Mat right_K = config.getRightCameraMatrix();
-    cv::Mat right_D = config.getRightDistCoeffs();
-    cv::Mat T_rl = config.getLeftToRightTransform();  // T_rl: left to right transform (following T_ab = b->a convention)
+    cv::Mat left_K = config.left_camera_matrix();
+    cv::Mat left_D = config.left_dist_coeffs();
+    cv::Mat right_K = config.right_camera_matrix();
+    cv::Mat right_D = config.right_dist_coeffs();
+    cv::Mat T_rl = config.left_to_right_transform();  // T_rl: left to right transform (following T_ab = b->a convention)
     
     if (left_K.empty() || right_K.empty() || T_rl.empty()) {
         std::cerr << "Camera calibration not available for triangulation" << std::endl;
@@ -713,7 +750,7 @@ void Frame::triangulate_stereo_points() {
             depth_values.push_back(pos_3d[2]);
             
             // Debug: Print depth values to see what we're getting
-            if (config.isDebugOutputEnabled() && depth_values.size() <= 10) {
+            if (config.m_enable_debug_output && depth_values.size() <= 10) {
                 // std::cout << "Triangulated depth: " << pos_3d[2] 
                 //           << ", 3D point: (" << pos_3d[0] << ", " << pos_3d[1] << ", " << pos_3d[2] << ")" 
                 //           << ", left_norm: (" << left_norm_2d[0] << ", " << left_norm_2d[1] << ")"
@@ -721,11 +758,11 @@ void Frame::triangulate_stereo_points() {
             }
             
             // Check depth range (positive depth in front of camera)
-            if (pos_3d[2] < config.getMinDepth() || pos_3d[2] > config.getMaxDepth()) {
+            if (pos_3d[2] < config.m_min_depth || pos_3d[2] > config.m_max_depth) {
                 depth_rejected++;
-                // if (config.isDebugOutputEnabled() && depth_rejected <= 5) {
+                // if (config.m_enable_debug_output && depth_rejected <= 5) {
                 //     std::cout << "Depth rejected: " << pos_3d[2] << " (range: " 
-                //               << config.getMinDepth() << " - " << config.getMaxDepth() << ")" << std::endl;
+                //               << config.m_min_depth << " - " << config.m_max_depth << ")" << std::endl;
                 // }
                 continue;
             }
@@ -749,7 +786,7 @@ void Frame::triangulate_stereo_points() {
             double max_error = std::max(left_error, right_error);
             
             // Use normalized coordinate reprojection threshold
-            double max_reproj_error = config.getMaxReprojectionError() / std::min(K_left_eigen(0,0), K_left_eigen(1,1));
+            double max_reproj_error = config.m_max_reprojection_error / std::min(K_left_eigen(0,0), K_left_eigen(1,1));
             
             if (max_error > max_reproj_error) {
                 reprojection_rejected++;

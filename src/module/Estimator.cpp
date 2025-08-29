@@ -10,32 +10,38 @@
 
 namespace lightweight_vio {
 
-Estimator::Estimator(const Config& config)
-    : m_config(config)
-    , m_frame_id_counter(0)
+Estimator::Estimator()
+    : m_frame_id_counter(0)
     , m_frames_since_last_keyframe(0)
     , m_current_pose(Eigen::Matrix4f::Identity()) {
     
     // Initialize feature tracker
     m_feature_tracker = std::make_unique<FeatureTracker>();
     
-    // Initialize pose optimizer
-    m_pose_optimizer = std::make_unique<PoseOptimizer>(m_config.pose_optimizer_config);
+    // Initialize pose optimizer - now uses global Config internally
+    m_pose_optimizer = std::make_unique<PoseOptimizer>();
 }
 
 Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp) {
     EstimationResult result;
     auto start_time = std::chrono::high_resolution_clock::now();
-    
+
+    // Frame processing starts
+    spdlog::info("============================== Frame {} ==============================", m_frame_id_counter);
+
+    // Increment frame counter since last keyframe for every new frame
+    m_frames_since_last_keyframe++;
+
     // Create new stereo frame
     m_current_frame = create_frame(left_image, right_image, timestamp);
-    
-    if (!m_current_frame) {
+
+    if (!m_current_frame)
+    {
         spdlog::error("[Estimator] Failed to create frame!");
         result.success = false;
         return result;
     }
-    
+
     if (m_previous_frame) {
         // Track features from previous frame using FeatureTracker
         // FeatureTracker now handles both tracking and map point association/creation
@@ -49,13 +55,19 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         // Count how many features have associated map points (already done by FeatureTracker)
         int num_tracked_with_map_points = count_features_with_map_points(m_current_frame);
         
+        // Log tracking information
+        spdlog::info("[TRACKING] {} features tracked, {} with map points", 
+                    result.num_features, num_tracked_with_map_points);
+        
         if (num_tracked_with_map_points > 0) {
             // Perform pose optimization if we have enough associations
-            if (m_config.enable_pose_optimization && num_tracked_with_map_points >= 5) {
+            if (num_tracked_with_map_points >= 5) {
                 auto opt_result = optimize_pose(m_current_frame);
                 result.success = opt_result.success;
                 result.num_inliers = opt_result.num_inliers;
                 result.num_outliers = opt_result.num_outliers;
+                
+                // Count features with map points after optimization (removed excessive logging)
                 
                 if (opt_result.success) {
                     m_current_pose = opt_result.optimized_pose;
@@ -78,18 +90,24 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         // NOTE: FeatureTracker already handles map point association during tracking
         // No need to call associate_tracked_features_with_map_points() again
         
-        // Decide whether to create keyframe first
+        
+        // Decide whether to create keyframe
         bool is_keyframe = should_create_keyframe(m_current_frame);
         
         // Only create new map points for keyframes to avoid trajectory drift
         if (is_keyframe) {
             int new_map_points = create_new_map_points(m_current_frame);
-            spdlog::debug("[Estimator] Created {} new map points for keyframe", new_map_points);
+            result.num_new_map_points = new_map_points;
+            spdlog::info("[MAP_POINTS] Created {} new map points", new_map_points);
             create_keyframe(m_current_frame);
-            m_frames_since_last_keyframe = 0;
+            m_frames_since_last_keyframe = 0;  // Reset to 0 after creating keyframe
         } else {
-            m_frames_since_last_keyframe++;
+            result.num_new_map_points = 0;
         }
+        
+        // Count tracked features and features with map points
+        result.num_tracked_features = m_current_frame->get_feature_count();
+        result.num_features_with_map_points = count_features_with_map_points(m_current_frame);
         
       
     } else {
@@ -104,10 +122,19 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         // First frame - keep identity pose (already set in create_frame)
         m_current_pose = m_current_frame->get_Twb();
         
+        // Increment frame counter (first frame processing)
+        m_frames_since_last_keyframe++;
+        
         // Create initial map points (first frame is always considered keyframe)
         int initial_map_points = create_initial_map_points(m_current_frame);
+        result.num_new_map_points = initial_map_points;
+        spdlog::info("[MAP_POINTS] Created {} initial map points", initial_map_points);
         create_keyframe(m_current_frame);
-        m_frames_since_last_keyframe = 0;
+        m_frames_since_last_keyframe = 0;  // Reset after creating first keyframe
+        
+        // Count features for first frame
+        result.num_tracked_features = m_current_frame->get_feature_count();
+        result.num_features_with_map_points = count_features_with_map_points(m_current_frame);
         
         result.success = true;
     }
@@ -160,13 +187,17 @@ std::shared_ptr<Frame> Estimator::create_frame(const cv::Mat& left_image, const 
     }
     
     // Create frame with stereo images and camera parameters
+    // Get camera parameters from global config
+    const auto& global_config = Config::getInstance();
+    cv::Mat left_K = global_config.left_camera_matrix();
+    
     auto frame = std::make_shared<Frame>(
         timestamp, 
         m_frame_id_counter++,
         gray_left, gray_right,
-        m_config.fx, m_config.fy, m_config.cx, m_config.cy,
-        m_config.baseline,
-        cv::Mat(m_config.distortion_coeffs)
+        left_K.at<double>(0, 0), left_K.at<double>(1, 1), left_K.at<double>(0, 2), left_K.at<double>(1, 2),
+        global_config.m_baseline,
+        global_config.left_dist_coeffs()
     );
     
     // Set initial pose to previous frame's pose (or identity for first frame)
@@ -259,6 +290,7 @@ int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> fra
     // 1. Have valid stereo depth
     // 2. Are not already associated with a map point
     // 3. Are valid features
+    // 4. NEW: Include outlier features if they have stereo matches
     for (size_t i = 0; i < features.size(); ++i) {
         auto feature = features[i];
         
@@ -278,7 +310,7 @@ int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> fra
         
         // Validate depth range using global config parameters
         auto& global_config = lightweight_vio::Config::getInstance();
-        if (depth < global_config.getMinDepth() || depth > global_config.getMaxDepth()) {
+        if (depth < global_config.m_min_depth || depth > global_config.m_max_depth) {
             continue;  // Skip invalid depths
         }
         
@@ -374,10 +406,11 @@ bool lightweight_vio::Estimator::should_create_keyframe(std::shared_ptr<Frame> f
         return true;  // First frame is always a keyframe
     }
     
-    if (m_frames_since_last_keyframe >= m_config.keyframe_interval) {
+    if (m_frames_since_last_keyframe >= Config::getInstance().m_keyframe_interval) {
         return true;
     }
     
+    // Could add more sophisticated criteria:
     // Could add more sophisticated criteria:
     // - Translation/rotation distance from last keyframe
     // - Number of inliers
@@ -395,8 +428,8 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
 }
 
 OptimizationResult lightweight_vio::Estimator::optimize_pose(std::shared_ptr<Frame> frame) {
-    // TODO: Implement pose optimization using PoseOptimizer
-    PoseOptimizer optimizer(m_config.pose_optimizer_config);
+    // Create pose optimizer - uses global Config internally
+    PoseOptimizer optimizer;
     return optimizer.optimize_pose(frame);
 }
 

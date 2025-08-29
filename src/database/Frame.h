@@ -60,6 +60,7 @@ public:
     std::shared_ptr<Feature> get_feature(int feature_id);
     std::shared_ptr<const Feature> get_feature(int feature_id) const;
     size_t get_feature_count() const { return m_features.size(); }
+    int get_feature_index(int feature_id) const;  // Get index by feature ID
     
     // MapPoint management
     void initialize_map_points(); // Initialize map_points vector with left feature count

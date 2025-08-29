@@ -54,7 +54,7 @@ void FeatureTracker::track_features(std::shared_ptr<Frame> current_frame,
     }
 
     // Extract new features if needed
-    if (current_frame->get_feature_count() < m_config.getMaxFeatures()) {
+    if (current_frame->get_feature_count() < m_config.m_max_features) {
         auto mask_start = std::chrono::high_resolution_clock::now();
         set_mask(current_frame);
         auto mask_end = std::chrono::high_resolution_clock::now();
@@ -116,15 +116,15 @@ std::pair<int, int> FeatureTracker::extract_new_features(std::shared_ptr<Frame> 
     // Use the mask created by set_mask function
     cv::Mat mask_to_use = m_mask.empty() ? cv::Mat() : m_mask;
 
-    int features_needed = Config::getInstance().getMaxFeatures() - frame->get_feature_count();
+    int features_needed = Config::getInstance().m_max_features - frame->get_feature_count();
     int new_map_points_created = 0;
     
     if (features_needed > 0) {
         auto detection_start = std::chrono::high_resolution_clock::now();
         cv::goodFeaturesToTrack(frame->get_image(), corners, 
                                features_needed,
-                               Config::getInstance().getQualityLevel(), 
-                               Config::getInstance().getMinDistance(), 
+                               Config::getInstance().m_quality_level, 
+                               Config::getInstance().m_min_distance, 
                                mask_to_use);
         auto detection_end = std::chrono::high_resolution_clock::now();
         auto detection_time = std::chrono::duration_cast<std::chrono::microseconds>(detection_end - detection_start).count() / 1000.0;
@@ -176,14 +176,14 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
 
     // Perform optical flow tracking
     auto flow_start = std::chrono::high_resolution_clock::now();
-    int window_size = Config::getInstance().getWindowSize();
+    int window_size = Config::getInstance().m_window_size;
     
     // Use OpenCV implementation (most stable and optimized)
     cv::calcOpticalFlowPyrLK(previous_frame->get_image(), current_frame->get_image(),
                             prev_pts, cur_pts, status, err,
                             cv::Size(window_size, window_size), 
-                            Config::getInstance().getMaxLevel(), 
-                            Config::getInstance().getTermCriteria());
+                            Config::getInstance().m_max_level, 
+                            Config::getInstance().term_criteria());
     
     auto flow_end = std::chrono::high_resolution_clock::now();
     auto flow_time = std::chrono::duration_cast<std::chrono::microseconds>(flow_end - flow_start).count() / 1000.0;
@@ -201,7 +201,7 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
             float dy = cur_pts[i].y - prev_pts[i].y;
             
             // Only reject extremely bad tracking results here, main outlier rejection done later
-            if (err[i] < Config::getInstance().getErrorThreshold() * 2.0) {  // Relaxed error threshold
+            if (err[i] < Config::getInstance().m_error_threshold * 2.0) {  // Relaxed error threshold
                 // Get the original feature index
                 int original_feature_idx = feature_indices[i];
                 auto prev_feature = previous_frame->get_features()[original_feature_idx];
@@ -218,8 +218,12 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
                 // Update velocity
                 Eigen::Vector2f velocity(dx, dy);
                 new_feature->set_velocity(velocity);
-                new_feature->set_track_count(prev_feature->get_track_count() + 1);
+                
+                // Propagate outlier flag from previous frame
+                bool was_outlier = previous_frame->get_outlier_flag(original_feature_idx);
                 current_frame->add_feature(new_feature);
+                current_frame->set_outlier_flag(current_frame->get_feature_count() - 1, was_outlier);
+                new_feature->set_track_count(prev_feature->get_track_count() + 1);
                 tracked_features++;
                 
                 // Check if previous feature has associated map point
@@ -279,9 +283,10 @@ void FeatureTracker::reject_outliers(std::shared_ptr<Frame> current_frame,
         // Use tracked_feature_id to find the corresponding previous feature
         if (feature->has_tracked_feature()) {
             int tracked_id = feature->get_tracked_feature_id();
-            // Find previous feature with this ID
-            if (tracked_id < static_cast<int>(previous_frame->get_features().size())) {
-                auto prev_feature = previous_frame->get_features()[tracked_id];
+            // Find previous feature index using the proper mapping
+            int prev_feature_idx = previous_frame->get_feature_index(tracked_id);
+            if (prev_feature_idx >= 0) {
+                auto prev_feature = previous_frame->get_features()[prev_feature_idx];
                 if (prev_feature && prev_feature->is_valid()) {
                     prev_pts.push_back(prev_feature->get_pixel_coord());
                     cur_pts.push_back(feature->get_pixel_coord());
@@ -310,7 +315,9 @@ void FeatureTracker::reject_outliers(std::shared_ptr<Frame> current_frame,
         float movement = std::sqrt(dx * dx + dy * dy);
         
         // Reject if movement is too large (likely tracking error)
-        if (movement > Config::getInstance().getMaxMovementDistance()) {
+        if (movement > Config::getInstance().m_max_movement_distance) {
+
+            std::cout << "[MOVEMENT OUTLIER] Feature ID " << feature_ids[i] << " movement: " << movement <<" from pixel: "<< prev_pts[i] << " to " << cur_pts[i] << std::endl;
             movement_outliers.push_back(feature_ids[i]);
             outlier_features.push_back(feature_ids[i]);
         }
@@ -383,8 +390,8 @@ void FeatureTracker::reject_outliers(std::shared_ptr<Frame> current_frame,
             float vel_diff_x = std::abs(dx - curr_vel.x());
             float vel_diff_y = std::abs(dy - curr_vel.y());
             
-            if (vel_diff_x > Config::getInstance().getMaxVelocityChange() || 
-                vel_diff_y > Config::getInstance().getMaxVelocityChange()) {
+            if (vel_diff_x > Config::getInstance().m_max_velocity_change || 
+                vel_diff_y > Config::getInstance().m_max_velocity_change) {
                 velocity_outliers.push_back(feature_ids[i]);
                 if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
                     outlier_features.push_back(feature_ids[i]);
@@ -394,6 +401,14 @@ void FeatureTracker::reject_outliers(std::shared_ptr<Frame> current_frame,
     }
 
     // Remove all outliers
+    if (!outlier_features.empty()) {
+        spdlog::warn("----------------- DEBUG TRACKING OUTLIER -----------------");
+        spdlog::warn("[OUTLIER] Movement outliers: {} features // threshold: {}", movement_outliers.size(), Config::getInstance().m_max_movement_distance);
+        spdlog::warn("[OUTLIER] RANSAC outliers: {} features", ransac_outliers.size());
+        spdlog::warn("[OUTLIER] Velocity outliers: {} features", velocity_outliers.size());
+        spdlog::warn("[OUTLIER] Total removing: {} outlier features", outlier_features.size());
+        spdlog::warn("----------------------------------------------------------");
+    }
     for (int feature_id : outlier_features) {
         current_frame->remove_feature(feature_id);
     }
@@ -401,13 +416,13 @@ void FeatureTracker::reject_outliers(std::shared_ptr<Frame> current_frame,
     auto end_time = std::chrono::high_resolution_clock::now();
     auto total_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count() / 1000.0;
     
-    // Log outlier rejection statistics
-    std::cout << "[OUTLIER REJECTION] " << prev_pts.size() << " features -> "
-              << "Movement outliers: " << movement_outliers.size()
-              << ", Essential outliers: " << ransac_outliers.size()
-              << ", Velocity outliers: " << velocity_outliers.size()
-              << ", Total removed: " << outlier_features.size()
-              << ", Remaining: " << (prev_pts.size() - outlier_features.size()) << std::endl;
+    // Log outlier rejection statistics (commented out for cleaner logs)
+    // std::cout << "[OUTLIER REJECTION] " << prev_pts.size() << " features -> "
+    //           << "Movement outliers: " << movement_outliers.size()
+    //           << ", Essential outliers: " << ransac_outliers.size()
+    //           << ", Velocity outliers: " << velocity_outliers.size()
+    //           << ", Total removed: " << outlier_features.size()
+    //           << ", Remaining: " << (prev_pts.size() - outlier_features.size()) << std::endl;
 
     // Debug output removed for cleaner logs
 }
@@ -422,8 +437,8 @@ void FeatureTracker::set_mask(std::shared_ptr<Frame> frame) {
     m_mask = cv::Mat(frame->get_image().size(), CV_8UC1, cv::Scalar(255));
     
     const Config& config = Config::getInstance();
-    int min_distance = static_cast<int>(config.getMinDistance());
-    int border_size = config.getBorderSize();
+    int min_distance = static_cast<int>(config.m_min_distance);
+    int border_size = config.m_border_size;
     
     // Set border regions to 0 (invalid for feature detection)
     if (border_size > 0) {
@@ -556,8 +571,8 @@ std::shared_ptr<MapPoint> FeatureTracker::create_map_point_from_stereo(std::shar
     double depth = (fx * frame->get_baseline()) / disparity;
     
     // Check depth range
-    if (depth <= 0 || depth < Config::getInstance().getMinDepth() || 
-        depth > Config::getInstance().getMaxDepth()) {
+    if (depth <= 0 || depth < Config::getInstance().m_min_depth || 
+        depth > Config::getInstance().m_max_depth) {
         return nullptr;
     }
     

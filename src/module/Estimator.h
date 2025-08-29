@@ -37,39 +37,6 @@ struct EstimationResult {
 class Estimator {
 public:
     /**
-     * @brief Configuration for the VIO estimator
-     */
-    struct Config {
-        // Feature tracking parameters
-        int max_features = 150;
-        double quality_level = 0.01;
-        double min_distance = 30.0;
-        
-        // Camera parameters (EuRoC dataset)
-        double fx = 458.654;
-        double fy = 457.296;
-        double cx = 367.215;
-        double cy = 248.375;
-        double baseline = 0.11; // Stereo baseline in meters
-        std::vector<double> distortion_coeffs = {-0.28340811, 0.07395907, 0.00019359, 1.76187114e-05};
-        
-        // Pose optimization parameters
-        PoseOptimizer::Config pose_optimizer_config;
-        
-        // System parameters
-        bool enable_pose_optimization = true;
-        bool enable_visualization = true;
-        int keyframe_interval = 10;  // Create keyframe every N frames
-        
-        Config() {
-            // Default pose optimizer configuration
-            pose_optimizer_config.enable_outlier_detection = true;
-            pose_optimizer_config.outlier_detection_rounds = 3;
-            pose_optimizer_config.print_summary = false;
-        }
-    };
-
-    /**
      * @brief VIO estimation result
      */
     struct EstimationResult {
@@ -78,18 +45,21 @@ public:
         int num_features;
         int num_inliers;
         int num_outliers;
+        int num_new_map_points;
+        int num_tracked_features;
+        int num_features_with_map_points;
         double optimization_time_ms;
         
         EstimationResult() : success(false), pose(Eigen::Matrix4f::Identity()),
                            num_features(0), num_inliers(0), num_outliers(0),
-                           optimization_time_ms(0.0) {}
+                           num_new_map_points(0), num_tracked_features(0), 
+                           num_features_with_map_points(0), optimization_time_ms(0.0) {}
     };
 
     /**
      * @brief Constructor
-     * @param config Estimator configuration
      */
-    Estimator(const Config& config = Config());
+    Estimator();
     
     /**
      * @brief Destructor
@@ -134,22 +104,7 @@ public:
      */
     std::shared_ptr<Frame> get_current_frame() const { return m_current_frame; }
 
-    /**
-     * @brief Set configuration
-     * @param config New configuration
-     */
-    void set_config(const Config& config) { m_config = config; }
-
-    /**
-     * @brief Get configuration
-     * @return Current configuration
-     */
-    const Config& get_config() const { return m_config; }
-
 private:
-    // Configuration
-    Config m_config;
-    
     // System components
     std::unique_ptr<FeatureTracker> m_feature_tracker;
     std::unique_ptr<PoseOptimizer> m_pose_optimizer;
