@@ -166,9 +166,10 @@ void Frame::extract_features(int max_features) {
     std::vector<cv::Point2f> corners;
     cv::goodFeaturesToTrack(m_left_image, corners, max_features, m_quality_level, m_min_distance);
 
-    static int global_feature_id = 0;
+    // Use frame-local feature IDs starting from 0
+    int local_feature_id = 0;
     for (const auto& corner : corners) {
-        auto feature = std::make_shared<Feature>(global_feature_id++, corner);
+        auto feature = std::make_shared<Feature>(local_feature_id++, corner);
         add_feature(feature);
     }
 

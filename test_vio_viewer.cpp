@@ -168,6 +168,7 @@ int main(int argc, char* argv[]) {
     
     // Process all frames
     size_t current_idx = 0;
+    size_t processed_frames = 0;
     while (current_idx < image_data.size()) {
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {
@@ -197,6 +198,7 @@ int main(int argc, char* argv[]) {
         
         if (left_image.empty()) {
             spdlog::warn("[Dataset] Skipping frame {} due to empty image", current_idx);
+            ++current_idx;  // Move to next frame even if current is empty
             continue;
         }
         
@@ -232,8 +234,6 @@ int main(int argc, char* argv[]) {
         auto estimation_time = std::chrono::duration_cast<std::chrono::milliseconds>(frame_end - estimation_start).count();
         auto total_time = std::chrono::duration_cast<std::chrono::milliseconds>(frame_end - frame_start).count();
         
-        
-        
         // Update viewer if available
         if (viewer) {
             auto current_frame = estimator.get_current_frame();
@@ -261,50 +261,19 @@ int main(int argc, char* argv[]) {
                     tracking_image = current_frame->draw_features();
                 }
                 
-                // Add frame information
-                std::string info1 = "Frame: " + std::to_string(current_idx + 1) + "/" + 
-                                   std::to_string(image_data.size()) + 
-                                   " | Features: " + std::to_string(result.num_features);
-                
-                int long_tracked_points = 0;
+                // Calculate frame statistics
+                int tracked_features = 0;
+                int new_features = 0;
                 for (const auto& feature : current_frame->get_features()) {
-                    if (feature->get_track_count() >= 3) long_tracked_points++;
-                }
-                
-                std::string info2 = "";
-                if (current_frame->is_stereo()) {
-                    int stereo_matches = 0;
-                    int triangulated_points = 0;
-                    for (const auto& feature : current_frame->get_features()) {
-                        if (feature->has_stereo_match()) stereo_matches++;
-                        if (feature->has_3d_point()) triangulated_points++;
+                    if (feature->has_tracked_feature()) {
+                        tracked_features++;
+                    } else {
+                        new_features++;
                     }
-                    info2 = "Stereo: " + std::to_string(stereo_matches) + 
-                           " | 3D: " + std::to_string(triangulated_points) + 
-                           " | Track>=3: " + std::to_string(long_tracked_points);
-                } else {
-                    info2 = "Track>=3: " + std::to_string(long_tracked_points);
                 }
                 
-                std::string info3 = "Map Points: " + std::to_string(all_map_points.size());
-                if (result.success) {
-                    info3 += " | Estimation: SUCCESS";
-                } else {
-                    info3 += " | Estimation: FAILED";
-                }
-                
-                // Draw information on tracking image
-                cv::putText(tracking_image, info1, cv::Point(10, 25), 
-                           cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
-                cv::putText(tracking_image, info2, cv::Point(10, 50), 
-                           cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
-                cv::putText(tracking_image, info3, cv::Point(10, 75), 
-                           cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
-                
-                // Add mode information to tracking image
-                std::string mode_info = step_mode ? "STEP MODE - Press N/ENTER for next frame" : "AUTO MODE - Press SPACE for step mode";
-                cv::putText(tracking_image, mode_info, cv::Point(10, 100), 
-                           cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 0), 2);
+                // Update viewer frame information
+                viewer->update_frame_info(current_idx + 1, result.num_features, tracked_features, new_features);
                 
                 viewer->update_tracking_image(tracking_image);
                 
@@ -328,6 +297,9 @@ int main(int argc, char* argv[]) {
             advance_frame = false;
         }
         
+        // Successfully processed this frame
+        ++processed_frames;
+        
         // Move to next frame
         ++current_idx;
         
@@ -335,7 +307,7 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_for(std::chrono::milliseconds(30));
     }
     
-    spdlog::info("[VIO] Processing completed! Processed {} frames", image_data.size());
+    spdlog::info("[VIO] Processing completed! Processed {} frames", processed_frames);
     
     return 0;
 }

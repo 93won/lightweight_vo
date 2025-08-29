@@ -27,6 +27,10 @@ ImGuiViewer::ImGuiViewer()
     , m_stereo_height(0)
     , m_space_pressed(false)
     , m_next_pressed(false)
+    , m_current_frame_id(0)
+    , m_total_features(0)
+    , m_tracked_features(0)
+    , m_new_features(0)
 {
     // Initialize pose as identity matrix
     m_current_pose = Eigen::Matrix4f::Identity();
@@ -171,6 +175,10 @@ void ImGuiViewer::render() {
     }
     ImGui::Separator();
     ImGui::Text("VIO Information:");
+    ImGui::Text("Frame ID: %d", m_current_frame_id);
+    ImGui::Text("Total Features: %d", m_total_features);
+    ImGui::Text("Tracked Features: %d", m_tracked_features);
+    ImGui::Text("New Features: %d", m_new_features);
     ImGui::Text("Map Points: %zu", m_points.size());
     ImGui::Text("Trajectory Length: %zu", m_trajectory.size());
     
@@ -576,6 +584,13 @@ void ImGuiViewer::process_keyboard_input(bool& auto_play, bool& step_mode, bool&
         }
         m_next_pressed = false;  // Reset flag
     }
+}
+
+void ImGuiViewer::update_frame_info(int frame_id, int total_features, int tracked_features, int new_features) {
+    m_current_frame_id = frame_id;
+    m_total_features = total_features;
+    m_tracked_features = tracked_features;
+    m_new_features = new_features;
 }
 
 } // namespace lightweight_vio

@@ -132,8 +132,9 @@ std::pair<int, int> FeatureTracker::extract_new_features(std::shared_ptr<Frame> 
         auto feature_processing_start = std::chrono::high_resolution_clock::now();
         
         // Create all features without map points - batch processing will handle stereo matching later
+        int next_feature_id = frame->get_feature_count();  // Start from current count
         for (const auto& corner : corners) {
-            auto feature = std::make_shared<Feature>(frame->get_feature_count(), corner);
+            auto feature = std::make_shared<Feature>(next_feature_id++, corner);
             frame->add_feature(feature);
         }
         
@@ -193,6 +194,7 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
     int tracked_features = 0;
     int associated_map_points = 0;
     int new_map_points_created = 0;
+    int next_feature_id = current_frame->get_feature_count();  // Start from current count
     
     for (size_t i = 0; i < prev_pts.size(); ++i) {
         if (status[i] && is_in_border(cur_pts[i], current_frame->get_image().size())) {
@@ -206,9 +208,9 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
                 int original_feature_idx = feature_indices[i];
                 auto prev_feature = previous_frame->get_features()[original_feature_idx];
                 
-                // Create new feature with frame-local ID (index in current frame)
+                // Create new feature with sequential frame-local ID
                 auto new_feature = std::make_shared<Feature>(
-                    current_frame->get_feature_count(),  // Use current frame's feature count as ID
+                    next_feature_id++,  // Use sequential ID
                     cur_pts[i]
                 );
                 

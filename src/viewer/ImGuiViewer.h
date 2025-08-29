@@ -43,6 +43,9 @@ public:
     void update_stereo_image(const cv::Mat& image);
     GLuint create_texture_from_mat(const cv::Mat& mat);
     
+    // Frame information update
+    void update_frame_info(int frame_id, int total_features, int tracked_features, int new_features);
+    
     // Input handling
     void process_keyboard_input(bool& auto_play, bool& step_mode, bool& advance_frame);
     
@@ -79,6 +82,12 @@ private:
     // Keyboard input state
     bool m_space_pressed;
     bool m_next_pressed;
+    
+    // Frame information for VIO display
+    int m_current_frame_id;
+    int m_total_features;
+    int m_tracked_features;
+    int m_new_features;
     
     // OpenGL setup
     void setupOpenGL();
