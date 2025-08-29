@@ -13,19 +13,19 @@ namespace lightweight_vio {
 namespace factor {
 
 /**
- * @brief SE3 Local Parameterization for Ceres optimization
+ * @brief SE3 Global Parameterization for Ceres optimization
  * Parameterizes SE3 group using 6DoF tangent space representation
- * Parameters: [so3_x, so3_y, so3_z, t_x, t_y, t_z]
+ * Parameters: [t_x, t_y, t_z, so3_x, so3_y, so3_z] (Ceres order)
  * 
  * For Twb (body to world transform), we use right multiplication:
  * Twb_new = Twb * exp(delta)
  * 
  * This means the perturbation is applied in the body frame.
  */
-class SE3LocalParameterization : public ceres::LocalParameterization {
+class SE3GlobalParameterization : public ceres::LocalParameterization {
 public:
-    SE3LocalParameterization() = default;
-    virtual ~SE3LocalParameterization() = default;
+    SE3GlobalParameterization() = default;
+    virtual ~SE3GlobalParameterization() = default;
 
     /**
      * @brief Plus operation: x_plus_delta = SE3(x) * exp(delta)
@@ -60,7 +60,7 @@ public:
 private:
     /**
      * @brief Convert SE3 tangent space vector to SE3 group element
-     * @param tangent SE3 tangent space vector [so3, translation]
+     * @param tangent SE3 tangent space vector [translation, so3] (Ceres order)
      * @return SE3 group element
      */
     static Sophus::SE3d TangentToSE3(const Eigen::Vector6d& tangent);
@@ -68,7 +68,7 @@ private:
     /**
      * @brief Convert SE3 group element to tangent space vector
      * @param se3 SE3 group element
-     * @return SE3 tangent space vector [so3, translation]
+     * @return SE3 tangent space vector [translation, so3] (Ceres order)
      */
     static Eigen::Vector6d SE3ToTangent(const Sophus::SE3d& se3);
 };

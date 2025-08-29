@@ -28,9 +28,9 @@ namespace lightweight_vio
         // Add parameter block first
         problem.AddParameterBlock(pose_params.data(), 6);
 
-        // Set SE3 local parameterization for pose parameterization
-        auto se3_local_param = new factor::SE3LocalParameterization();
-        problem.SetParameterization(pose_params.data(), se3_local_param);
+        // Set SE3 global parameterization for pose parameterization
+        auto se3_global_param = new factor::SE3GlobalParameterization();
+        problem.SetParameterization(pose_params.data(), se3_global_param);
 
         // Get camera parameters from frame
         double fx, fy, cx, cy;
@@ -438,7 +438,7 @@ namespace lightweight_vio
         // Convert to double precision
         Eigen::Matrix4d Twb_d = Twb.cast<double>();
 
-        // Ensure rotation matrix orthogonality using SVD
+        // Fix numerical precision issues from float->double conversion
         Eigen::Matrix3d R = Twb_d.block<3, 3>(0, 0);
         Eigen::JacobiSVD<Eigen::Matrix3d> svd(R, Eigen::ComputeFullU | Eigen::ComputeFullV);
         R = svd.matrixU() * svd.matrixV().transpose();
@@ -451,34 +451,19 @@ namespace lightweight_vio
         // Reconstruct the pose matrix with orthogonalized rotation
         Twb_d.block<3, 3>(0, 0) = R;
 
-        // Convert to Sophus SE3 and extract tangent space
+        // Now Sophus SE3 constructor will be happy
         Sophus::SE3d se3(Twb_d);
         return se3.log();
     }
 
     Eigen::Matrix4f PoseOptimizer::se3_tangent_to_matrix(const Eigen::Vector6d &se3_tangent) const
     {
-        // Convert tangent space to SE3
+        // Convert tangent space to SE3 using Sophus (already guarantees proper SE3)
         Sophus::SE3d se3 = Sophus::SE3d::exp(se3_tangent);
 
-        // Get the transformation matrix
-        Eigen::Matrix4d pose_matrix = se3.matrix();
-        
-        // Ensure rotation matrix orthogonality using SVD
-        Eigen::Matrix3d R = pose_matrix.block<3, 3>(0, 0);
-        Eigen::JacobiSVD<Eigen::Matrix3d> svd(R, Eigen::ComputeFullU | Eigen::ComputeFullV);
-        R = svd.matrixU() * svd.matrixV().transpose();
-        
-        // Ensure proper rotation (det(R) = 1)
-        if (R.determinant() < 0) {
-            R = -R;
-        }
-        
-        // Reconstruct the pose matrix with orthogonalized rotation
-        pose_matrix.block<3, 3>(0, 0) = R;
-
-        // Convert to 4x4 matrix and cast to float
-        return pose_matrix.cast<float>();
+        // Sophus already ensures proper SE3 structure, no need for SVD
+        // Just convert to float at the end
+        return se3.matrix().cast<float>();
     }
 
     ceres::LossFunction *PoseOptimizer::create_robust_loss(double delta) const

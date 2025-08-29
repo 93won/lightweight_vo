@@ -28,13 +28,13 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters,
         return true;
     }
 
-    // Extract SE3 parameters from tangent space (Twb)
+    // Extract SE3 parameters from tangent space (Ceres order: tx,ty,tz,rx,ry,rz)
     Eigen::Map<const Eigen::Vector6d> se3_tangent(parameters[0]);
     
-    // Convert to SE3 pose (Twb)
+    // Convert tangent space to SE3 using Sophus exp (consistent with parameterization)
     Sophus::SE3d Twb = Sophus::SE3d::exp(se3_tangent);
     
-    // g2o 코드 참고: Twb를 사용하여 Tcw 계산
+    // Convert Twb to Tcw transformation
     Eigen::Matrix3d Rwb = Twb.rotationMatrix();
     Eigen::Vector3d twb = Twb.translation();
     Eigen::Matrix3d Rbw = Rwb.transpose();
@@ -86,30 +86,34 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters,
         
         double z_inv_sq = z_inv * z_inv;
         
-        // g2o 코드 참고: Jacobian 계산
-        // Tcb의 회전 부분 캐싱
+        // Jacobian calculation
+        // Camera extrinsic rotation matrix
         Eigen::Matrix3d Rcb = m_Tcb.block<3, 3>(0, 0);
         
-        // Tbw에서의 body 좌표: Pb = Rbw * Pw + tbw
+        // Body frame coordinates: Pb = Rbw * Pw + tbw
         Eigen::Vector3d Pb = Rbw * m_world_point + tbw;
         
-        // 카메라 투영 Jacobian 계산
-        Eigen::Matrix<double, 2, 3> J_proj_camera;
-        J_proj_camera(0, 0) = -m_camera_params.fx * z_inv;
-        J_proj_camera(0, 1) = 0.0;
-        J_proj_camera(0, 2) = x * m_camera_params.fx * z_inv_sq;
-        J_proj_camera(1, 0) = 0.0;
-        J_proj_camera(1, 1) = -m_camera_params.fy * z_inv;
-        J_proj_camera(1, 2) = y * m_camera_params.fy * z_inv_sq;
+        // Jacobian of projection error w.r.t. camera coordinates: ∂(error)/∂(Pc)
+        Eigen::Matrix<double, 2, 3> J_error_wrt_Pc;
+        J_error_wrt_Pc(0, 0) = -m_camera_params.fx * z_inv;
+        J_error_wrt_Pc(0, 1) = 0.0;
+        J_error_wrt_Pc(0, 2) = x * m_camera_params.fx * z_inv_sq;
+        J_error_wrt_Pc(1, 0) = 0.0;
+        J_error_wrt_Pc(1, 1) = -m_camera_params.fy * z_inv;
+        J_error_wrt_Pc(1, 2) = y * m_camera_params.fy * z_inv_sq;
         
-        // g2o 코드 참고: Twb에 대한 Jacobian
-        Eigen::Matrix<double, 2, 3> JdPwb = J_proj_camera * (-Rcb);
+        // Chain rule: ∂(error)/∂(twist) = ∂(error)/∂(Pc) * ∂(Pc)/∂(twist)
+        
+        // Translation part: ∂(Pc)/∂(translation) = -Rcb
+        Eigen::Matrix<double, 2, 3> J_translation = J_error_wrt_Pc * (-Rcb);
+        
+        // Rotation part: ∂(Pc)/∂(rotation) = Rcb * [Pb]× for right perturbation
         Eigen::Matrix3d hatPb = Sophus::SO3d::hat(Pb);
-        Eigen::Matrix<double, 2, 3> JdRwb = J_proj_camera * Rcb * hatPb;
+        Eigen::Matrix<double, 2, 3> J_rotation = J_error_wrt_Pc * Rcb * hatPb;
         
-        // 전체 Jacobian 조합 [rotation | translation]
+        // Combine Jacobian components [translation | rotation] for Ceres order
         Eigen::Matrix<double, 2, 6> unweighted_jac;
-        unweighted_jac << JdRwb, JdPwb;
+        unweighted_jac << J_translation, J_rotation;
         
         // Apply information matrix weighting to Jacobian: J_weighted = sqrt(Info) * J
         Eigen::LLT<Eigen::Matrix2d> llt(m_information);
@@ -124,13 +128,13 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters,
 }
 
 double MonoPnPFactor::compute_chi_square(double const* const* parameters) const {
-    // Extract SE3 parameters from tangent space (Twb)
+    // Extract SE3 parameters from tangent space (Ceres order: tx,ty,tz,rx,ry,rz)
     Eigen::Map<const Eigen::Vector6d> se3_tangent(parameters[0]);
     
-    // Convert to SE3 pose (Twb)
+    // Convert tangent space to SE3 using Sophus exp (consistent with parameterization)
     Sophus::SE3d Twb = Sophus::SE3d::exp(se3_tangent);
     
-    // g2o 코드 참고: Twb를 사용하여 Tcw 계산
+    // Convert Twb to Tcw transformation
     Eigen::Matrix3d Rwb = Twb.rotationMatrix();
     Eigen::Vector3d twb = Twb.translation();
     Eigen::Matrix3d Rbw = Rwb.transpose();
