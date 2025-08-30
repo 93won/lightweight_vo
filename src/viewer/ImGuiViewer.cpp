@@ -161,25 +161,37 @@ void ImGuiViewer::render() {
     
     // Draw camera frustum and body frame
     if (!m_current_pose.isZero()) {
-        // Draw body frame
+        // Draw body frame (RED)
         draw_body_frame(m_current_pose);
         
-        // Calculate camera pose using T_CB from config (for visualization only)
-        // T_CB is body→camera, so T_wc = T_wb * T_bc = T_wb * T_cb.inv()
+        // Calculate camera pose using T_BC from config (for visualization only)
+        // Config has T_BC (camera→body), we need T_CB (body→camera) = T_BC^-1
         try {
             const auto& config = Config::getInstance();
-            cv::Mat T_CB_cv = config.left_T_CB();
-            Eigen::Matrix4f T_CB;
+            cv::Mat T_BC_cv = config.left_T_BC();  // Get T_BC (camera to body)
+            Eigen::Matrix4f T_BC;
             for (int i = 0; i < 4; ++i) {
                 for (int j = 0; j < 4; ++j) {
-                    T_CB(i, j) = T_CB_cv.at<double>(i, j);
+                    T_BC(i, j) = T_BC_cv.at<double>(i, j);
                 }
             }
             
+            // T_CB = T_BC^-1 (body to camera)
+            Eigen::Matrix4f T_CB = T_BC.inverse();
+            
+            // T_wc = T_wb * T_bc = T_wb * T_cb^-1 (world to camera)
             Eigen::Matrix4f T_wc = m_current_pose * T_CB.inverse();
             draw_camera_frustum(T_wc);
+            
+            // Also draw camera frame separately for comparison
+            draw_camera_frame(T_wc);
+            
         } catch (const std::exception& e) {
-            // If config not available, just draw body frame
+            // If config not available, use identity T_CB for comparison
+            Eigen::Matrix4f T_CB_identity = Eigen::Matrix4f::Identity();
+            Eigen::Matrix4f T_wc_identity = m_current_pose * T_CB_identity.inverse();
+            draw_camera_frustum(T_wc_identity);
+            draw_camera_frame(T_wc_identity);
         }
     }
 
@@ -210,6 +222,39 @@ void ImGuiViewer::render() {
     // Display current pose information
     Eigen::Vector3f position = m_current_pose.block<3, 1>(0, 3);
     ImGui::Text("Current Position: (%.2f, %.2f, %.2f)", position.x(), position.y(), position.z());
+    
+    ImGui::Separator();
+    ImGui::Text("Coordinate Transformations:");
+    
+    // Display T_BC information for verification  
+    try {
+        const auto& config = Config::getInstance();
+        cv::Mat T_BC_cv = config.left_T_BC();  // Get T_BC (camera to body)
+        Eigen::Matrix4f T_BC;
+        for (int i = 0; i < 4; ++i) {
+            for (int j = 0; j < 4; ++j) {
+                T_BC(i, j) = T_BC_cv.at<double>(i, j);
+            }
+        }
+        
+        // Show T_BC (original config values)
+        Eigen::Vector3f t_BC = T_BC.block<3, 1>(0, 3);
+        Eigen::Matrix3f R_BC = T_BC.block<3, 3>(0, 0);
+        
+        ImGui::Text("T_BC Translation: (%.3f, %.3f, %.3f)", t_BC.x(), t_BC.y(), t_BC.z());
+        ImGui::Text("T_BC Rotation (first row): (%.3f, %.3f, %.3f)", R_BC(0,0), R_BC(0,1), R_BC(0,2));
+        
+        // Show visual legend
+        ImGui::Text("Visual Legend:");
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "  RED Frame: Body (T_wb)");
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "  LIGHT Colors: Camera (T_wc = T_wb * T_bc)");
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "  YELLOW Frustum: Camera View");
+        
+    } catch (const std::exception& e) {
+        ImGui::Text("T_BC: Using Identity (config not available)");
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "  RED Frame: Body");
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "  LIGHT Colors: Camera (Identity)");
+    }
     
     ImGui::Separator();
     ImGui::Text("Mouse Controls:");
@@ -449,6 +494,34 @@ void ImGuiViewer::draw_body_frame(const Eigen::Matrix4f& Twb) {
     
     // Z-axis (Blue)
     glColor3f(0.0f, 0.0f, 1.0f);
+    glVertex3f(0, 0, 0);
+    glVertex3f(0, 0, axis_length);
+    
+    glEnd();
+    glLineWidth(1.0f);
+    glPopMatrix();
+}
+
+void ImGuiViewer::draw_camera_frame(const Eigen::Matrix4f& Twc) {
+    glPushMatrix();
+    glMultMatrixf((GLfloat*)Twc.data());
+    
+    float axis_length = 0.25f;  // Slightly smaller than body frame
+    glLineWidth(2.0f);          // Slightly thinner than body frame
+    glBegin(GL_LINES);
+    
+    // X-axis (Light Red - Camera frame uses lighter colors)
+    glColor3f(1.0f, 0.5f, 0.5f);
+    glVertex3f(0, 0, 0);
+    glVertex3f(axis_length, 0, 0);
+    
+    // Y-axis (Light Green) 
+    glColor3f(0.5f, 1.0f, 0.5f);
+    glVertex3f(0, 0, 0);
+    glVertex3f(0, axis_length, 0);
+    
+    // Z-axis (Light Blue)
+    glColor3f(0.5f, 0.5f, 1.0f);
     glVertex3f(0, 0, 0);
     glVertex3f(0, 0, axis_length);
     

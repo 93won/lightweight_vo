@@ -34,6 +34,7 @@ public:
     void draw_trajectory(const std::vector<Eigen::Vector3f>& trajectory);
     void draw_camera_frustum(const Eigen::Matrix4f& Twc);  // Add camera frustum drawing
     void draw_body_frame(const Eigen::Matrix4f& Twb);      // Add body frame drawing
+    void draw_camera_frame(const Eigen::Matrix4f& Twc);    // Add camera frame drawing
     
     // Update functions
     void update_points(const std::vector<Eigen::Vector3f>& points);
