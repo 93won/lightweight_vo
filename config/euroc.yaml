@@ -7,7 +7,7 @@
 # Feature Detection Parameters
 # Controls how corner features are detected using goodFeaturesToTrack
 feature_detection:
-  max_features: 150           # Maximum number of features to track per frame
+  max_features: 100           # Maximum number of features to track per frame
   quality_level: 0.5         # Minimum accepted quality of corners (0.01 = 1% of best corner)
   min_distance: 30.0          # Minimum distance between features in pixels (prevents clustering)
 
@@ -90,7 +90,7 @@ camera:
 # Keyframe Parameters
 # Controls when new keyframes are created
 keyframe:
-  interval: 5                # Create keyframe every N frames
+  interval: 1                # Create keyframe every N frames
 
 # Pose Optimization Parameters
 # Controls Ceres-based pose optimization behavior

@@ -13,7 +13,9 @@ namespace lightweight_vio {
 Estimator::Estimator()
     : m_frame_id_counter(0)
     , m_frames_since_last_keyframe(0)
-    , m_current_pose(Eigen::Matrix4f::Identity()) {
+    , m_current_pose(Eigen::Matrix4f::Identity())
+    , m_has_initial_gt_pose(false)
+    , m_initial_gt_pose(Eigen::Matrix4f::Identity()) {
     
     // Initialize feature tracker
     m_feature_tracker = std::make_unique<FeatureTracker>();
@@ -60,22 +62,28 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
                     result.num_features, num_tracked_with_map_points);
         
         if (num_tracked_with_map_points > 0) {
-            // Perform pose optimization if we have enough associations
+            // DISABLED: Perform pose optimization if we have enough associations
             if (num_tracked_with_map_points >= 5) {
-                auto opt_result = optimize_pose(m_current_frame);
-                result.success = opt_result.success;
-                result.num_inliers = opt_result.num_inliers;
-                result.num_outliers = opt_result.num_outliers;
+                // auto opt_result = optimize_pose(m_current_frame);
+                // result.success = opt_result.success;
+                // result.num_inliers = opt_result.num_inliers;
+                // result.num_outliers = opt_result.num_outliers;
                 
                 // Count features with map points after optimization (removed excessive logging)
                 
-                if (opt_result.success) {
-                    m_current_pose = opt_result.optimized_pose;
-                    m_current_frame->set_Twb(m_current_pose);
-                } else {
-                    // Optimization failed, keep the initial pose from previous frame
-                    m_current_pose = m_current_frame->get_Twb();
-                }
+                // if (opt_result.success) {
+                //     m_current_pose = opt_result.optimized_pose;
+                //     m_current_frame->set_Twb(m_current_pose);
+                // } else {
+                //     // Optimization failed, keep the initial pose from previous frame
+                //     m_current_pose = m_current_frame->get_Twb();
+                // }
+                
+                // DISABLED: Skip pose optimization, just use previous pose
+                m_current_pose = m_current_frame->get_Twb();
+                result.success = true;
+                result.num_inliers = num_tracked_with_map_points;
+                result.num_outliers = 0;
             } else {
                 // Use previous pose as initial guess (already set in create_frame)
                 m_current_pose = m_current_frame->get_Twb();
@@ -204,8 +212,13 @@ std::shared_ptr<Frame> Estimator::create_frame(const cv::Mat& left_image, const 
     if (m_previous_frame) {
         frame->set_Twb(m_previous_frame->get_Twb());
     } else {
-        // First frame - initialize at identity (already done in constructor)
-        frame->set_Twb(Eigen::Matrix4f::Identity());
+        // First frame - use ground truth pose if available, otherwise identity
+        if (m_has_initial_gt_pose) {
+            frame->set_Twb(m_initial_gt_pose);
+            spdlog::info("[GT_INIT] Initialized first frame with ground truth pose");
+        } else {
+            frame->set_Twb(Eigen::Matrix4f::Identity());
+        }
     }
     
     return frame;
@@ -221,32 +234,42 @@ int lightweight_vio::Estimator::create_initial_map_points(std::shared_ptr<Frame>
     int num_created = 0;
     const auto& features = frame->get_features();
     
-    // Create map points at arbitrary depth for initialization
-    // In real implementation, you'd use stereo or structure from motion
+    // Create map points from stereo triangulated features
     for (size_t i = 0; i < features.size(); ++i) {
         auto feature = features[i];
         if (feature && feature->is_valid() && frame->has_depth(i)) {
-            // Use stereo depth for map point creation
-            double depth = frame->get_depth(i);
-            
-            // Unproject to 3D using camera parameters and stereo depth
-            double fx, fy, cx, cy;
-            frame->get_camera_intrinsics(fx, fy, cx, cy);
-            
-            cv::Point2f undistorted = frame->undistort_point(cv::Point2f(feature->get_u(), feature->get_v()));
-            
-            double x = (undistorted.x - cx) * depth / fx;
-            double y = (undistorted.y - cy) * depth / fy;
-            double z = depth;
+            // Get 3D point in camera frame from stereo triangulation
+            Eigen::Vector3f camera_3d_point = feature->get_3d_point();
+            if (camera_3d_point.isZero()) {
+                continue;  // Skip if no valid 3D point
+            }
             
             // Transform to world coordinates using frame pose
             Eigen::Matrix4f Twb = frame->get_Twb();
             
-            // For now, use identity T_CB (body-to-camera transform)
-            // TODO: Replace with actual T_CB = T_BC.inverse() from configuration when needed
-            Eigen::Matrix4f Tcb = Eigen::Matrix4f::Identity();
+            // Get actual T_BC from configuration 
+            const auto& global_config = lightweight_vio::Config::getInstance();
+            cv::Mat T_BC_cv = global_config.left_T_BC();  // Get T_BC from config (camera to body)
             
-            Eigen::Vector4f camera_point(x, y, z, 1.0);
+            Eigen::Matrix4f Tcb;
+            if (!T_BC_cv.empty()) {
+                // Convert T_BC to Eigen
+                Eigen::Matrix4d T_BC;
+                for (int i = 0; i < 4; ++i) {
+                    for (int j = 0; j < 4; ++j) {
+                        T_BC(i, j) = T_BC_cv.at<double>(i, j);
+                    }
+                }
+                // T_CB = T_BC^-1 (body to camera transform)
+                Eigen::Matrix4d T_CB = T_BC.inverse();
+                Tcb = T_CB.cast<float>();
+            } else {
+                // Fallback to identity if config not available
+                Tcb = Eigen::Matrix4f::Identity();
+            }
+            
+            // Transform: Camera → Body → World
+            Eigen::Vector4f camera_point(camera_3d_point.x(), camera_3d_point.y(), camera_3d_point.z(), 1.0);
             Eigen::Vector4f body_point = Tcb * camera_point;
             Eigen::Vector4f world_point = Twb * body_point;
             
@@ -258,9 +281,17 @@ int lightweight_vio::Estimator::create_initial_map_points(std::shared_ptr<Frame>
             // Associate with frame
             frame->set_map_point(i, map_point);
             num_created++;
+            
+            // Debug log for first few map points
+            if (num_created <= 5) {
+                spdlog::debug("[MAP_POINT] Created #{}: cam({:.2f},{:.2f},{:.2f}) -> world({:.2f},{:.2f},{:.2f})", 
+                            num_created, camera_3d_point.x(), camera_3d_point.y(), camera_3d_point.z(), 
+                            world_pos.x(), world_pos.y(), world_pos.z());
+            }
         }
     }
     
+    spdlog::info("[MAP_POINTS] Created {} new map points from {} features", num_created, features.size());
     return num_created;
 }
 
@@ -320,26 +351,35 @@ int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> fra
             continue;  // Skip invalid depths
         }
         
-        // Unproject to 3D using camera parameters and stereo depth
-        double fx, fy, cx, cy;
-        frame->get_camera_intrinsics(fx, fy, cx, cy);
-        
-        cv::Point2f undistorted = frame->undistort_point(cv::Point2f(feature->get_u(), feature->get_v()));
-        
-        // Transform from image coordinates to camera coordinates
-        double x = (undistorted.x - cx) * depth / fx;
-        double y = (undistorted.y - cy) * depth / fy;
-        double z = depth;
+        // Get 3D point in camera frame from stereo triangulation
+        Eigen::Vector3f camera_3d_point = feature->get_3d_point();
+        if (camera_3d_point.isZero()) {
+            continue;  // Skip if no valid 3D point
+        }
         
         // Transform to world coordinates using frame pose
         Eigen::Matrix4f Twb = frame->get_Twb();
         
-        // For now, use identity T_CB (body-to-camera transform)
-        // TODO: Replace with actual T_CB = T_BC.inverse() from configuration when needed
-        Eigen::Matrix4f Tcb = Eigen::Matrix4f::Identity();
+        // Get actual T_BC from configuration 
+        const auto& config = lightweight_vio::Config::getInstance();
+        cv::Mat T_BC_cv = config.left_T_BC();  // Get T_BC from config (camera to body)
         
-        Eigen::Vector4f camera_point(x, y, z, 1.0);
-        Eigen::Vector4f body_point = Tcb * camera_point;
+        Eigen::Matrix4f Tbc;
+        if (!T_BC_cv.empty()) {
+            // Convert T_BC to Eigen
+            for (int i = 0; i < 4; ++i) {
+                for (int j = 0; j < 4; ++j) {
+                    Tbc(i, j) = T_BC_cv.at<double>(i, j);
+                }
+            }
+        } else {
+            // Fallback to identity if config not available
+            Tbc = Eigen::Matrix4f::Identity();
+        }
+        
+        // Transform: Camera → Body → World
+        Eigen::Vector4f camera_point(camera_3d_point.x(), camera_3d_point.y(), camera_3d_point.z(), 1.0);
+        Eigen::Vector4f body_point = Tbc * camera_point;
         Eigen::Vector4f world_point = Twb * body_point;
         
         Eigen::Vector3f world_pos = world_point.head<3>();
@@ -431,8 +471,12 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
     if (!frame) {
         return;
     }
+    
     frame->set_keyframe(true);
     m_keyframes.push_back(frame);
+    
+    spdlog::info("[KEYFRAME] Created keyframe {} with {} features", 
+                frame->get_frame_id(), frame->get_feature_count());
 }
 
 OptimizationResult lightweight_vio::Estimator::optimize_pose(std::shared_ptr<Frame> frame) {
@@ -478,6 +522,20 @@ void lightweight_vio::Estimator::update_map_points(std::shared_ptr<Frame> frame)
                 mp->add_observation(frame, i);
             }
         }
+    }
+}
+
+void Estimator::set_initial_gt_pose(const Eigen::Matrix4f& gt_pose) {
+    m_initial_gt_pose = gt_pose;
+    m_has_initial_gt_pose = true;
+    spdlog::info("[GT_INIT] Set initial ground truth pose");
+}
+
+void Estimator::apply_gt_pose_to_current_frame(const Eigen::Matrix4f& gt_pose) {
+    if (m_current_frame) {
+        m_current_frame->set_Twb(gt_pose);
+        m_current_pose = gt_pose;
+        spdlog::debug("[GT_APPLY] Applied GT pose to frame {}", m_current_frame->get_frame_id());
     }
 }
 

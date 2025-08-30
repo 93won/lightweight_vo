@@ -87,6 +87,18 @@ public:
     Eigen::Matrix4f get_current_pose() const;
 
     /**
+     * @brief Set initial ground truth pose for first frame
+     * @param gt_pose Ground truth pose (Twb)
+     */
+    void set_initial_gt_pose(const Eigen::Matrix4f& gt_pose);
+
+    /**
+     * @brief Apply ground truth pose to current frame (for debugging)
+     * @param gt_pose Ground truth pose (Twb)
+     */
+    void apply_gt_pose_to_current_frame(const Eigen::Matrix4f& gt_pose);
+
+    /**
      * @brief Get all keyframes
      * @return Vector of keyframes
      */
@@ -121,6 +133,10 @@ private:
     
     // Current pose
     Eigen::Matrix4f m_current_pose;
+    
+    // Ground truth initialization
+    bool m_has_initial_gt_pose;
+    Eigen::Matrix4f m_initial_gt_pose;
     
     /**
      * @brief Initialize a new stereo frame

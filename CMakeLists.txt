@@ -11,10 +11,15 @@ set(OpenGL_GL_PREFERENCE GLVND)
 # Find packages
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(glfw3 REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(Threads REQUIRED)
+
+# Build Pangolin from thirdparty
+set(BUILD_PANGOLIN_EXAMPLES OFF CACHE BOOL "Build Pangolin examples" FORCE)
+set(BUILD_PANGOLIN_TESTS OFF CACHE BOOL "Build Pangolin tests" FORCE)
+set(BUILD_PANGOLIN_TOOLS OFF CACHE BOOL "Build Pangolin tools" FORCE)
+add_subdirectory(thirdparty/pangolin EXCLUDE_FROM_ALL)
 
 # Build Sophus from thirdparty first with tests disabled
 set(BUILD_TESTS OFF CACHE BOOL "Build Sophus tests" FORCE)
@@ -34,6 +39,7 @@ set(BUILD_EXAMPLES OFF CACHE BOOL "Build Ceres examples" FORCE)
 set(BUILD_BENCHMARKS OFF CACHE BOOL "Build Ceres benchmarks" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "Build Ceres tests" FORCE)
 set(SUITESPARSE OFF CACHE BOOL "Enable SuiteSparse" FORCE)
+set(PROVIDE_UNINSTALL_TARGET OFF CACHE BOOL "Disable Ceres uninstall target" FORCE)
 
 # Prevent finding system Ceres
 set(CMAKE_DISABLE_FIND_PACKAGE_Ceres ON)
@@ -47,7 +53,8 @@ find_library(GLU_LIBRARY GLU REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 include_directories(${EIGEN3_INCLUDE_DIR})
 include_directories(src)
-include_directories(thirdparty/imgui)
+include_directories(thirdparty/pangolin/include)
+include_directories(${CMAKE_BINARY_DIR}/thirdparty/pangolin/include)
 include_directories(thirdparty/imgui/backends)
 include_directories(thirdparty/Sophus)
 include_directories(thirdparty/spdlog/include)
@@ -62,20 +69,9 @@ file(GLOB_RECURSE SOURCES
     "src/viewer/*.cpp"
 )
 
-# ImGui sources
-set(IMGUI_SOURCES
-    thirdparty/imgui/imgui.cpp
-    thirdparty/imgui/imgui_demo.cpp
-    thirdparty/imgui/imgui_draw.cpp
-    thirdparty/imgui/imgui_tables.cpp
-    thirdparty/imgui/imgui_widgets.cpp
-    thirdparty/imgui/backends/imgui_impl_glfw.cpp
-    thirdparty/imgui/backends/imgui_impl_opengl2.cpp
-)
 
 
-
-# Add VIO with ImGui viewer
+# Add VIO with Pangolin viewer
 add_executable(test_vio_viewer test_vio_viewer.cpp 
     src/database/Frame.cpp
     src/database/Feature.cpp
@@ -87,23 +83,25 @@ add_executable(test_vio_viewer test_vio_viewer.cpp
     src/factor/PnPFactors.cpp
     src/factor/Parameters.cpp
     src/util/Config.cpp
-    src/viewer/ImGuiViewer.cpp
-    ${IMGUI_SOURCES}
+    src/util/EurocUtils.cpp
+    src/viewer/PangolinViewer.cpp
 )
 
 # Link libraries
-# target_link_libraries(test_imgui_viewer glfw OpenGL::GL ${GLU_LIBRARY} GLEW::GLEW Threads::Threads)
 target_link_libraries(test_vio_viewer 
     ${OpenCV_LIBS} 
     yaml-cpp 
-    glfw 
     OpenGL::GL 
-    ${GLU_LIBRARY} 
-    GLEW::GLEW 
+    GLEW::GLEW
     Threads::Threads
     ceres
     Sophus::Sophus
     spdlog::spdlog
+    pango_display
+    pango_windowing
+    pango_opengl
+    pango_core
+    pango_image
 )
 
 

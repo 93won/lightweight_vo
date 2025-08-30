@@ -811,7 +811,10 @@ void Frame::triangulate_stereo_points() {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     
-    // Timing output removed for cleaner logs
+    // Log triangulation results for debugging
+    spdlog::info("[TRIANGULATION] Frame {}: {}/{} features triangulated (depth_reject={}, reproj_reject={}) in {:.1f}ms", 
+                m_frame_id, triangulated_count, total_stereo_matches, 
+                depth_rejected, reprojection_rejected, duration.count() / 1000.0);
 }
 
 void Frame::initialize_map_points() {

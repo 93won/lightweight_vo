@@ -17,7 +17,8 @@
 #include <module/FeatureTracker.h>
 #include <module/Estimator.h>
 #include <util/Config.h>
-#include <viewer/ImGuiViewer.h>
+#include <util/EurocUtils.h>
+#include <viewer/PangolinViewer.h>
 
 using namespace lightweight_vio;
 
@@ -112,9 +113,54 @@ std::vector<Eigen::Vector3f> extract_all_map_points(const Estimator& estimator) 
     return points;
 }
 
+std::vector<Eigen::Vector3f> extract_current_frame_map_points(const Estimator& estimator) {
+    std::vector<Eigen::Vector3f> points;
+    
+    auto current_frame = estimator.get_current_frame();
+    if (!current_frame) {
+        spdlog::warn("[MAP_POINTS] No current frame available");
+        return points;
+    }
+    
+    const auto& frame_map_points = current_frame->get_map_points();
+    spdlog::info("[MAP_POINTS] Current frame has {} map point slots", frame_map_points.size());
+    
+    int valid_count = 0;
+    for (const auto& mp : frame_map_points) {
+        if (mp && !mp->is_bad()) {
+            Eigen::Vector3f position = mp->get_position();
+            points.push_back(position);
+            valid_count++;
+        }
+    }
+    
+    spdlog::info("[MAP_POINTS] Found {} valid map points in current frame", valid_count);
+    
+    return points;
+}
+
+std::vector<Eigen::Vector3f> extract_all_accumulated_map_points(const Estimator& estimator) {
+    std::vector<Eigen::Vector3f> points;
+    
+    const auto& all_map_points = estimator.get_map_points();
+    
+    int valid_count = 0;
+    for (const auto& mp : all_map_points) {
+        if (mp && !mp->is_bad()) {
+            Eigen::Vector3f position = mp->get_position();
+            points.push_back(position);
+            valid_count++;
+        }
+    }
+    
+    spdlog::debug("[ALL_MAP_POINTS] Found {} total valid map points", valid_count);
+    
+    return points;
+}
+
 int main(int argc, char* argv[]) {
     // Initialize spdlog for immediate colored output
-    spdlog::set_level(spdlog::level::info);
+    spdlog::set_level(spdlog::level::debug);  // Enable debug messages for timestamp matching
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
     
     if (argc != 2) {
@@ -133,6 +179,11 @@ int main(int argc, char* argv[]) {
     
     std::string dataset_path = argv[1];
     
+    // Load EuRoC ground truth data
+    if (!lightweight_vio::EurocUtils::load_ground_truth(dataset_path)) {
+        spdlog::warn("[EuRoC] Failed to load ground truth data, continuing without it");
+    }
+    
     // Load image timestamps
     std::vector<ImageData> image_data = load_image_timestamps(dataset_path);
     if (image_data.empty()) {
@@ -140,12 +191,26 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     
+    // Pre-match image timestamps with ground truth
+    if (lightweight_vio::EurocUtils::has_ground_truth()) {
+        std::vector<long long> image_timestamps;
+        image_timestamps.reserve(image_data.size());
+        for (const auto& img : image_data) {
+            image_timestamps.push_back(img.timestamp);
+        }
+        
+        if (lightweight_vio::EurocUtils::match_image_timestamps(image_timestamps)) {
+            spdlog::info("[EuRoC] Successfully pre-matched {} image timestamps with ground truth", 
+                        lightweight_vio::EurocUtils::get_matched_count());
+        }
+    }
+    
     // Initialize 3D viewer (optional)
-    ImGuiViewer* viewer = nullptr;
-    std::unique_ptr<ImGuiViewer> viewer_ptr = std::make_unique<ImGuiViewer>();
-    if (viewer_ptr->initialize(3840, 1600)) {
+    PangolinViewer* viewer = nullptr;
+    std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
+    if (viewer_ptr->initialize(3200, 2400)) {  // Pangolin 뷰어 초기화
         viewer = viewer_ptr.get();
-        spdlog::info("[Viewer] 3D viewer initialized successfully");
+        spdlog::info("[Viewer] Pangolin viewer initialized successfully");
         
         // Wait for viewer to be fully ready
         spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
@@ -160,6 +225,15 @@ int main(int argc, char* argv[]) {
     
     // Initialize Estimator
     Estimator estimator;
+    
+    // Set initial ground truth pose for first frame if available
+    if (lightweight_vio::EurocUtils::has_ground_truth() && !image_data.empty()) {
+        auto first_gt_pose = lightweight_vio::EurocUtils::get_matched_pose(0);
+        if (first_gt_pose.has_value()) {
+            estimator.set_initial_gt_pose(first_gt_pose.value());
+            spdlog::info("[GT_INIT] Set initial ground truth pose for VIO estimation");
+        }
+    }
     
     // Control variables for step mode
     bool auto_play = true;
@@ -227,6 +301,46 @@ int main(int argc, char* argv[]) {
             processed_left_image, processed_right_image, 
             image_data[current_idx].timestamp);
             
+        // Apply ground truth pose if available (for debugging triangulation)
+        if (lightweight_vio::EurocUtils::get_matched_count() > processed_frames) {
+            auto gt_pose_opt = lightweight_vio::EurocUtils::get_matched_pose(processed_frames);
+            if (gt_pose_opt.has_value()) {
+                Eigen::Matrix4f gt_pose = gt_pose_opt.value();
+                
+                // Apply GT pose directly to estimator for debugging
+                estimator.apply_gt_pose_to_current_frame(gt_pose);
+                
+                // Add GT pose to viewer trajectory
+                if (viewer) {
+                    viewer->add_ground_truth_pose(gt_pose);
+                }
+                
+                auto current_frame = estimator.get_current_frame();
+                if (current_frame) {
+                    // Get actual current pose after GT application
+                    Eigen::Matrix4f current_pose_after_gt = current_frame->get_Twb();
+                    
+                    // Get VIO estimation result (before GT application)
+                    Eigen::Matrix4f vio_estimated_pose = result.pose;
+                    
+                    // Extract positions for comparison
+                    Eigen::Vector3f gt_position = gt_pose.block<3,1>(0,3);
+                    Eigen::Vector3f applied_position = current_pose_after_gt.block<3,1>(0,3);
+                    Eigen::Vector3f vio_position = vio_estimated_pose.block<3,1>(0,3);
+                    
+                    float gt_vs_applied_error = (gt_position - applied_position).norm();
+                    float gt_vs_vio_error = (gt_position - vio_position).norm();
+                    
+                    spdlog::info("[GT DEBUG] Frame {}: GT ({:.3f}, {:.3f}, {:.3f}), Applied ({:.3f}, {:.3f}, {:.3f}), VIO ({:.3f}, {:.3f}, {:.3f})",
+                               processed_frames,
+                               gt_position.x(), gt_position.y(), gt_position.z(),
+                               applied_position.x(), applied_position.y(), applied_position.z(),
+                               vio_position.x(), vio_position.y(), vio_position.z());
+                    spdlog::info("[GT DEBUG] Errors: GT vs Applied = {:.3f}m, GT vs VIO = {:.3f}m", gt_vs_applied_error, gt_vs_vio_error);
+                }
+            }
+        }
+            
         auto frame_end = std::chrono::high_resolution_clock::now();
         
         // Timing calculation
@@ -238,9 +352,12 @@ int main(int argc, char* argv[]) {
         if (viewer) {
             auto current_frame = estimator.get_current_frame();
             if (current_frame) {
-                // Update all accumulated map points
-                std::vector<Eigen::Vector3f> all_map_points = extract_all_map_points(estimator);
-                viewer->update_points(all_map_points);
+                // Get both accumulated and current frame map points
+                std::vector<Eigen::Vector3f> all_map_points = extract_all_accumulated_map_points(estimator);
+                std::vector<Eigen::Vector3f> current_map_points = extract_current_frame_map_points(estimator);
+                
+                // Update map points with color differentiation
+                viewer->update_map_points(all_map_points, current_map_points);
                 
                 // Update current pose
                 Eigen::Matrix4f current_pose = current_frame->get_Twb();
@@ -264,6 +381,9 @@ int main(int argc, char* argv[]) {
                 // Calculate frame statistics
                 int tracked_features = 0;
                 int new_features = 0;
+                int stereo_matches = 0;
+                int map_points_count = 0;
+                
                 for (const auto& feature : current_frame->get_features()) {
                     if (feature->has_tracked_feature()) {
                         tracked_features++;
@@ -272,15 +392,75 @@ int main(int argc, char* argv[]) {
                     }
                 }
                 
-                // Update viewer frame information
+                // Count stereo matches and map points
+                const auto& map_points = current_frame->get_map_points();
+                for (const auto& mp : map_points) {
+                    if (mp && !mp->is_bad()) {
+                        map_points_count++;
+                    }
+                }
+                
+                // Estimate stereo matches from available data
+                stereo_matches = map_points_count; // Approximation - actual stereo matches might be slightly different
+                
+                // Calculate success rate
+                float success_rate = (result.num_features > 0) ? 
+                    (static_cast<float>(stereo_matches) / static_cast<float>(result.num_features)) * 100.0f : 0.0f;
+                
+                // Get position error if ground truth is available
+                float position_error = 0.0f;
+                if (lightweight_vio::EurocUtils::get_matched_count() > processed_frames) {
+                    auto gt_pose_opt = lightweight_vio::EurocUtils::get_matched_pose(processed_frames);
+                    if (gt_pose_opt.has_value()) {
+                        Eigen::Matrix4f gt_pose = gt_pose_opt.value();
+                        Eigen::Matrix4f estimated_pose = current_frame->get_Twb();
+                        
+                        Eigen::Vector3f gt_position = gt_pose.block<3,1>(0,3);
+                        Eigen::Vector3f est_position = estimated_pose.block<3,1>(0,3);
+                        
+                        position_error = (gt_position - est_position).norm();
+                    }
+                }
+                
+                // Update tracking statistics in viewer
+                viewer->update_tracking_stats(
+                    current_idx + 1,           // frame_id
+                    result.num_features,       // total_features  
+                    stereo_matches,            // stereo_matches
+                    map_points_count,          // map_points
+                    success_rate,              // success_rate
+                    position_error             // position_error
+                );
+                
+                // Update viewer frame information (legacy)
                 viewer->update_frame_info(current_idx + 1, result.num_features, tracked_features, new_features);
                 
-                viewer->update_tracking_image(tracking_image);
+                // Update tracking image with map point indices
+                if (current_frame) {
+                    const auto& features = current_frame->get_features();
+                    const auto& map_points = current_frame->get_map_points();
+                    viewer->update_tracking_image_with_map_points(tracking_image, features, map_points);
+                    spdlog::debug("[Viewer] Updated tracking image with {} features", features.size());
+                } else {
+                    viewer->update_tracking_image(tracking_image);
+                    spdlog::debug("[Viewer] Updated tracking image");
+                }
                 
                 // Update stereo matching image if available
-                if (current_frame->is_stereo()) {
+                if (current_frame && current_frame->is_stereo()) {
                     cv::Mat stereo_image = current_frame->draw_stereo_matches();
                     viewer->update_stereo_image(stereo_image);
+                    spdlog::debug("[Viewer] Updated stereo matching image");
+                } else {
+                    // For testing: show processed right image if available
+                    if (!processed_right_image.empty()) {
+                        viewer->update_stereo_image(processed_right_image);
+                        spdlog::debug("[Viewer] Updated with right image");
+                    } else {
+                        // As fallback, show the left image in right panel too
+                        viewer->update_stereo_image(tracking_image);
+                        spdlog::debug("[Viewer] Updated with fallback left image");
+                    }
                 }
                 
                 previous_frame = current_frame;
