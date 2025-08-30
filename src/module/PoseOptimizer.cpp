@@ -36,6 +36,10 @@ namespace lightweight_vio
         double fx, fy, cx, cy;
         frame->get_camera_intrinsics(fx, fy, cx, cy);
         factor::CameraParameters camera_params(fx, fy, cx, cy);
+        
+        // DEBUG: Print camera intrinsics
+        spdlog::debug("[DEBUG_CAM] Camera intrinsics: fx={:.2f}, fy={:.2f}, cx={:.2f}, cy={:.2f}",
+                     fx, fy, cx, cy);
 
         // Add observations to the problem
         std::vector<ObservationInfo> observations;
@@ -80,7 +84,7 @@ namespace lightweight_vio
             Eigen::Vector2d observation(undistorted_point.x, undistorted_point.y);
 
             // Add mono PnP observation with desired pixel noise standard deviation
-            auto obs_info = add_mono_observation(problem, pose_params.data(), world_point, observation, camera_params, 2.0);
+            auto obs_info = add_mono_observation(problem, pose_params.data(), world_point, observation, camera_params, frame, 2.0);
 
             // Debug: Check if projection makes sense for first few features
             if (num_valid_observations < 3) {
@@ -249,22 +253,29 @@ namespace lightweight_vio
         const Eigen::Vector3d &world_point,
         const Eigen::Vector2d &observation,
         const factor::CameraParameters &camera_params,
+        std::shared_ptr<Frame> frame,
         double pixel_noise_std)
     {
 
         // Create information matrix for pixel observations
         Eigen::Matrix2d information = create_information_matrix(pixel_noise_std);
 
-        // For now, use identity T_CB (body-to-camera transform)
-        // TODO: Replace with actual T_CB = T_BC.inverse() from configuration when needed
-        Eigen::Matrix4d Tcb = Eigen::Matrix4d::Identity();
+        // Get T_cb (body-to-camera transform) from frame directly - NO CONFIG ACCESS!
+        const Eigen::Matrix4d& T_cb = frame->get_T_CB();
+        
+        // DEBUG: Print T_cb matrix from frame
+        spdlog::debug("[DEBUG_FRAME_TCB] Using T_cb from Frame (cached):");
+        for (int row = 0; row < 4; ++row) {
+            spdlog::debug("[DEBUG_FRAME_TCB] [{:.6f}, {:.6f}, {:.6f}, {:.6f}]",
+                         T_cb(row, 0), T_cb(row, 1), T_cb(row, 2), T_cb(row, 3));
+        }
 
-        // Create mono PnP cost function with information matrix and Tcb
-        auto cost_function = new factor::MonoPnPFactor(observation, world_point, camera_params, Tcb, information);
+        // Create mono PnP cost function with information matrix and T_cb
+        auto cost_function = new factor::MonoPnPFactor(observation, world_point, camera_params, T_cb, information);
 
         // Create robust loss function if enabled
+        const Config& config = Config::getInstance();
         ceres::LossFunction *loss_function = nullptr;
-        const auto& config = Config::getInstance();
         if (config.m_use_robust_kernel)
         {
             loss_function = create_robust_loss(config.m_huber_delta_mono);
@@ -379,18 +390,26 @@ namespace lightweight_vio
                 
                 // Transform to camera coordinates: Pc = Rcw * Pw + tcw
                 Eigen::Matrix3d Rwb = current_pose.rotationMatrix();
-                Eigen::Vector3d twb = current_pose.translation();
+                Eigen::Vector3d t_wb = current_pose.translation();
                 Eigen::Matrix3d Rbw = Rwb.transpose();
-                Eigen::Vector3d tbw = -Rbw * twb;
+                Eigen::Vector3d t_bw = -Rbw * t_wb;
                 
-                // For now, use identity T_CB (body-to-camera transform)
-                // TODO: Replace with actual T_CB = T_BC.inverse() from configuration when needed
-                Eigen::Matrix4d Tcb = Eigen::Matrix4d::Identity();
+                // Get T_cb (body-to-camera transform) from configuration
+                // T_cb = T_bc.inverse() where T_bc is camera-to-body transform
+                const auto& config = Config::getInstance();
+                cv::Mat T_bc_cv = config.left_T_BC();
+                Eigen::Matrix4d T_bc;
+                for (int i = 0; i < 4; ++i) {
+                    for (int j = 0; j < 4; ++j) {
+                        T_bc(i, j) = T_bc_cv.at<double>(i, j);
+                    }
+                }
+                Eigen::Matrix4d T_cb = T_bc.inverse();
                 
-                // Transform to camera coordinates: Pc = Tcb * (Rbw * Pw + tbw)
-                Eigen::Vector3d point_body = Rbw * world_pos + tbw;
+                // Transform to camera coordinates: Pc = T_cb * (Rbw * Pw + t_bw)
+                Eigen::Vector3d point_body = Rbw * world_pos + t_bw;
                 Eigen::Vector4d point_body_h(point_body.x(), point_body.y(), point_body.z(), 1.0);
-                Eigen::Vector4d point_camera_h = Tcb * point_body_h;
+                Eigen::Vector4d point_camera_h = T_cb * point_body_h;
                 Eigen::Vector3d point_camera = point_camera_h.head<3>();
                 
                 // Project to image plane
@@ -439,14 +458,14 @@ namespace lightweight_vio
 
     Eigen::Vector6d PoseOptimizer::frame_to_se3_tangent(std::shared_ptr<Frame> frame) const
     {
-        // Get frame pose (Twb)
-        Eigen::Matrix4f Twb = frame->get_Twb();
+        // Get frame pose (T_wb)
+        Eigen::Matrix4f T_wb = frame->get_Twb();
 
         // Convert to double precision
-        Eigen::Matrix4d Twb_d = Twb.cast<double>();
+        Eigen::Matrix4d T_wb_d = T_wb.cast<double>();
 
         // Fix numerical precision issues from float->double conversion
-        Eigen::Matrix3d R = Twb_d.block<3, 3>(0, 0);
+        Eigen::Matrix3d R = T_wb_d.block<3, 3>(0, 0);
         Eigen::JacobiSVD<Eigen::Matrix3d> svd(R, Eigen::ComputeFullU | Eigen::ComputeFullV);
         R = svd.matrixU() * svd.matrixV().transpose();
         
@@ -456,10 +475,10 @@ namespace lightweight_vio
         }
         
         // Reconstruct the pose matrix with orthogonalized rotation
-        Twb_d.block<3, 3>(0, 0) = R;
+        T_wb_d.block<3, 3>(0, 0) = R;
 
         // Now Sophus SE3 constructor will be happy
-        Sophus::SE3d se3(Twb_d);
+        Sophus::SE3d se3(T_wb_d);
         return se3.log();
     }
 

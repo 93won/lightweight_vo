@@ -4,9 +4,12 @@
 #include <database/Frame.h>
 #include <database/MapPoint.h>
 #include <util/Config.h>
+#include <util/EurocUtils.h>
 #include <spdlog/spdlog.h>
 #include <chrono>
 #include <iostream>
+#include <numeric>
+#include <algorithm>
 
 namespace lightweight_vio {
 
@@ -62,33 +65,29 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
                     result.num_features, num_tracked_with_map_points);
         
         if (num_tracked_with_map_points > 0) {
-            // DISABLED: Perform pose optimization if we have enough associations
-            if (num_tracked_with_map_points >= 5) {
-                // auto opt_result = optimize_pose(m_current_frame);
-                // result.success = opt_result.success;
-                // result.num_inliers = opt_result.num_inliers;
-                // result.num_outliers = opt_result.num_outliers;
-                
-                // Count features with map points after optimization (removed excessive logging)
-                
-                // if (opt_result.success) {
-                //     m_current_pose = opt_result.optimized_pose;
-                //     m_current_frame->set_Twb(m_current_pose);
-                // } else {
-                //     // Optimization failed, keep the initial pose from previous frame
-                //     m_current_pose = m_current_frame->get_Twb();
-                // }
-                
-                // DISABLED: Skip pose optimization, just use previous pose
-                m_current_pose = m_current_frame->get_Twb();
-                result.success = true;
-                result.num_inliers = num_tracked_with_map_points;
-                result.num_outliers = 0;
-            } else {
-                // Use previous pose as initial guess (already set in create_frame)
-                m_current_pose = m_current_frame->get_Twb();
-                result.success = true;
-            }
+            // DISABLED: Pose optimization temporarily disabled - using GT poses only
+            // if (num_tracked_with_map_points >= 5) {
+            //     auto opt_result = optimize_pose(m_current_frame);
+            //     result.success = opt_result.success;
+            //     result.num_inliers = opt_result.num_inliers;
+            //     result.num_outliers = opt_result.num_outliers;
+            //     
+            //     if (opt_result.success) {
+            //         m_current_pose = opt_result.optimized_pose;
+            //         m_current_frame->set_Twb(m_current_pose);
+            //         spdlog::info("[POSE_OPT] Optimization successful: {} inliers, {} outliers", 
+            //                     opt_result.num_inliers, opt_result.num_outliers);
+            //     } else {
+            //         spdlog::warn("[POSE_OPT] Optimization failed");
+            //     }
+            // } else {
+            //     spdlog::warn("[POSE_OPT] Not enough map point associations for optimization: {}", num_tracked_with_map_points);
+            // }
+            
+            // For now, just use the current pose as-is (GT will be applied externally)
+            result.success = true;
+            result.num_inliers = num_tracked_with_map_points;
+            result.num_outliers = 0; 
         } else {
             // No tracking, keep previous pose (already set in create_frame)
             m_current_pose = m_current_frame->get_Twb();
@@ -116,6 +115,11 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         // Count tracked features and features with map points
         result.num_tracked_features = m_current_frame->get_feature_count();
         result.num_features_with_map_points = count_features_with_map_points(m_current_frame);
+        
+        // Compute reprojection error statistics for keyframes
+        if (is_keyframe && count_features_with_map_points(m_current_frame) > 5) {
+            compute_reprojection_error_statistics(m_current_frame);
+        }
         
       
     } else {
@@ -210,7 +214,21 @@ std::shared_ptr<Frame> Estimator::create_frame(const cv::Mat& left_image, const 
     
     // Set initial pose to previous frame's pose (or identity for first frame)
     if (m_previous_frame) {
-        frame->set_Twb(m_previous_frame->get_Twb());
+        // Check if we can get GT pose for current frame
+        if (lightweight_vio::EurocUtils::has_ground_truth() && 
+            lightweight_vio::EurocUtils::get_matched_count() > m_frame_id_counter) {
+            auto gt_pose_opt = lightweight_vio::EurocUtils::get_matched_pose(m_frame_id_counter);
+            if (gt_pose_opt.has_value()) {
+                frame->set_Twb(gt_pose_opt.value());
+                spdlog::debug("[GT_POSE] Applied GT pose for frame {}", m_frame_id_counter);
+            } else {
+                frame->set_Twb(m_previous_frame->get_Twb());
+                spdlog::debug("[PREV_POSE] Used previous frame pose for frame {}", m_frame_id_counter);
+            }
+        } else {
+            frame->set_Twb(m_previous_frame->get_Twb());
+            spdlog::debug("[PREV_POSE] Used previous frame pose for frame {}", m_frame_id_counter);
+        }
     } else {
         // First frame - use ground truth pose if available, otherwise identity
         if (m_has_initial_gt_pose) {
@@ -245,33 +263,16 @@ int lightweight_vio::Estimator::create_initial_map_points(std::shared_ptr<Frame>
             }
             
             // Transform to world coordinates using frame pose
-            Eigen::Matrix4f Twb = frame->get_Twb();
+            Eigen::Matrix4f T_wb = frame->get_Twb();
             
-            // Get actual T_BC from configuration 
-            const auto& global_config = lightweight_vio::Config::getInstance();
-            cv::Mat T_BC_cv = global_config.left_T_BC();  // Get T_BC from config (camera to body)
-            
-            Eigen::Matrix4f Tcb;
-            if (!T_BC_cv.empty()) {
-                // Convert T_BC to Eigen
-                Eigen::Matrix4d T_BC;
-                for (int i = 0; i < 4; ++i) {
-                    for (int j = 0; j < 4; ++j) {
-                        T_BC(i, j) = T_BC_cv.at<double>(i, j);
-                    }
-                }
-                // T_CB = T_BC^-1 (body to camera transform)
-                Eigen::Matrix4d T_CB = T_BC.inverse();
-                Tcb = T_CB.cast<float>();
-            } else {
-                // Fallback to identity if config not available
-                Tcb = Eigen::Matrix4f::Identity();
-            }
+            // Use Frame's cached T_cb for consistency
+            Eigen::Matrix4f T_cb = frame->get_T_CB().cast<float>();  // Body to Camera
+            Eigen::Matrix4f T_bc = T_cb.inverse();     // Camera to Body
             
             // Transform: Camera → Body → World
             Eigen::Vector4f camera_point(camera_3d_point.x(), camera_3d_point.y(), camera_3d_point.z(), 1.0);
-            Eigen::Vector4f body_point = Tcb * camera_point;
-            Eigen::Vector4f world_point = Twb * body_point;
+            Eigen::Vector4f body_point = T_bc * camera_point;  // Camera to Body
+            Eigen::Vector4f world_point = T_wb * body_point;    // Body to World
             
             Eigen::Vector3f world_pos = world_point.head<3>();
             
@@ -282,11 +283,34 @@ int lightweight_vio::Estimator::create_initial_map_points(std::shared_ptr<Frame>
             frame->set_map_point(i, map_point);
             num_created++;
             
-            // Debug log for first few map points
-            if (num_created <= 5) {
-                spdlog::debug("[MAP_POINT] Created #{}: cam({:.2f},{:.2f},{:.2f}) -> world({:.2f},{:.2f},{:.2f})", 
-                            num_created, camera_3d_point.x(), camera_3d_point.y(), camera_3d_point.z(), 
-                            world_pos.x(), world_pos.y(), world_pos.z());
+            // Compute reprojection error for verification
+            double fx, fy, cx, cy;
+            frame->get_camera_intrinsics(fx, fy, cx, cy);
+            
+            // Project world point back to camera
+            Eigen::Vector4f world_pos_h(world_pos.x(), world_pos.y(), world_pos.z(), 1.0f);
+            Eigen::Vector4f camera_pos_h = T_cb * (T_wb.inverse() * world_pos_h);
+            Eigen::Vector3f camera_pos = camera_pos_h.head<3>();
+            
+            if (camera_pos.z() > 0) {
+                float u_proj = fx * camera_pos.x() / camera_pos.z() + cx;
+                float v_proj = fy * camera_pos.y() / camera_pos.z() + cy;
+                
+                // Get undistorted observed pixel
+                cv::Point2f distorted_point(feature->get_u(), feature->get_v());
+                cv::Point2f undistorted_point = frame->undistort_point(distorted_point);
+                
+                // Compute reprojection error
+                double error_x = undistorted_point.x - u_proj;
+                double error_y = undistorted_point.y - v_proj;
+                double error = std::sqrt(error_x * error_x + error_y * error_y);
+                
+                spdlog::info("[CREATE_MP] #{}: obs=({:.0f},{:.0f}) proj=({:.1f},{:.1f}) err={:.2f}px world=({:.2f},{:.2f},{:.2f})", 
+                           num_created, undistorted_point.x, undistorted_point.y, u_proj, v_proj, error,
+                           world_pos.x(), world_pos.y(), world_pos.z());
+            } else {
+                spdlog::warn("[CREATE_MP] #{}: Point behind camera! world=({:.2f},{:.2f},{:.2f})", 
+                           num_created, world_pos.x(), world_pos.y(), world_pos.z());
             }
         }
     }
@@ -358,29 +382,29 @@ int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> fra
         }
         
         // Transform to world coordinates using frame pose
-        Eigen::Matrix4f Twb = frame->get_Twb();
+        Eigen::Matrix4f T_wb = frame->get_Twb();
         
-        // Get actual T_BC from configuration 
+        // Get actual T_bc from configuration 
         const auto& config = lightweight_vio::Config::getInstance();
-        cv::Mat T_BC_cv = config.left_T_BC();  // Get T_BC from config (camera to body)
+        cv::Mat T_bc_cv = config.left_T_BC();  // Get T_BC from config (camera to body)
         
-        Eigen::Matrix4f Tbc;
-        if (!T_BC_cv.empty()) {
-            // Convert T_BC to Eigen
+        Eigen::Matrix4f T_bc;
+        if (!T_bc_cv.empty()) {
+            // Convert T_bc to Eigen
             for (int i = 0; i < 4; ++i) {
                 for (int j = 0; j < 4; ++j) {
-                    Tbc(i, j) = T_BC_cv.at<double>(i, j);
+                    T_bc(i, j) = T_bc_cv.at<double>(i, j);
                 }
             }
         } else {
             // Fallback to identity if config not available
-            Tbc = Eigen::Matrix4f::Identity();
+            T_bc = Eigen::Matrix4f::Identity();
         }
         
         // Transform: Camera → Body → World
         Eigen::Vector4f camera_point(camera_3d_point.x(), camera_3d_point.y(), camera_3d_point.z(), 1.0);
-        Eigen::Vector4f body_point = Tbc * camera_point;
-        Eigen::Vector4f world_point = Twb * body_point;
+        Eigen::Vector4f body_point = T_bc * camera_point;
+        Eigen::Vector4f world_point = T_wb * body_point;
         
         Eigen::Vector3f world_pos = world_point.head<3>();
         
@@ -390,6 +414,38 @@ int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> fra
         
         // Associate with current frame
         frame->set_map_point(i, map_point);
+        
+        // Real-time reprojection verification for new map point
+        spdlog::debug("NEW Map Point {}: world_pos=({:.3f}, {:.3f}, {:.3f})", 
+                     m_map_points.size() - 1, world_pos.x(), world_pos.y(), world_pos.z());
+        
+        // Verify reprojection in current frame
+        Eigen::Matrix4f T_wc = T_wb * T_bc;  // World to camera
+        Eigen::Matrix4f T_cw = T_wc.inverse(); // Camera to world (for projection)
+        
+        // Project back to image
+        Eigen::Vector4f world_homogeneous(world_pos.x(), world_pos.y(), world_pos.z(), 1.0);
+        Eigen::Vector4f camera_projected = T_cw * world_homogeneous;
+        
+        if (camera_projected.z() > 0) {  // Valid projection
+            auto feature = frame->get_feature(i);
+            if (feature) {
+                cv::Point2f observed_pt = feature->get_pixel_coord();
+                
+                // Get camera intrinsics from frame
+                double fx, fy, cx, cy;
+                frame->get_camera_intrinsics(fx, fy, cx, cy);
+                
+                float projected_x = (fx * camera_projected.x() / camera_projected.z()) + cx;
+                float projected_y = (fy * camera_projected.y() / camera_projected.z()) + cy;
+                
+                float reprojection_error = sqrt(pow(observed_pt.x - projected_x, 2) + pow(observed_pt.y - projected_y, 2));
+                
+                spdlog::debug("  Reprojection: observed=({:.2f}, {:.2f}), projected=({:.2f}, {:.2f}), error={:.3f}px", 
+                             observed_pt.x, observed_pt.y, projected_x, projected_y, reprojection_error);
+            }
+        }
+        
         num_created++;
     }
     
@@ -536,6 +592,110 @@ void Estimator::apply_gt_pose_to_current_frame(const Eigen::Matrix4f& gt_pose) {
         m_current_frame->set_Twb(gt_pose);
         m_current_pose = gt_pose;
         spdlog::debug("[GT_APPLY] Applied GT pose to frame {}", m_current_frame->get_frame_id());
+
+        std::cout<<gt_pose<<"\n";
+    }
+}
+
+void lightweight_vio::Estimator::compute_reprojection_error_statistics(std::shared_ptr<Frame> frame) {
+    if (!frame) {
+        return;
+    }
+    
+    std::vector<double> reprojection_errors;
+    const auto& features = frame->get_features();
+    const auto& map_points = frame->get_map_points();
+    
+    // Get camera parameters
+    double fx, fy, cx, cy;
+    frame->get_camera_intrinsics(fx, fy, cx, cy);
+    
+    // DEBUG: Print camera parameters
+    spdlog::debug("[REPROJ_DEBUG] Camera params: fx={:.2f}, fy={:.2f}, cx={:.2f}, cy={:.2f}", fx, fy, cx, cy);
+    
+    // Get current pose
+    Eigen::Matrix4f T_wb = frame->get_Twb();
+    
+    
+    // Get T_cb from frame
+    const Eigen::Matrix4d& T_cb = frame->get_T_CB();
+    Eigen::Matrix4f T_cb_f = T_cb.cast<float>();
+   
+    
+    int valid_projections = 0;
+    int behind_camera = 0;
+    
+    for (size_t i = 0; i < features.size() && i < map_points.size(); ++i) {
+        auto feature = features[i];
+        auto map_point = map_points[i];
+        
+        if (!feature || !feature->is_valid() || !map_point || map_point->is_bad()) {
+            continue;
+        }
+        
+        // Get 3D world position
+        Eigen::Vector3f world_pos = map_point->get_position();
+        
+        // CORRECTED: Transform from world to camera using correct matrix chain
+        // T_wc = T_wb * T_bc (Camera → World)
+        Eigen::Matrix4f T_bc = T_cb_f.inverse();  // Camera to Body (T_bc = T_cb^-1)
+        Eigen::Matrix4f T_wc = T_wb * T_bc;   // Camera to World transformation
+        
+        // Transform world point to camera
+        Eigen::Vector4f world_pos_h(world_pos.x(), world_pos.y(), world_pos.z(), 1.0f);
+        Eigen::Vector4f camera_pos_h = T_wc.inverse() * world_pos_h;
+        Eigen::Vector3f camera_pos = camera_pos_h.head<3>();
+        
+        // Check if point is behind camera
+        if (camera_pos.z() <= 0) {
+            behind_camera++;
+            continue;
+        }
+        
+        // Project to image plane
+        float u_proj = fx * camera_pos.x() / camera_pos.z() + cx;
+        float v_proj = fy * camera_pos.y() / camera_pos.z() + cy;
+        
+        // Get undistorted observed pixel
+        cv::Point2f distorted_point(feature->get_u(), feature->get_v());
+        cv::Point2f undistorted_point = frame->undistort_point(distorted_point);
+        
+        // Compute reprojection error
+        double error_x = undistorted_point.x - u_proj;
+        double error_y = undistorted_point.y - v_proj;
+        double error = std::sqrt(error_x * error_x + error_y * error_y);
+        
+        reprojection_errors.push_back(error);
+        valid_projections++;
+        
+        // Print core info for all features in one line
+        spdlog::info("[REPROJ] F{}: obs=({:.0f},{:.0f}) proj=({:.1f},{:.1f}) err={:.2f}px world=({:.2f},{:.2f},{:.2f})", 
+                     i, undistorted_point.x, undistorted_point.y, u_proj, v_proj, error,
+                     world_pos.x(), world_pos.y(), world_pos.z());
+    }
+    
+    if (valid_projections > 0) {
+        // Compute statistics
+        std::sort(reprojection_errors.begin(), reprojection_errors.end());
+        
+        double mean_error = std::accumulate(reprojection_errors.begin(), reprojection_errors.end(), 0.0) / reprojection_errors.size();
+        double median_error = reprojection_errors[reprojection_errors.size() / 2];
+        double min_error = reprojection_errors.front();
+        double max_error = reprojection_errors.back();
+        
+        // Count outliers (error > 5 pixels)
+        int outliers = std::count_if(reprojection_errors.begin(), reprojection_errors.end(), 
+                                   [](double error) { return error > 5.0; });
+        
+        spdlog::info("[REPROJ_ERROR] Frame {}: {}/{} valid, mean={:.2f}px, median={:.2f}px, min={:.2f}px, max={:.2f}px, outliers={}", 
+                    frame->get_frame_id(), valid_projections, features.size(), 
+                    mean_error, median_error, min_error, max_error, outliers);
+        
+        if (behind_camera > 0) {
+            spdlog::warn("[REPROJ_ERROR] {} points behind camera", behind_camera);
+        }
+    } else {
+        spdlog::warn("[REPROJ_ERROR] Frame {}: No valid projections", frame->get_frame_id());
     }
 }
 

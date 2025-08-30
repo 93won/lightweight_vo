@@ -203,6 +203,12 @@ private:
     OptimizationResult optimize_pose(std::shared_ptr<Frame> frame);
     
     /**
+     * @brief Compute reprojection error statistics for map points
+     * @param frame Frame to compute reprojection errors for
+     */
+    void compute_reprojection_error_statistics(std::shared_ptr<Frame> frame);
+    
+    /**
      * @brief Update map points based on optimization results
      * @param frame Frame with updated pose
      */

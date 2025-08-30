@@ -77,6 +77,7 @@ private:
      * @param world_point 3D world point
      * @param observation 2D observation
      * @param camera_params Camera parameters
+     * @param frame Frame containing the T_CB transformation
      * @return Observation info with residual block ID and cost function
      */
     ObservationInfo add_mono_observation(
@@ -85,6 +86,7 @@ private:
         const Eigen::Vector3d& world_point,
         const Eigen::Vector2d& observation,
         const factor::CameraParameters& camera_params,
+        std::shared_ptr<Frame> frame,
         double pixel_noise_std = 1.0);
     
     /**

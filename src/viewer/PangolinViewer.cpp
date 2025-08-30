@@ -89,12 +89,6 @@ void PangolinViewer::setup_panels() {
     // UI 패널 너비를 윈도우 너비의 1/4로 설정
     int ui_panel_width = m_window_width / 4;
     
-    std::cout << "========== SETUP_PANELS CALLED ==========" << std::endl;
-    std::cout << "[DEBUG] setup_panels called: window=" << m_window_width << "x" << m_window_height 
-              << ", ui_panel_width=" << ui_panel_width 
-              << ", panels_created=" << m_panels_created << std::endl;
-    std::cout << "========================================" << std::endl;
-    
     // Config에서 실제 이미지 크기 읽어오기
     float image_width, image_height;
     try {
@@ -226,8 +220,6 @@ void PangolinViewer::render() {
     
     // 창 크기가 조금이라도 변경되면 즉시 레이아웃 업데이트
     if (current_width != m_window_width || current_height != m_window_height) {
-        std::cout << "[INSTANT RESIZE] " << m_window_width << "x" << m_window_height 
-                  << " -> " << current_width << "x" << current_height << std::endl;
                   
         m_window_width = current_width;
         m_window_height = current_height;
@@ -235,8 +227,6 @@ void PangolinViewer::render() {
         // 즉시 모든 패널 레이아웃 재설정
         setup_panels();
         
-        std::cout << "[RESIZE COMPLETE] UI=" << (current_width/4) << "px, 3D_VIEW=" 
-                  << (current_width*3/4) << "px" << std::endl;
     }
 
     // Clear screen and activate view to render into
@@ -483,19 +473,19 @@ void PangolinViewer::draw_camera_frustum() {
     // Get camera pose using T_BC from config
     try {
         const auto& config = Config::getInstance();
-        cv::Mat T_BC_cv = config.left_T_BC();
-        Eigen::Matrix4f T_BC;
+        cv::Mat T_bc_cv = config.left_T_BC();
+        Eigen::Matrix4f T_bc;
         for (int i = 0; i < 4; ++i) {
             for (int j = 0; j < 4; ++j) {
-                T_BC(i, j) = T_BC_cv.at<double>(i, j);
+                T_bc(i, j) = T_bc_cv.at<double>(i, j);
             }
         }
         
-        // T_CB = T_BC^-1 (body to camera)
-        Eigen::Matrix4f T_CB = T_BC.inverse();
+        // T_cb = T_bc^-1 (body to camera)
+        Eigen::Matrix4f T_cb = T_bc.inverse();
         
         // T_wc = T_wb * T_cb (world to camera)
-        Eigen::Matrix4f T_wc = m_current_pose * T_CB;
+        Eigen::Matrix4f T_wc = m_current_pose * T_cb;
         
         // Draw camera frustum using Pangolin
         glPushMatrix();
@@ -600,7 +590,7 @@ void PangolinViewer::update_map_points(const std::vector<Eigen::Vector3f>& all_p
     m_all_map_points = all_points;
     m_current_map_points = current_points;
     
-    spdlog::debug("[VIEWER] Updated map points: {} total, {} current", all_points.size(), current_points.size());
+    // spdlog::debug("[VIEWER] Updated map points: {} total, {} current", all_points.size(), current_points.size());
 }
 
 void PangolinViewer::update_tracking_image(const cv::Mat& image) {
@@ -614,7 +604,7 @@ void PangolinViewer::update_tracking_image(const cv::Mat& image) {
     
     // The bounds and aspect ratio are now handled exclusively by setup_panels().
     // This function is only responsible for updating the texture.
-    spdlog::debug("[PangolinViewer] Updated tracking image texture {}x{}", image.cols, image.rows);
+    // spdlog::debug("[PangolinViewer] Updated tracking image texture {}x{}", image.cols, image.rows);
 }
 
 void PangolinViewer::update_tracking_image_with_map_points(const cv::Mat& image, 
@@ -652,7 +642,7 @@ void PangolinViewer::update_tracking_image_with_map_points(const cv::Mat& image,
 
     // The bounds and aspect ratio are now handled exclusively by setup_panels().
     // This function is only responsible for updating the texture.
-    spdlog::debug("[PangolinViewer] Updated tracking image with features texture {}x{}", display_image.cols, display_image.rows);
+    // spdlog::debug("[PangolinViewer] Updated tracking image with features texture {}x{}", display_image.cols, display_image.rows);
 }
 
 void PangolinViewer::update_stereo_image(const cv::Mat& image) {
@@ -666,7 +656,7 @@ void PangolinViewer::update_stereo_image(const cv::Mat& image) {
 
     // The bounds and aspect ratio are now handled exclusively by setup_panels().
     // This function is only responsible for updating the texture.
-    spdlog::debug("[PangolinViewer] Updated stereo image texture {}x{}", image.cols, image.rows);
+    // spdlog::debug("[PangolinViewer] Updated stereo image texture {}x{}", image.cols, image.rows);
 }
 
 void PangolinViewer::process_keyboard_input(bool& auto_play, bool& step_mode, bool& advance_frame) {

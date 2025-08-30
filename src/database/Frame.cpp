@@ -2,6 +2,7 @@
 #include <database/MapPoint.h>
 #include <util/Config.h>
 #include <spdlog/spdlog.h>
+#include <sophus/se3.hpp>
 #include <algorithm>
 #include <iostream>
 
@@ -18,6 +19,17 @@ Frame::Frame(long long timestamp, int frame_id)
 {
     // Initialize default distortion coefficients (no distortion)
     m_distortion_coeffs = {0.0, 0.0, 0.0, 0.0, 0.0};
+    
+    // Get T_cb from config
+    const Config& config = Config::getInstance();
+    cv::Mat T_bc_cv = config.left_T_BC();
+    Eigen::Matrix4d T_bc;
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            T_bc(i, j) = T_bc_cv.at<double>(i, j);
+        }
+    }
+    m_T_CB = T_bc.inverse();
 }
 
 Frame::Frame(long long timestamp, int frame_id, 
@@ -33,6 +45,16 @@ Frame::Frame(long long timestamp, int frame_id,
     , m_baseline(baseline)
     , m_distortion_coeffs(distortion_coeffs)
 {
+    // Get T_CB from config
+    const Config& config = Config::getInstance();
+    cv::Mat T_BC_cv = config.left_T_BC();
+    Eigen::Matrix4d T_BC;
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            T_BC(i, j) = T_BC_cv.at<double>(i, j);
+        }
+    }
+    m_T_CB = T_BC.inverse();
 }
 
 Frame::Frame(long long timestamp, int frame_id,
@@ -52,6 +74,16 @@ Frame::Frame(long long timestamp, int frame_id,
     , m_baseline(baseline)
     , m_distortion_coeffs(distortion_coeffs)
 {
+    // Get T_cb from config
+    const Config& config = Config::getInstance();
+    cv::Mat T_bc_cv = config.left_T_BC();
+    Eigen::Matrix4d T_bc;
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            T_bc(i, j) = T_bc_cv.at<double>(i, j);
+        }
+    }
+    m_T_CB = T_bc.inverse();
 }
 
 Frame::Frame(long long timestamp, int frame_id,
@@ -90,6 +122,23 @@ Frame::Frame(long long timestamp, int frame_id,
         m_distortion_coeffs = {0.0, 0.0, 0.0, 0.0, 0.0}; // No distortion
     }
     
+    // Get T_cb (camera to body transform) from config
+    cv::Mat T_bc_cv = config.left_T_BC();
+    if (!T_bc_cv.empty()) {
+        // Convert cv::Mat to Eigen::Matrix4d
+        Eigen::Matrix4d T_bc;
+        for (int i = 0; i < 4; ++i) {
+            for (int j = 0; j < 4; ++j) {
+                T_bc(i, j) = T_bc_cv.at<double>(i, j);
+            }
+        }
+        // Store T_cb = T_bc.inverse()
+        m_T_CB = T_bc.inverse();
+    } else {
+        // Fallback to identity if config not available
+        m_T_CB = Eigen::Matrix4d::Identity();
+    }
+    
     // Baseline will be calculated automatically in triangulation from transform
     m_baseline = 0.11; // Default fallback, will be overridden by actual calculation
 }
@@ -99,16 +148,16 @@ void Frame::set_pose(const Eigen::Matrix3f& rotation, const Eigen::Vector3f& tra
     m_translation = translation;
 }
 
-void Frame::set_Twb(const Eigen::Matrix4f& Twb) {
-    m_rotation = Twb.block<3, 3>(0, 0);
-    m_translation = Twb.block<3, 1>(0, 3);
+void Frame::set_Twb(const Eigen::Matrix4f& T_wb) {
+    m_rotation = T_wb.block<3, 3>(0, 0);
+    m_translation = T_wb.block<3, 1>(0, 3);
 }
 
 Eigen::Matrix4f Frame::get_Twb() const {
-    Eigen::Matrix4f Twb = Eigen::Matrix4f::Identity();
-    Twb.block<3, 3>(0, 0) = m_rotation;
-    Twb.block<3, 1>(0, 3) = m_translation;
-    return Twb;
+    Eigen::Matrix4f T_wb = Eigen::Matrix4f::Identity();
+    T_wb.block<3, 3>(0, 0) = m_rotation;
+    T_wb.block<3, 1>(0, 3) = m_translation;
+    return T_wb;
 }
 
 void Frame::add_feature(std::shared_ptr<Feature> feature) {
@@ -553,13 +602,8 @@ void Frame::compute_stereo_matches() {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     
-    // Log stereo matching statistics
-    spdlog::debug("[STEREO] Total features: {}, Successful matches: {}", total_features, matches_found);
-    spdlog::debug("[STEREO] Optical flow failed: {}, Error threshold failed: {}", optical_flow_failed, error_threshold_failed);
-    spdlog::debug("[STEREO] Epipolar constraint failed: {}, Y-diff failed: {}", epipolar_failed, y_diff_failed);
-    
+    // STEREO debug logs removed - keeping only essential information
     float success_rate = total_features > 0 ? (float)matches_found / total_features * 100.0f : 0.0f;
-    spdlog::debug("[STEREO] Success rate: {:.1f}% ({}/{})", success_rate, matches_found, total_features);
 }
 
 void Frame::undistort_features() {

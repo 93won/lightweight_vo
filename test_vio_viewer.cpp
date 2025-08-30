@@ -243,7 +243,7 @@ int main(int argc, char* argv[]) {
     // Process all frames
     size_t current_idx = 0;
     size_t processed_frames = 0;
-    while (current_idx < image_data.size()) {
+    while (current_idx < 2){//image_data.size()) {
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {
             spdlog::info("[Viewer] User requested exit");
@@ -301,42 +301,42 @@ int main(int argc, char* argv[]) {
             processed_left_image, processed_right_image, 
             image_data[current_idx].timestamp);
             
-        // Apply ground truth pose if available (for debugging triangulation)
+        // Handle ground truth pose for comparison
         if (lightweight_vio::EurocUtils::get_matched_count() > processed_frames) {
             auto gt_pose_opt = lightweight_vio::EurocUtils::get_matched_pose(processed_frames);
             if (gt_pose_opt.has_value()) {
                 Eigen::Matrix4f gt_pose = gt_pose_opt.value();
                 
-                // Apply GT pose directly to estimator for debugging
-                estimator.apply_gt_pose_to_current_frame(gt_pose);
+                // For the first frame only: apply GT pose to initialize VIO with same starting point
+                // TEMPORARILY DISABLED: Let VIO start from identity to avoid coordinate conflicts
+                if (false && processed_frames == 0) {
+                    estimator.apply_gt_pose_to_current_frame(gt_pose);
+                    // spdlog::info("[GT_INIT] First frame initialized with GT pose for fair comparison");
+                } else if (processed_frames == 0) {
+                    // spdlog::info("[VIO_INIT] First frame initialized with identity pose (no GT applied)");
+                }
                 
-                // Add GT pose to viewer trajectory
+                // Always add GT pose to viewer trajectory for comparison
                 if (viewer) {
                     viewer->add_ground_truth_pose(gt_pose);
                 }
                 
+                // Log comparison between VIO estimation and GT
                 auto current_frame = estimator.get_current_frame();
                 if (current_frame) {
-                    // Get actual current pose after GT application
-                    Eigen::Matrix4f current_pose_after_gt = current_frame->get_Twb();
-                    
-                    // Get VIO estimation result (before GT application)
-                    Eigen::Matrix4f vio_estimated_pose = result.pose;
+                    Eigen::Matrix4f vio_estimated_pose = current_frame->get_Twb();
                     
                     // Extract positions for comparison
                     Eigen::Vector3f gt_position = gt_pose.block<3,1>(0,3);
-                    Eigen::Vector3f applied_position = current_pose_after_gt.block<3,1>(0,3);
                     Eigen::Vector3f vio_position = vio_estimated_pose.block<3,1>(0,3);
                     
-                    float gt_vs_applied_error = (gt_position - applied_position).norm();
-                    float gt_vs_vio_error = (gt_position - vio_position).norm();
+                    float position_error = (gt_position - vio_position).norm();
                     
-                    spdlog::info("[GT DEBUG] Frame {}: GT ({:.3f}, {:.3f}, {:.3f}), Applied ({:.3f}, {:.3f}, {:.3f}), VIO ({:.3f}, {:.3f}, {:.3f})",
+                    spdlog::info("[GT_COMPARE] Frame {}: GT ({:.3f}, {:.3f}, {:.3f}), VIO ({:.3f}, {:.3f}, {:.3f}), Error: {:.3f}m",
                                processed_frames,
                                gt_position.x(), gt_position.y(), gt_position.z(),
-                               applied_position.x(), applied_position.y(), applied_position.z(),
-                               vio_position.x(), vio_position.y(), vio_position.z());
-                    spdlog::info("[GT DEBUG] Errors: GT vs Applied = {:.3f}m, GT vs VIO = {:.3f}m", gt_vs_applied_error, gt_vs_vio_error);
+                               vio_position.x(), vio_position.y(), vio_position.z(),
+                               position_error);
                 }
             }
         }
@@ -440,26 +440,26 @@ int main(int argc, char* argv[]) {
                     const auto& features = current_frame->get_features();
                     const auto& map_points = current_frame->get_map_points();
                     viewer->update_tracking_image_with_map_points(tracking_image, features, map_points);
-                    spdlog::debug("[Viewer] Updated tracking image with {} features", features.size());
+                    // spdlog::debug("[Viewer] Updated tracking image with {} features", features.size());
                 } else {
                     viewer->update_tracking_image(tracking_image);
-                    spdlog::debug("[Viewer] Updated tracking image");
+                    // spdlog::debug("[Viewer] Updated tracking image");
                 }
                 
                 // Update stereo matching image if available
                 if (current_frame && current_frame->is_stereo()) {
                     cv::Mat stereo_image = current_frame->draw_stereo_matches();
                     viewer->update_stereo_image(stereo_image);
-                    spdlog::debug("[Viewer] Updated stereo matching image");
+                    // spdlog::debug("[Viewer] Updated stereo matching image");
                 } else {
                     // For testing: show processed right image if available
                     if (!processed_right_image.empty()) {
                         viewer->update_stereo_image(processed_right_image);
-                        spdlog::debug("[Viewer] Updated with right image");
+                        // spdlog::debug("[Viewer] Updated with right image");
                     } else {
                         // As fallback, show the left image in right panel too
                         viewer->update_stereo_image(tracking_image);
-                        spdlog::debug("[Viewer] Updated with fallback left image");
+                        // spdlog::debug("[Viewer] Updated with fallback left image");
                     }
                 }
                 

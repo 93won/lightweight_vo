@@ -50,7 +50,7 @@ public:
     // Stereo input only
     void set_stereo_images(const cv::Mat& left_image, const cv::Mat& right_image);
     void set_pose(const Eigen::Matrix3f& rotation, const Eigen::Vector3f& translation);
-    void set_Twb(const Eigen::Matrix4f& Twb);
+    void set_Twb(const Eigen::Matrix4f& T_wb);
     Eigen::Matrix4f get_Twb() const;
     void set_keyframe(bool is_keyframe) { m_is_keyframe = is_keyframe; }
 
@@ -80,6 +80,10 @@ public:
     void get_camera_intrinsics(double& fx, double& fy, double& cx, double& cy) const;
     void set_distortion_coeffs(const std::vector<double>& distortion_coeffs);
     const std::vector<double>& get_distortion_coeffs() const { return m_distortion_coeffs; }
+    
+    // Camera extrinsics operations
+    void set_T_CB(const Eigen::Matrix4d& T_CB) { m_T_CB = T_CB; }
+    const Eigen::Matrix4d& get_T_CB() const { return m_T_CB; }
     
     // Undistort a single point
     cv::Point2f undistort_point(const cv::Point2f& distorted_point) const;
@@ -125,6 +129,9 @@ private:
     double m_cx, m_cy;           // Principal point
     double m_baseline;           // Stereo baseline (distance between cameras)
     std::vector<double> m_distortion_coeffs; // Distortion coefficients [k1, k2, p1, p2, k3]
+    
+    // Camera extrinsics (body to camera transformation)
+    Eigen::Matrix4d m_T_CB;      // Transform from camera to body frame (T_CB = T_BC.inverse())
 
     // Pose (camera pose in world frame)
     Eigen::Matrix3f m_rotation;    // Rotation matrix

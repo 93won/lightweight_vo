@@ -13,9 +13,7 @@ MonoPnPFactor::MonoPnPFactor(const Eigen::Vector2d& observation,
     : m_observation(observation), m_world_point(world_point), 
       m_camera_params(camera_params), m_Tcb(Tcb), m_information(information), m_is_outlier(false) {}
 
-bool MonoPnPFactor::Evaluate(double const* const* parameters,
-                             double* residuals,
-                             double** jacobians) const {
+bool MonoPnPFactor::Evaluate(double const* const* parameters, double* residuals, double** jacobians) const {
     // If marked as outlier, set residuals to zero and jacobians to zero
     if (m_is_outlier) {
         residuals[0] = 0.0;
@@ -32,20 +30,20 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters,
     Eigen::Map<const Eigen::Vector6d> se3_tangent(parameters[0]);
     
     // Convert tangent space to SE3 using Sophus exp (consistent with parameterization)
-    Sophus::SE3d Twb = Sophus::SE3d::exp(se3_tangent);
+    Sophus::SE3d T_wb = Sophus::SE3d::exp(se3_tangent);
     
-    // Convert Twb to Tcw transformation
-    Eigen::Matrix3d Rwb = Twb.rotationMatrix();
-    Eigen::Vector3d twb = Twb.translation();
-    Eigen::Matrix3d Rbw = Rwb.transpose();
-    Eigen::Vector3d tbw = -Rbw * twb;
+    // Convert T_wb to T_cw transformation
+    Eigen::Matrix3d R_wb = T_wb.rotationMatrix();
+    Eigen::Vector3d t_wb = T_wb.translation();
+    Eigen::Matrix3d R_bw = R_wb.transpose();
+    Eigen::Vector3d t_bw = -R_bw * t_wb;
     
-    // Tcw = Tcb * Tbw
-    Eigen::Matrix3d Rcw = m_Tcb.block<3, 3>(0, 0) * Rbw;
-    Eigen::Vector3d tcw = m_Tcb.block<3, 3>(0, 0) * tbw + m_Tcb.block<3, 1>(0, 3);
+    // T_cw = T_cb * T_bw
+    Eigen::Matrix3d R_cw = m_Tcb.block<3, 3>(0, 0) * R_bw;
+    Eigen::Vector3d t_cw = m_Tcb.block<3, 3>(0, 0) * t_bw + m_Tcb.block<3, 1>(0, 3);
     
-    // Transform world point to camera coordinates: Pc = Rcw * Pw + tcw
-    Eigen::Vector3d point_camera = Rcw * m_world_point + tcw;
+    // Transform world point to camera coordinates: Pc = R_cw * Pw + t_cw
+    Eigen::Vector3d point_camera = R_cw * m_world_point + t_cw;
     
     double x = point_camera.x();
     double y = point_camera.y();
@@ -91,7 +89,7 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters,
         Eigen::Matrix3d Rcb = m_Tcb.block<3, 3>(0, 0);
         
         // Body frame coordinates: Pb = Rbw * Pw + tbw
-        Eigen::Vector3d Pb = Rbw * m_world_point + tbw;
+        Eigen::Vector3d Pb = R_bw * m_world_point + t_bw;
         
         // Jacobian of projection error w.r.t. camera coordinates: ∂(error)/∂(Pc)
         Eigen::Matrix<double, 2, 3> J_error_wrt_Pc;
@@ -132,20 +130,20 @@ double MonoPnPFactor::compute_chi_square(double const* const* parameters) const 
     Eigen::Map<const Eigen::Vector6d> se3_tangent(parameters[0]);
     
     // Convert tangent space to SE3 using Sophus exp (consistent with parameterization)
-    Sophus::SE3d Twb = Sophus::SE3d::exp(se3_tangent);
+    Sophus::SE3d T_wb = Sophus::SE3d::exp(se3_tangent);
     
-    // Convert Twb to Tcw transformation
-    Eigen::Matrix3d Rwb = Twb.rotationMatrix();
-    Eigen::Vector3d twb = Twb.translation();
-    Eigen::Matrix3d Rbw = Rwb.transpose();
-    Eigen::Vector3d tbw = -Rbw * twb;
+    // Convert T_wb to T_cw transformation
+    Eigen::Matrix3d R_wb = T_wb.rotationMatrix();
+    Eigen::Vector3d t_wb = T_wb.translation();
+    Eigen::Matrix3d R_bw = R_wb.transpose();
+    Eigen::Vector3d t_bw = -R_bw * t_wb;
     
-    // Tcw = Tcb * Tbw
-    Eigen::Matrix3d Rcw = m_Tcb.block<3, 3>(0, 0) * Rbw;
-    Eigen::Vector3d tcw = m_Tcb.block<3, 3>(0, 0) * tbw + m_Tcb.block<3, 1>(0, 3);
+    // T_cw = T_cb * T_bw
+    Eigen::Matrix3d R_cw = m_Tcb.block<3, 3>(0, 0) * R_bw;
+    Eigen::Vector3d t_cw = m_Tcb.block<3, 3>(0, 0) * t_bw + m_Tcb.block<3, 1>(0, 3);
     
-    // Transform world point to camera coordinates: Pc = Rcw * Pw + tcw
-    Eigen::Vector3d point_camera = Rcw * m_world_point + tcw;
+    // Transform world point to camera coordinates: Pc = R_cw * Pw + t_cw
+    Eigen::Vector3d point_camera = R_cw * m_world_point + t_cw;
     
     double x = point_camera.x();
     double y = point_camera.y();
