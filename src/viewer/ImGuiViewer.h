@@ -32,11 +32,14 @@ public:
     void draw_3d_points(const std::vector<Eigen::Vector3f>& points);
     void draw_pose(const Eigen::Matrix4f& pose);
     void draw_trajectory(const std::vector<Eigen::Vector3f>& trajectory);
+    void draw_camera_frustum(const Eigen::Matrix4f& Twc);  // Add camera frustum drawing
+    void draw_body_frame(const Eigen::Matrix4f& Twb);      // Add body frame drawing
     
     // Update functions
     void update_points(const std::vector<Eigen::Vector3f>& points);
     void update_pose(const Eigen::Matrix4f& pose);
     void update_trajectory(const std::vector<Eigen::Vector3f>& trajectory);
+    void update_frame_with_transforms(const Eigen::Matrix4f& Twb);  // Add frame update with transforms
     
     // Image display functions
     void update_tracking_image(const cv::Mat& image);
@@ -73,7 +76,7 @@ private:
     double m_last_mouse_y;
     bool m_first_mouse;
     
-    // Image textures
+        // Textures for image display
     GLuint m_tracking_texture;
     GLuint m_stereo_texture;
     int m_tracking_width, m_tracking_height;

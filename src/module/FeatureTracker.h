@@ -50,12 +50,9 @@ private:
                                     const std::vector<cv::Point2f>& points,
                                     const std::vector<uchar>& status);
     
-    // Map point creation and triangulation
+    // Stereo matching (depth computation only, no map point creation)
     bool can_triangulate_feature(std::shared_ptr<Feature> feature, std::shared_ptr<Frame> frame);
-    std::shared_ptr<MapPoint> create_map_point_from_stereo(std::shared_ptr<Feature> feature, std::shared_ptr<Frame> frame);
-    
-    // Batch stereo matching for all features without map points
-    int batch_stereo_matching_and_map_point_creation(const std::shared_ptr<Frame>& frame);
+    int batch_stereo_matching(const std::shared_ptr<Frame>& frame);
 };
 
 } // namespace lightweight_vio

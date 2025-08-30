@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cmath>
 #include <GL/glu.h>
+#include <util/Config.h>
 
 #include "../../thirdparty/imgui/imgui.h"
 #include "../../thirdparty/imgui/backends/imgui_impl_glfw.h"
@@ -157,6 +158,30 @@ void ImGuiViewer::render() {
     draw_3d_points(m_points);
     draw_pose(m_current_pose);
     draw_trajectory(m_trajectory);
+    
+    // Draw camera frustum and body frame
+    if (!m_current_pose.isZero()) {
+        // Draw body frame
+        draw_body_frame(m_current_pose);
+        
+        // Calculate camera pose using T_CB from config (for visualization only)
+        // T_CB is body→camera, so T_wc = T_wb * T_bc = T_wb * T_cb.inv()
+        try {
+            const auto& config = Config::getInstance();
+            cv::Mat T_CB_cv = config.left_T_CB();
+            Eigen::Matrix4f T_CB;
+            for (int i = 0; i < 4; ++i) {
+                for (int j = 0; j < 4; ++j) {
+                    T_CB(i, j) = T_CB_cv.at<double>(i, j);
+                }
+            }
+            
+            Eigen::Matrix4f T_wc = m_current_pose * T_CB.inverse();
+            draw_camera_frustum(T_wc);
+        } catch (const std::exception& e) {
+            // If config not available, just draw body frame
+        }
+    }
 
     // ImGui UI with larger font size
     ImGui::SetNextWindowSize(ImVec2(400, 600), ImGuiCond_FirstUseEver);
@@ -372,6 +397,64 @@ void ImGuiViewer::draw_trajectory(const std::vector<Eigen::Vector3f>& trajectory
     
     glEnd();
     glLineWidth(1.0f);
+}
+
+void ImGuiViewer::draw_camera_frustum(const Eigen::Matrix4f& Twc) {
+    glPushMatrix();
+    glMultMatrixf((GLfloat*)Twc.data());
+    
+    float sz = 0.2f;
+    const float w = sz;
+    const float h = w * 0.75f; 
+    const float z = w;
+    
+    glColor3f(1.0f, 1.0f, 0.0f); // Yellow color for camera frustum
+    glLineWidth(2.0f);
+    glBegin(GL_LINES);
+    
+    // Lines from camera center to frustum corners
+    glVertex3f(0, 0, 0); glVertex3f(w, h, z);
+    glVertex3f(0, 0, 0); glVertex3f(w, -h, z);
+    glVertex3f(0, 0, 0); glVertex3f(-w, -h, z);
+    glVertex3f(0, 0, 0); glVertex3f(-w, h, z);
+    
+    // Frustum rectangle
+    glVertex3f(w, h, z); glVertex3f(w, -h, z);
+    glVertex3f(-w, h, z); glVertex3f(-w, -h, z);
+    glVertex3f(-w, h, z); glVertex3f(w, h, z);
+    glVertex3f(-w, -h, z); glVertex3f(w, -h, z);
+    
+    glEnd();
+    glLineWidth(1.0f);
+    glPopMatrix();
+}
+
+void ImGuiViewer::draw_body_frame(const Eigen::Matrix4f& Twb) {
+    glPushMatrix();
+    glMultMatrixf((GLfloat*)Twb.data());
+    
+    float axis_length = 0.3f;
+    glLineWidth(3.0f);
+    glBegin(GL_LINES);
+    
+    // X-axis (Red)
+    glColor3f(1.0f, 0.0f, 0.0f);
+    glVertex3f(0, 0, 0);
+    glVertex3f(axis_length, 0, 0);
+    
+    // Y-axis (Green) 
+    glColor3f(0.0f, 1.0f, 0.0f);
+    glVertex3f(0, 0, 0);
+    glVertex3f(0, axis_length, 0);
+    
+    // Z-axis (Blue)
+    glColor3f(0.0f, 0.0f, 1.0f);
+    glVertex3f(0, 0, 0);
+    glVertex3f(0, 0, axis_length);
+    
+    glEnd();
+    glLineWidth(1.0f);
+    glPopMatrix();
 }
 
 void ImGuiViewer::update_points(const std::vector<Eigen::Vector3f>& points) {

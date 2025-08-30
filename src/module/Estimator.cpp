@@ -98,7 +98,7 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         if (is_keyframe) {
             int new_map_points = create_new_map_points(m_current_frame);
             result.num_new_map_points = new_map_points;
-            spdlog::info("[MAP_POINTS] Created {} new map points", new_map_points);
+            spdlog::info("[MAP_POINTS] Created {} new map points by new keyframe insertion", new_map_points);
             create_keyframe(m_current_frame);
             m_frames_since_last_keyframe = 0;  // Reset to 0 after creating keyframe
         } else {
@@ -397,6 +397,7 @@ int lightweight_vio::Estimator::associate_tracked_features_with_map_points(std::
 }
 
 bool lightweight_vio::Estimator::should_create_keyframe(std::shared_ptr<Frame> frame) {
+
     if (!frame) {
         return false;
     }

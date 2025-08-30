@@ -34,6 +34,8 @@ namespace lightweight_vio
         cv::Mat left_dist_coeffs() const { return m_left_dist_coeffs.clone(); }
         cv::Mat right_dist_coeffs() const { return m_right_dist_coeffs.clone(); }
         cv::Mat left_to_right_transform() const { return m_T_left_right.clone(); }
+        cv::Mat left_T_CB() const { return m_T_left_CB.clone(); }
+        cv::Mat right_T_CB() const { return m_T_right_CB.clone(); }
 
         // Public member variables for simple access
 
@@ -123,6 +125,8 @@ namespace lightweight_vio
         cv::Mat m_left_dist_coeffs;
         cv::Mat m_right_dist_coeffs;
         cv::Mat m_T_left_right;
+        cv::Mat m_T_left_CB;
+        cv::Mat m_T_right_CB;
     };
 
 } // namespace lightweight_vio

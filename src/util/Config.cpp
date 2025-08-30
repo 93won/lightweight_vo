@@ -161,23 +161,27 @@ bool Config::load(const std::string& config_file) {
         }
         
         // Load extrinsics and compute relative transform
-        cv::FileNode left_T_BS = camera["left_T_BS"];
-        cv::FileNode right_T_BS = camera["right_T_BS"];
+        cv::FileNode left_T_CB = camera["left_T_CB"];
+        cv::FileNode right_T_CB = camera["right_T_CB"];
         
-        if (!left_T_BS.empty() && !right_T_BS.empty() && 
-            left_T_BS.size() == 16 && right_T_BS.size() == 16) {
+        if (!left_T_CB.empty() && !right_T_CB.empty() && 
+            left_T_CB.size() == 16 && right_T_CB.size() == 16) {
             
             cv::Mat T_B_left = (cv::Mat_<double>(4, 4) << 
-                (double)left_T_BS[0], (double)left_T_BS[1], (double)left_T_BS[2], (double)left_T_BS[3],
-                (double)left_T_BS[4], (double)left_T_BS[5], (double)left_T_BS[6], (double)left_T_BS[7],
-                (double)left_T_BS[8], (double)left_T_BS[9], (double)left_T_BS[10], (double)left_T_BS[11],
-                (double)left_T_BS[12], (double)left_T_BS[13], (double)left_T_BS[14], (double)left_T_BS[15]);
+                (double)left_T_CB[0], (double)left_T_CB[1], (double)left_T_CB[2], (double)left_T_CB[3],
+                (double)left_T_CB[4], (double)left_T_CB[5], (double)left_T_CB[6], (double)left_T_CB[7],
+                (double)left_T_CB[8], (double)left_T_CB[9], (double)left_T_CB[10], (double)left_T_CB[11],
+                (double)left_T_CB[12], (double)left_T_CB[13], (double)left_T_CB[14], (double)left_T_CB[15]);
                 
             cv::Mat T_B_right = (cv::Mat_<double>(4, 4) << 
-                (double)right_T_BS[0], (double)right_T_BS[1], (double)right_T_BS[2], (double)right_T_BS[3],
-                (double)right_T_BS[4], (double)right_T_BS[5], (double)right_T_BS[6], (double)right_T_BS[7],
-                (double)right_T_BS[8], (double)right_T_BS[9], (double)right_T_BS[10], (double)right_T_BS[11],
-                (double)right_T_BS[12], (double)right_T_BS[13], (double)right_T_BS[14], (double)right_T_BS[15]);
+                (double)right_T_CB[0], (double)right_T_CB[1], (double)right_T_CB[2], (double)right_T_CB[3],
+                (double)right_T_CB[4], (double)right_T_CB[5], (double)right_T_CB[6], (double)right_T_CB[7],
+                (double)right_T_CB[8], (double)right_T_CB[9], (double)right_T_CB[10], (double)right_T_CB[11],
+                (double)right_T_CB[12], (double)right_T_CB[13], (double)right_T_CB[14], (double)right_T_CB[15]);
+            
+            // Store individual T_CB matrices for coordinate transforms
+            m_T_left_CB = T_B_left.clone();
+            m_T_right_CB = T_B_right.clone();
             
             // Compute T_left_right = T_B_right.inv() * T_B_left
             m_T_left_right = T_B_right.inv() * T_B_left;

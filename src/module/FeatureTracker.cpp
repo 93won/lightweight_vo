@@ -69,17 +69,11 @@ void FeatureTracker::track_features(std::shared_ptr<Frame> current_frame,
         new_map_points_from_extraction = extraction_stats.second;
     }
 
-    // Now do batch stereo matching and map point creation for all features without map points
+    // Perform batch stereo matching to compute depth for features (no map point creation)
     auto batch_stereo_start = std::chrono::high_resolution_clock::now();
-    // Temporarily disable automatic map point creation in FeatureTracker
-    // Let Estimator handle map point creation instead
-    // int batch_stereo_matches = batch_stereo_matching_and_map_point_creation(current_frame);
-    int batch_stereo_matches = 0;
+    int batch_stereo_matches = batch_stereo_matching(current_frame);
     auto batch_stereo_end = std::chrono::high_resolution_clock::now();
     auto batch_stereo_time = std::chrono::duration_cast<std::chrono::microseconds>(batch_stereo_end - batch_stereo_start).count() / 1000.0;
-    
-    // Update total new map points (from tracking + extraction + batch stereo)
-    new_map_points_from_tracking += batch_stereo_matches;
     int total_new_map_points = new_map_points_from_tracking + new_map_points_from_extraction;
 
     auto total_end = std::chrono::high_resolution_clock::now();
@@ -131,14 +125,14 @@ std::pair<int, int> FeatureTracker::extract_new_features(std::shared_ptr<Frame> 
 
         auto feature_processing_start = std::chrono::high_resolution_clock::now();
         
-        // Create all features without map points - batch processing will handle stereo matching later
+        // Create all features without map points - Estimator will handle map point creation during keyframe creation
         int next_feature_id = frame->get_feature_count();  // Start from current count
         for (const auto& corner : corners) {
             auto feature = std::make_shared<Feature>(next_feature_id++, corner);
             frame->add_feature(feature);
         }
         
-        // Return feature count and 0 for immediate map points (will be created in batch later)
+        // Return feature count and 0 for map points (no immediate map point creation)
         return std::make_pair(corners.size(), 0);
     }
 
@@ -243,7 +237,7 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
                     prev_map_point->add_observation(current_frame, current_frame->get_feature_count() - 1);
                     associated_map_points++;
                     
-                   
+                    // Map point creation is now handled only by Estimator during keyframe creation
                 } 
                 
             }
@@ -325,92 +319,92 @@ void FeatureTracker::reject_outliers(std::shared_ptr<Frame> current_frame,
         }
     }
 
-    // Step 2: Essential matrix RANSAC (more robust for VIO)
-    std::vector<uchar> status;
-    if (prev_pts.size() >= 5) {  // Essential matrix needs only 5 points minimum
-        // Get camera intrinsic matrix from current frame
-        double fx, fy, cx, cy;
-        current_frame->get_camera_intrinsics(fx, fy, cx, cy);
-        cv::Mat camera_matrix = (cv::Mat_<double>(3, 3) << fx, 0, cx, 0, fy, cy, 0, 0, 1);
+    // // Step 2: Essential matrix RANSAC (more robust for VIO)
+    // std::vector<uchar> status;
+    // if (prev_pts.size() >= 5) {  // Essential matrix needs only 5 points minimum
+    //     // Get camera intrinsic matrix from current frame
+    //     double fx, fy, cx, cy;
+    //     current_frame->get_camera_intrinsics(fx, fy, cx, cy);
+    //     cv::Mat camera_matrix = (cv::Mat_<double>(3, 3) << fx, 0, cx, 0, fy, cy, 0, 0, 1);
         
-        cv::Mat E = cv::findEssentialMat(prev_pts, cur_pts, camera_matrix, 
-                                        cv::RANSAC, 0.95, 3.0, status);  // Use larger threshold for RANSAC
+    //     cv::Mat E = cv::findEssentialMat(prev_pts, cur_pts, camera_matrix, 
+    //                                     cv::RANSAC, 0.95, 3.0, status);  // Use larger threshold for RANSAC
         
-        // Check if Essential Matrix was successfully computed
-        if (!E.empty() && E.rows == 3 && E.cols == 3) {
-            // Calculate epipolar constraint errors manually
-            std::vector<float> errors;
+    //     // Check if Essential Matrix was successfully computed
+    //     if (!E.empty() && E.rows == 3 && E.cols == 3) {
+    //         // Calculate epipolar constraint errors manually
+    //         std::vector<float> errors;
             
-            // Calculate epipolar constraint errors manually
-            for (size_t i = 0; i < prev_pts.size(); ++i) {
-                // Convert to normalized coordinates
-                cv::Point2f p1_norm = cv::Point2f((prev_pts[i].x - cx) / fx, (prev_pts[i].y - cy) / fy);
-                cv::Point2f p2_norm = cv::Point2f((cur_pts[i].x - cx) / fx, (cur_pts[i].y - cy) / fy);
+    //         // Calculate epipolar constraint errors manually
+    //         for (size_t i = 0; i < prev_pts.size(); ++i) {
+    //             // Convert to normalized coordinates
+    //             cv::Point2f p1_norm = cv::Point2f((prev_pts[i].x - cx) / fx, (prev_pts[i].y - cy) / fy);
+    //             cv::Point2f p2_norm = cv::Point2f((cur_pts[i].x - cx) / fx, (cur_pts[i].y - cy) / fy);
                 
-                // Calculate epipolar error: x2^T * E * x1
-                cv::Mat x1 = (cv::Mat_<double>(3, 1) << p1_norm.x, p1_norm.y, 1.0);
-                cv::Mat x2 = (cv::Mat_<double>(3, 1) << p2_norm.x, p2_norm.y, 1.0);
-                cv::Mat error_mat = x2.t() * E * x1;
-                float epipolar_error = std::abs(error_mat.at<double>(0, 0));
-                errors.push_back(epipolar_error);
-            }
+    //             // Calculate epipolar error: x2^T * E * x1
+    //             cv::Mat x1 = (cv::Mat_<double>(3, 1) << p1_norm.x, p1_norm.y, 1.0);
+    //             cv::Mat x2 = (cv::Mat_<double>(3, 1) << p2_norm.x, p2_norm.y, 1.0);
+    //             cv::Mat error_mat = x2.t() * E * x1;
+    //             float epipolar_error = std::abs(error_mat.at<double>(0, 0));
+    //             errors.push_back(epipolar_error);
+    //         }
             
-            // Use error threshold instead of status (더 정밀한 제어)
-            float error_threshold = 0.1f;  // Epipolar error threshold in normalized coordinates
-            for (size_t i = 0; i < errors.size(); ++i) {
-                if (errors[i] > error_threshold) {
-                    ransac_outliers.push_back(feature_ids[i]);
-                    // Check if not already marked as outlier
-                    if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
-                        outlier_features.push_back(feature_ids[i]);
-                    }
-                }
-            }
-        } else {
-            // Essential matrix computation failed, fall back to status-based rejection
-            std::cout << "[ESSENTIAL] Failed to compute Essential Matrix, using status fallback" << std::endl;
-            for (size_t i = 0; i < status.size(); ++i) {
-                if (!status[i]) {
-                    ransac_outliers.push_back(feature_ids[i]);
-                    if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
-                        outlier_features.push_back(feature_ids[i]);
-                    }
-                }
-            }
-        }
-    }
+    //         // Use error threshold instead of status (더 정밀한 제어)
+    //         float error_threshold = 0.1f;  // Epipolar error threshold in normalized coordinates
+    //         for (size_t i = 0; i < errors.size(); ++i) {
+    //             if (errors[i] > error_threshold) {
+    //                 ransac_outliers.push_back(feature_ids[i]);
+    //                 // Check if not already marked as outlier
+    //                 if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
+    //                     outlier_features.push_back(feature_ids[i]);
+    //                 }
+    //             }
+    //         }
+    //     } else {
+    //         // Essential matrix computation failed, fall back to status-based rejection
+    //         std::cout << "[ESSENTIAL] Failed to compute Essential Matrix, using status fallback" << std::endl;
+    //         for (size_t i = 0; i < status.size(); ++i) {
+    //             if (!status[i]) {
+    //                 ransac_outliers.push_back(feature_ids[i]);
+    //                 if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
+    //                     outlier_features.push_back(feature_ids[i]);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
-    // Step 3: Velocity consistency check (sudden direction changes)
-    for (size_t i = 0; i < features_to_check.size(); ++i) {
-        auto feature = features_to_check[i];
-        if (feature->get_track_count() > 1) {  // Need at least 2 frames of history
-            Eigen::Vector2f curr_vel = feature->get_velocity();
-            float dx = cur_pts[i].x - prev_pts[i].x;
-            float dy = cur_pts[i].y - prev_pts[i].y;
+    // // Step 3: Velocity consistency check (sudden direction changes)
+    // for (size_t i = 0; i < features_to_check.size(); ++i) {
+    //     auto feature = features_to_check[i];
+    //     if (feature->get_track_count() > 1) {  // Need at least 2 frames of history
+    //         Eigen::Vector2f curr_vel = feature->get_velocity();
+    //         float dx = cur_pts[i].x - prev_pts[i].x;
+    //         float dy = cur_pts[i].y - prev_pts[i].y;
             
-            // Check for sudden velocity change
-            float vel_diff_x = std::abs(dx - curr_vel.x());
-            float vel_diff_y = std::abs(dy - curr_vel.y());
+    //         // Check for sudden velocity change
+    //         float vel_diff_x = std::abs(dx - curr_vel.x());
+    //         float vel_diff_y = std::abs(dy - curr_vel.y());
             
-            if (vel_diff_x > Config::getInstance().m_max_velocity_change || 
-                vel_diff_y > Config::getInstance().m_max_velocity_change) {
-                velocity_outliers.push_back(feature_ids[i]);
-                if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
-                    outlier_features.push_back(feature_ids[i]);
-                }
-            }
-        }
-    }
+    //         if (vel_diff_x > Config::getInstance().m_max_velocity_change || 
+    //             vel_diff_y > Config::getInstance().m_max_velocity_change) {
+    //             velocity_outliers.push_back(feature_ids[i]);
+    //             if (std::find(outlier_features.begin(), outlier_features.end(), feature_ids[i]) == outlier_features.end()) {
+    //                 outlier_features.push_back(feature_ids[i]);
+    //             }
+    //         }
+    //     }
+    // }
 
     // Remove all outliers
-    if (!outlier_features.empty()) {
-        spdlog::warn("----------------- DEBUG TRACKING OUTLIER -----------------");
-        spdlog::warn("[OUTLIER] Movement outliers: {} features // threshold: {}", movement_outliers.size(), Config::getInstance().m_max_movement_distance);
-        spdlog::warn("[OUTLIER] RANSAC outliers: {} features", ransac_outliers.size());
-        spdlog::warn("[OUTLIER] Velocity outliers: {} features", velocity_outliers.size());
-        spdlog::warn("[OUTLIER] Total removing: {} outlier features", outlier_features.size());
-        spdlog::warn("----------------------------------------------------------");
-    }
+    // if (!outlier_features.empty()) {
+    //     spdlog::warn("----------------- DEBUG TRACKING OUTLIER -----------------");
+    //     spdlog::warn("[OUTLIER] Movement outliers: {} features // threshold: {}", movement_outliers.size(), Config::getInstance().m_max_movement_distance);
+    //     spdlog::warn("[OUTLIER] RANSAC outliers: {} features", ransac_outliers.size());
+    //     spdlog::warn("[OUTLIER] Velocity outliers: {} features", velocity_outliers.size());
+    //     spdlog::warn("[OUTLIER] Total removing: {} outlier features", outlier_features.size());
+    //     spdlog::warn("----------------------------------------------------------");
+    // }
     for (int feature_id : outlier_features) {
         current_frame->remove_feature(feature_id);
     }
@@ -547,70 +541,18 @@ bool FeatureTracker::can_triangulate_feature(std::shared_ptr<Feature> feature, s
     return result;
 }
 
-std::shared_ptr<MapPoint> FeatureTracker::create_map_point_from_stereo(std::shared_ptr<Feature> feature, std::shared_ptr<Frame> frame) {
-    if (!feature || !frame) {
-        return nullptr;
-    }
-    
-    // Check if feature has stereo match (already computed in batch)
-    if (!feature->has_stereo_match()) {
-        return nullptr;
-    }
-    
-    cv::Point2f pixel_coord = feature->get_pixel_coord();
-    cv::Point2f right_coord = feature->get_right_coord();
-    
-    // Get camera parameters
-    double fx, fy, cx, cy;
-    frame->get_camera_intrinsics(fx, fy, cx, cy);
-    
-    // Calculate depth from disparity
-    float disparity = pixel_coord.x - right_coord.x;
-    if (disparity <= 0) {
-        return nullptr;
-    }
-    
-    double depth = (fx * frame->get_baseline()) / disparity;
-    
-    // Check depth range
-    if (depth <= 0 || depth < Config::getInstance().m_min_depth || 
-        depth > Config::getInstance().m_max_depth) {
-        return nullptr;
-    }
-    
-    // Undistort the point
-    cv::Point2f undistorted = frame->undistort_point(pixel_coord);
-    
-    // Unproject to 3D camera coordinates
-    double x = (undistorted.x - cx) * depth / fx;
-    double y = (undistorted.y - cy) * depth / fy;
-    double z = depth;
-    
-    // Transform to world coordinates using frame pose
-    Eigen::Matrix4f Twb = frame->get_Twb();
-    Eigen::Vector4f camera_point(x, y, z, 1.0);
-    Eigen::Vector4f world_point = Twb * camera_point;
-    
-    Eigen::Vector3f world_pos = world_point.head<3>();
-    
-    // Create new map point
-    auto map_point = std::make_shared<MapPoint>(world_pos);
-    
-    return map_point;
-}
-
-int FeatureTracker::batch_stereo_matching_and_map_point_creation(const std::shared_ptr<Frame>& frame) {
+int FeatureTracker::batch_stereo_matching(const std::shared_ptr<Frame>& frame) {
     if (!frame->is_stereo()) {
         return 0;
     }
 
-    // Collect all features without map points (both tracked and newly extracted)
+    // Collect all features without stereo matches (both tracked and newly extracted)
     std::vector<cv::Point2f> left_points;
     std::vector<int> feature_indices;
     
     const auto& features = frame->get_features();
     for (int i = 0; i < features.size(); i++) {
-        if (!frame->has_map_point(i)) {
+        if (!features[i]->has_stereo_match()) {
             left_points.push_back(features[i]->get_pixel_coord());
             feature_indices.push_back(i);
         }
@@ -619,8 +561,6 @@ int FeatureTracker::batch_stereo_matching_and_map_point_creation(const std::shar
     if (left_points.empty()) {
         return 0;
     }
-    
-    std::cout << "[BATCH STEREO] Processing " << left_points.size() << " features without map points" << std::endl;
     
     // Use optical flow to find corresponding points in right image
     std::vector<cv::Point2f> right_points;
@@ -642,42 +582,24 @@ int FeatureTracker::batch_stereo_matching_and_map_point_creation(const std::shar
     );
     
     int successful_matches = 0;
-    int new_map_points_created = 0;
     
     for (int i = 0; i < left_points.size(); i++) {
-        if (status[i]) {  // Error threshold
+        if (status[i]) {
             double disparity = left_points[i].x - right_points[i].x;
             
             // Check disparity constraints
             if (disparity > 0) {
-                
                 successful_matches++;
                 
-                // Create map point for this feature
+                // Set stereo match info on the feature (no map point creation)
                 int feature_idx = feature_indices[i];
                 auto feature = features[feature_idx];
-                
-                // Set stereo match info on the feature
                 feature->set_stereo_match(right_points[i], disparity);
-                
-                // Create map point from stereo
-                auto map_point = create_map_point_from_stereo(feature, frame);
-                if (map_point && !map_point->is_bad()) {
-                    // Associate map point with feature
-                    frame->set_map_point(feature_idx, map_point);
-                    map_point->add_observation(frame, feature_idx);
-                    new_map_points_created++;
-                }
             }
         }
     }
     
-    std::cout << "[BATCH STEREO] Successfully matched " << successful_matches 
-              << "/" << left_points.size() << " features, created " 
-              << new_map_points_created << " map points" << std::endl;
-    
-    return new_map_points_created;
+    return successful_matches;
 }
 
-//...existing code...
 } // namespace lightweight_vio
