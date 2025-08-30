@@ -161,8 +161,8 @@ bool Config::load(const std::string& config_file) {
         }
         
         // Load extrinsics (T_BC - camera to body transform)
-        cv::FileNode left_T_BC = camera["left_T_CB"];   // YAML still uses old naming
-        cv::FileNode right_T_BC = camera["right_T_CB"]; // YAML still uses old naming
+        cv::FileNode left_T_BC = camera["left_T_BC"];
+        cv::FileNode right_T_BC = camera["right_T_BC"];
         
         if (!left_T_BC.empty() && !right_T_BC.empty() && 
             left_T_BC.size() == 16 && right_T_BC.size() == 16) {
@@ -183,7 +183,8 @@ bool Config::load(const std::string& config_file) {
             m_T_left_BC = T_BC_left.clone();
             m_T_right_BC = T_BC_right.clone();
             
-            // Compute T_left_right = T_BC_right.inv() * T_BC_left = T_CB_right * T_BC_left
+            // Compute stereo baseline transform: T_left_right = T_BC_right.inv() * T_BC_left
+            // This gives left-to-right camera transformation for stereo triangulation
             m_T_left_right = T_BC_right.inv() * T_BC_left;
         }
     }

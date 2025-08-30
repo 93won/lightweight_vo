@@ -25,7 +25,7 @@ struct CameraParameters {
 
 /**
  * @brief Monocular PnP cost function with analytical Jacobian
- * Uses Twb (body-to-world) pose with Tcb (camera-to-body) extrinsics
+ * Uses Twb (body-to-world) pose with T_CB (body-to-camera) extrinsics
  * Residual: observed_pixel - projected_pixel
  * Parameters: SE3 pose in tangent space [6] (Twb)
  * Residual dimension: [2]
@@ -37,7 +37,7 @@ public:
      * @param observation Observed 2D pixel coordinates [u, v]
      * @param world_point 3D point in world coordinates
      * @param camera_params Camera intrinsic parameters
-     * @param Tcb Camera-to-body transformation matrix [4x4]
+     * @param Tcb Body-to-camera transformation matrix [4x4] (T_CB)
      * @param information Information matrix (precision matrix) [2x2]
      */
     MonoPnPFactor(const Eigen::Vector2d& observation,
@@ -80,7 +80,7 @@ private:
     Eigen::Vector2d m_observation;    // Observed pixel coordinates
     Eigen::Vector3d m_world_point;    // 3D world coordinates
     CameraParameters m_camera_params; // Camera intrinsics
-    Eigen::Matrix4d m_Tcb;            // Camera-to-body transformation
+    Eigen::Matrix4d m_Tcb;            // Body-to-camera transformation (T_CB)
     Eigen::Matrix2d m_information;    // Information matrix (precision matrix)
     bool m_is_outlier;                // Outlier flag to disable optimization
 };
