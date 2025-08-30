@@ -255,8 +255,8 @@ namespace lightweight_vio
         // Create information matrix for pixel observations
         Eigen::Matrix2d information = create_information_matrix(pixel_noise_std);
 
-        // For now, assume camera is at body frame (identity transformation)
-        // TODO: Get actual Tcb from frame configuration
+        // For now, use identity T_CB (camera aligned with body frame)
+        // TODO: Replace with actual T_CB from configuration when needed
         Eigen::Matrix4d Tcb = Eigen::Matrix4d::Identity();
 
         // Create mono PnP cost function with information matrix and Tcb
@@ -383,8 +383,15 @@ namespace lightweight_vio
                 Eigen::Matrix3d Rbw = Rwb.transpose();
                 Eigen::Vector3d tbw = -Rbw * twb;
                 
-                // Assuming Tcb = Identity (camera at body frame)
-                Eigen::Vector3d point_camera = Rbw * world_pos + tbw;
+                // For now, use identity T_CB (camera aligned with body frame)
+                // TODO: Replace with actual T_CB from configuration when needed
+                Eigen::Matrix4d Tcb = Eigen::Matrix4d::Identity();
+                
+                // Transform to camera coordinates: Pc = Tcb * (Rbw * Pw + tbw)
+                Eigen::Vector3d point_body = Rbw * world_pos + tbw;
+                Eigen::Vector4d point_body_h(point_body.x(), point_body.y(), point_body.z(), 1.0);
+                Eigen::Vector4d point_camera_h = Tcb * point_body_h;
+                Eigen::Vector3d point_camera = point_camera_h.head<3>();
                 
                 // Project to image plane
                 double fx, fy, cx, cy;

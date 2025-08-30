@@ -794,9 +794,11 @@ void Frame::triangulate_stereo_points() {
                 continue;
             }
             
-            // Success! Store the 3D point in left camera frame
-            Eigen::Vector3f point3D_float = pos_3d.cast<float>();
-            feature->set_3d_point(point3D_float);
+            // Success! Store the 3D point in left camera frame (as per Feature.h comment)
+            Eigen::Vector3f point3D_camera = pos_3d.cast<float>();
+            
+            // Store in camera coordinates - transformation to body/world will be done in Estimator
+            feature->set_3d_point(point3D_camera);
             
             // Update normalized coordinates in feature (using left camera)
             Eigen::Vector2f normalized_2d(left_normalized[0], left_normalized[1]);

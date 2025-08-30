@@ -241,8 +241,14 @@ int lightweight_vio::Estimator::create_initial_map_points(std::shared_ptr<Frame>
             
             // Transform to world coordinates using frame pose
             Eigen::Matrix4f Twb = frame->get_Twb();
+            
+            // For now, use identity T_CB (camera aligned with body frame)
+            // TODO: Replace with actual T_CB from configuration when needed
+            Eigen::Matrix4f Tcb = Eigen::Matrix4f::Identity();
+            
             Eigen::Vector4f camera_point(x, y, z, 1.0);
-            Eigen::Vector4f world_point = Twb * camera_point;
+            Eigen::Vector4f body_point = Tcb * camera_point;
+            Eigen::Vector4f world_point = Twb * body_point;
             
             Eigen::Vector3f world_pos = world_point.head<3>();
             
@@ -328,9 +334,10 @@ int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> fra
         // Transform to world coordinates using frame pose
         Eigen::Matrix4f Twb = frame->get_Twb();
         
-        // For now, assume camera and body frames are aligned (Tcb = Identity)
-        // In real implementation, this would come from camera calibration
+        // For now, use identity T_CB (camera aligned with body frame)
+        // TODO: Replace with actual T_CB from configuration when needed
         Eigen::Matrix4f Tcb = Eigen::Matrix4f::Identity();
+        
         Eigen::Vector4f camera_point(x, y, z, 1.0);
         Eigen::Vector4f body_point = Tcb * camera_point;
         Eigen::Vector4f world_point = Twb * body_point;
