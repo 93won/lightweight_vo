@@ -253,6 +253,7 @@ int main(int argc, char* argv[]) {
         // Process keyboard input if viewer is available
         if (viewer) {
             viewer->process_keyboard_input(auto_play, step_mode, advance_frame);
+            viewer->sync_ui_state(auto_play, step_mode);  // Sync UI checkbox state
         }
         
         // In step mode, wait for user input before processing

@@ -34,6 +34,12 @@ public:
 
     // Feature distribution
     void set_mask(std::shared_ptr<Frame> frame);
+    
+    // Grid-based feature distribution management
+    void manage_grid_based_features(std::shared_ptr<Frame> frame);
+    void assign_features_to_grid(std::shared_ptr<Frame> frame, std::vector<std::vector<std::vector<int>>>& temp_grid);
+    void limit_features_per_grid(std::shared_ptr<Frame> frame, std::vector<std::vector<std::vector<int>>>& temp_grid);
+    std::vector<int> select_features_for_tracking(std::shared_ptr<Frame> previous_frame);
 
 private:
     // Configuration reference

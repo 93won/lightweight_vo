@@ -309,25 +309,7 @@ int lightweight_vio::Estimator::create_initial_map_points(std::shared_ptr<Frame>
     return num_created;
 }
 
-int lightweight_vio::Estimator::associate_features_with_map_points(std::shared_ptr<Frame> frame) {
-    if (!frame) {
-        return 0;
-    }
-    
-    int num_associated = 0;
-    const auto& features = frame->get_features();
-    
-    // Simple association based on proximity (placeholder)
-    // In real implementation, you'd use descriptor matching
-    for (size_t i = 0; i < features.size() && i < m_map_points.size(); ++i) {
-        if (features[i] && features[i]->is_valid() && m_map_points[i] && !m_map_points[i]->is_bad()) {
-            frame->set_map_point(i, m_map_points[i]);
-            num_associated++;
-        }
-    }
-    
-    return num_associated;
-}
+
 
 int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> frame) {
     if (!frame) {
@@ -442,52 +424,7 @@ int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> fra
     return num_created;
 }
 
-int lightweight_vio::Estimator::associate_tracked_features_with_map_points(std::shared_ptr<Frame> frame) {
-    if (!frame || !m_previous_frame) {
-        return 0;
-    }
-    
-    int num_associated = 0;
-    const auto& features = frame->get_features();
-    
-    // For each feature in current frame, check if it was tracked from previous frame
-    // and if the previous frame feature had a map point
-    for (size_t i = 0; i < features.size(); ++i) {
-        auto feature = features[i];
-        if (!feature || !feature->is_valid()) {
-            continue;
-        }
-        
-        // Skip if this feature already has a map point
-        if (frame->has_map_point(i)) {
-            continue;
-        }
-        
-        // Get feature track ID to find corresponding feature in previous frame
-        int track_id = feature->get_tracked_feature_id();
-        
-        // Find corresponding feature in previous frame by track ID
-        const auto& prev_features = m_previous_frame->get_features();
-        for (size_t j = 0; j < prev_features.size(); ++j) {
-            auto prev_feature = prev_features[j];
-            if (prev_feature && prev_feature->is_valid() && 
-                prev_feature->get_tracked_feature_id() == track_id && track_id >= 0) {
-                
-                // Check if previous feature has associated map point
-                auto prev_map_point = m_previous_frame->get_map_point(j);
-                if (prev_map_point && !prev_map_point->is_bad()) {
-                    // Associate with existing map point
-                    frame->set_map_point(i, prev_map_point);
-                    prev_map_point->add_observation(frame, i);
-                    num_associated++;
-                    break;
-                }
-            }
-        }
-    }
-    
-    return num_associated;
-}
+
 
 bool lightweight_vio::Estimator::should_create_keyframe(std::shared_ptr<Frame> frame) {
 
@@ -548,28 +485,7 @@ int lightweight_vio::Estimator::count_features_with_map_points(std::shared_ptr<F
     return count;
 }
 
-void lightweight_vio::Estimator::update_map_points(std::shared_ptr<Frame> frame) {
-    if (!frame) {
-        return;
-    }
-    
-    // Update map point observations and remove bad points
-    const auto& map_points = frame->get_map_points();
-    const auto& outlier_flags = frame->get_outlier_flags();
-    
-    for (size_t i = 0; i < map_points.size() && i < outlier_flags.size(); ++i) {
-        auto mp = map_points[i];
-        if (mp) {
-            if (outlier_flags[i]) {
-                // Mark as bad or remove
-                mp->set_bad();
-            } else {
-                // Update observations, quality, etc.
-                mp->add_observation(frame, i);
-            }
-        }
-    }
-}
+
 
 void Estimator::set_initial_gt_pose(const Eigen::Matrix4f& gt_pose) {
     m_initial_gt_pose = gt_pose;
@@ -582,10 +498,10 @@ void Estimator::apply_gt_pose_to_current_frame(const Eigen::Matrix4f& gt_pose) {
         m_current_frame->set_Twb(gt_pose);
         m_current_pose = gt_pose;
         spdlog::debug("[GT_APPLY] Applied GT pose to frame {}", m_current_frame->get_frame_id());
-
-        std::cout<<gt_pose<<"\n";
     }
 }
+
+
 
 void lightweight_vio::Estimator::compute_reprojection_error_statistics(std::shared_ptr<Frame> frame) {
     if (!frame) {

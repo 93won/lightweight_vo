@@ -54,6 +54,7 @@ public:
     
     // Input processing
     void process_keyboard_input(bool& auto_play, bool& step_mode, bool& advance_frame);
+    void sync_ui_state(bool& auto_play, bool& step_mode);  // Sync UI checkbox with mode state
     void set_space_pressed(bool pressed) { m_space_pressed = pressed; }
     void set_next_pressed(bool pressed) { m_next_pressed = pressed; }
     
@@ -112,6 +113,7 @@ private:
     // Control buttons
     pangolin::Var<bool> m_auto_mode_checkbox;
     pangolin::Var<bool> m_feed_data_button;
+    pangolin::Var<bool> m_show_map_point_indices;
     mutable bool m_feed_data_pressed;
     
     // Input state
@@ -142,6 +144,7 @@ private:
     void draw_gt_trajectory();
     void draw_pose();
     void draw_camera_frustum();
+    void draw_feature_grid(cv::Mat& image);  // Grid overlay for feature distribution
     
     // Utility functions
     pangolin::GlTexture create_texture_from_cv_mat(const cv::Mat& mat);

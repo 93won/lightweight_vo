@@ -87,6 +87,21 @@ void FeatureTracker::track_features(std::shared_ptr<Frame> current_frame,
         }
     }
     
+    // After tracking and stereo matching, check if we need more features
+    int current_features = current_frame->get_feature_count();
+    if (current_features < m_config.m_max_features) {
+        // Update mask to avoid detecting features near existing ones
+        set_mask(current_frame);
+        
+        // Extract new features to reach max_features
+        auto [new_features, new_successful_matches] = extract_new_features(current_frame);
+        new_extracted_features += new_features;
+        new_map_points_from_extraction += new_successful_matches;
+    }
+    
+    // Grid-based feature selection during tracking + additional feature extraction
+    // ensures total feature count reaches max_features while maintaining good distribution
+    
     // Single comprehensive log with timing breakdown
     auto total_time = total_duration.count() / 1000.0;
     
@@ -115,8 +130,8 @@ std::pair<int, int> FeatureTracker::extract_new_features(std::shared_ptr<Frame> 
         auto detection_start = std::chrono::high_resolution_clock::now();
         cv::goodFeaturesToTrack(frame->get_image(), corners, 
                                features_needed,
-                               Config::getInstance().m_quality_level, 
-                               Config::getInstance().m_min_distance, 
+                               Config::getInstance().m_quality_level,
+                               Config::getInstance().m_min_distance,
                                mask_to_use);
         auto detection_end = std::chrono::high_resolution_clock::now();
         auto detection_time = std::chrono::duration_cast<std::chrono::microseconds>(detection_end - detection_start).count() / 1000.0;
@@ -148,18 +163,23 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
         return {0, 0};
     }
 
-    // Extract points from previous frame features and keep track of original indices
+    // Extract points from previous frame features using grid-based selection
     auto point_extraction_start = std::chrono::high_resolution_clock::now();
-    std::vector<cv::Point2f> prev_pts;
-    std::vector<int> feature_indices;  // Track original feature indices
     
-    for (size_t idx = 0; idx < previous_frame->get_features().size(); ++idx) {
-        const auto& feature = previous_frame->get_features()[idx];
-        if (feature->is_valid()) {
-            prev_pts.push_back(feature->get_pixel_coord());
-            feature_indices.push_back(idx);  // Store the original index
+    // Get selected feature indices from grid-based selection
+    std::vector<int> feature_indices = select_features_for_tracking(previous_frame);
+    
+    std::vector<cv::Point2f> prev_pts;
+    std::vector<int> valid_feature_indices;  // Track valid feature indices for tracking
+    
+    const auto& prev_features = previous_frame->get_features();
+    for (int idx : feature_indices) {
+        if (idx >= 0 && idx < prev_features.size() && prev_features[idx] && prev_features[idx]->is_valid()) {
+            prev_pts.push_back(prev_features[idx]->get_pixel_coord());
+            valid_feature_indices.push_back(idx);  // Store the original index
         }
     }
+    
     auto point_extraction_end = std::chrono::high_resolution_clock::now();
     auto point_extraction_time = std::chrono::duration_cast<std::chrono::microseconds>(point_extraction_end - point_extraction_start).count() / 1000.0;
     
@@ -175,11 +195,9 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
     cv::calcOpticalFlowPyrLK(previous_frame->get_image(), current_frame->get_image(),
                             prev_pts, cur_pts, status, err,
                             cv::Size(window_size, window_size), 
-                            Config::getInstance().m_max_level, 
+                            Config::getInstance().m_max_level,
                             Config::getInstance().term_criteria(),
-                            0, Config::getInstance().m_min_eigen_threshold);
-    
-    auto flow_end = std::chrono::high_resolution_clock::now();
+                            0, 0.001);    auto flow_end = std::chrono::high_resolution_clock::now();
     auto flow_time = std::chrono::duration_cast<std::chrono::microseconds>(flow_end - flow_start).count() / 1000.0;
 
     // Create features for current frame based on tracking results
@@ -197,10 +215,10 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
             float movement = std::sqrt(dx*dx + dy*dy);
             
             // Check error threshold and max movement from config
-            if (err[i] < Config::getInstance().m_error_threshold && 
+            if (err[i] < Config::getInstance().m_error_threshold &&
                 movement < Config::getInstance().m_max_movement) {
                 // Get the original feature index
-                int original_feature_idx = feature_indices[i];
+                int original_feature_idx = valid_feature_indices[i];
                 auto prev_feature = previous_frame->get_features()[original_feature_idx];
                 
                 // Create new feature with sequential frame-local ID
@@ -350,7 +368,7 @@ void FeatureTracker::reject_outliers(std::shared_ptr<Frame> current_frame,
     //             errors.push_back(epipolar_error);
     //         }
             
-    //         // Use error threshold instead of status (더 정밀한 제어)
+    //         // Use error threshold instead of status (more precise control)
     //         float error_threshold = 0.1f;  // Epipolar error threshold in normalized coordinates
     //         for (size_t i = 0; i < errors.size(); ++i) {
     //             if (errors[i] > error_threshold) {
@@ -505,6 +523,212 @@ bool FeatureTracker::is_in_border(const cv::Point2f& point, const cv::Size& img_
     int img_y = cvRound(point.y);
     return border_size <= img_x && img_x < img_size.width - border_size && 
            border_size <= img_y && img_y < img_size.height - border_size;
+}
+
+void FeatureTracker::manage_grid_based_features(std::shared_ptr<Frame> frame) {
+    // Skip grid management for very first frame or frames with no features
+    if (!frame || frame->get_feature_count() == 0) {
+        return;
+    }
+    
+    // Initialize temporary 2D grid to store feature indices
+    const int grid_rows = m_config.m_grid_rows;
+    const int grid_cols = m_config.m_grid_cols;
+    
+    std::vector<std::vector<std::vector<int>>> temp_grid(grid_rows, 
+                                                        std::vector<std::vector<int>>(grid_cols));
+    
+    // Assign features to grid cells
+    assign_features_to_grid(frame, temp_grid);
+    
+    // Limit features per grid based on max_features_per_grid
+    limit_features_per_grid(frame, temp_grid);
+}
+
+void FeatureTracker::assign_features_to_grid(std::shared_ptr<Frame> frame, 
+                                             std::vector<std::vector<std::vector<int>>>& temp_grid) {
+    const int grid_cols = m_config.m_grid_cols;
+    const int grid_rows = m_config.m_grid_rows;
+    const int img_width = m_config.m_image_width;
+    const int img_height = m_config.m_image_height;
+    
+    // Assign each feature to its corresponding grid cell
+    const auto& features = frame->get_features();
+    for (size_t i = 0; i < features.size(); ++i) {
+        const auto& feature = features[i];
+        if (!feature) continue;
+        
+        // Calculate grid coordinates
+        float cell_width = (float)img_width / grid_cols;
+        float cell_height = (float)img_height / grid_rows;
+        
+        cv::Point2f pixel_coord = feature->get_pixel_coord();
+        
+        // Safety check for pixel coordinates
+        if (pixel_coord.x < 0 || pixel_coord.x >= img_width || 
+            pixel_coord.y < 0 || pixel_coord.y >= img_height) {
+            continue; // Skip features outside image bounds
+        }
+        
+        int grid_x = std::min((int)(pixel_coord.x / cell_width), grid_cols - 1);
+        int grid_y = std::min((int)(pixel_coord.y / cell_height), grid_rows - 1);
+        
+        // Additional safety check for grid indices
+        if (grid_x < 0 || grid_x >= grid_cols || grid_y < 0 || grid_y >= grid_rows) {
+            continue; // Skip invalid grid coordinates
+        }
+        
+        // Add feature index to the corresponding grid cell
+        temp_grid[grid_y][grid_x].push_back(i);
+    }
+}
+
+void FeatureTracker::limit_features_per_grid(std::shared_ptr<Frame> frame, 
+                                             std::vector<std::vector<std::vector<int>>>& temp_grid) {
+    const int max_features_per_grid = m_config.m_max_features_per_grid;
+    auto& features = frame->get_features_mutable();
+    auto& map_points = frame->get_map_points_mutable();  // Use mutable version
+    
+    // Process each grid cell
+    for (size_t row = 0; row < temp_grid.size(); ++row) {
+        for (size_t col = 0; col < temp_grid[row].size(); ++col) {
+            auto& cell_features = temp_grid[row][col];
+            
+            // Skip if this cell has fewer features than the limit
+            if (cell_features.size() <= max_features_per_grid) {
+                continue;
+            }
+            
+            // Sort features by track count (as a proxy for strength) in descending order
+            // Note: Using track_count since corner_response is not available
+            std::sort(cell_features.begin(), cell_features.end(), 
+                     [&features](int a, int b) {
+                         // Safety checks for valid indices and non-null features
+                         if (a >= features.size() || b >= features.size()) return false;
+                         if (!features[a] || !features[b]) return false;
+                         return features[a]->get_track_count() > features[b]->get_track_count();
+                     });
+            
+            // Keep only the strongest max_features_per_grid features
+            // Disconnect and remove the rest from their map points
+            std::vector<int> features_to_remove;
+            for (size_t i = max_features_per_grid; i < cell_features.size(); ++i) {
+                int feature_idx = cell_features[i];
+                
+                // Safety check for valid feature index
+                if (feature_idx < 0 || feature_idx >= features.size()) {
+                    continue; // Skip invalid indices
+                }
+                
+                features_to_remove.push_back(feature_idx);
+                
+                // Disconnect from map point by removing observation and setting to nullptr
+                if (feature_idx < map_points.size()) {
+                    auto mp = map_points[feature_idx];
+                    if (mp) {
+                        // Remove this frame's observation from the map point
+                        mp->remove_observation(frame);
+                        // Set map point to nullptr in frame
+                        map_points[feature_idx] = nullptr;
+                    }
+                }
+            }
+            
+            // Mark features for removal by setting them to nullptr
+            for (int idx : features_to_remove) {
+                if (idx >= 0 && idx < features.size()) {
+                    features[idx] = nullptr;
+                }
+            }
+            
+            // Keep only the selected features in the cell
+            cell_features.resize(max_features_per_grid);
+        }
+    }
+    
+    if (m_config.m_enable_debug_output) {
+        // Count remaining valid and connected features
+        auto& features = frame->get_features_mutable();
+        auto& map_points = frame->get_map_points_mutable();
+        
+        int valid_features = 0;
+        int connected_features = 0;
+        
+        size_t max_size = std::min(features.size(), map_points.size());
+        
+        for (size_t i = 0; i < features.size(); ++i) {
+            if (features[i] != nullptr) {
+                valid_features++;
+                if (i < map_points.size() && map_points[i] && !map_points[i]->is_bad()) {
+                    connected_features++;
+                }
+            }
+        }
+        
+        spdlog::info("Grid-based feature management: {} valid features, {} connected to map points", 
+                     valid_features, connected_features);
+    }
+}
+
+std::vector<int> FeatureTracker::select_features_for_tracking(std::shared_ptr<Frame> previous_frame) {
+    std::vector<int> selected_indices;
+    
+    if (!previous_frame || previous_frame->get_feature_count() == 0) {
+        return selected_indices;
+    }
+    
+    // Initialize grid
+    const int grid_rows = m_config.m_grid_rows;
+    const int grid_cols = m_config.m_grid_cols;
+    const int max_features_per_grid = m_config.m_max_features_per_grid;
+    
+    std::vector<std::vector<std::vector<int>>> temp_grid(grid_rows, 
+                                                        std::vector<std::vector<int>>(grid_cols));
+    
+    // Assign features to grid cells
+    assign_features_to_grid(previous_frame, temp_grid);
+    
+    // Select best features from each grid cell
+    for (size_t row = 0; row < temp_grid.size(); ++row) {
+        for (size_t col = 0; col < temp_grid[row].size(); ++col) {
+            auto& cell_features = temp_grid[row][col];
+            
+            if (cell_features.empty()) {
+                continue;
+            }
+            
+            const auto& features = previous_frame->get_features();
+            
+            // Sort features by track count (as a proxy for strength) in descending order
+            std::sort(cell_features.begin(), cell_features.end(), 
+                     [&features](int a, int b) {
+                         // Safety checks for valid indices and non-null features
+                         if (a >= features.size() || b >= features.size()) return false;
+                         if (!features[a] || !features[b]) return false;
+                         return features[a]->get_track_count() > features[b]->get_track_count();
+                     });
+            
+            // Select up to max_features_per_grid best features from this cell
+            int features_to_select = std::min((int)cell_features.size(), max_features_per_grid);
+            for (int i = 0; i < features_to_select; ++i) {
+                int feature_idx = cell_features[i];
+                if (feature_idx >= 0 && feature_idx < features.size() && features[feature_idx]) {
+                    selected_indices.push_back(feature_idx);
+                }
+            }
+        }
+    }
+    
+    if (m_config.m_enable_debug_output) {
+        spdlog::info("Grid-based feature selection: {} features selected for tracking from {} total", 
+                     selected_indices.size(), previous_frame->get_feature_count());
+        spdlog::info("Max features per grid: {}, Grid size: {}x{} = {} cells", 
+                     max_features_per_grid, grid_cols, grid_rows, grid_cols * grid_rows);
+        spdlog::info("Theoretical max features: {} ({}x{}x{})", 
+                     grid_cols * grid_rows * max_features_per_grid, grid_cols, grid_rows, max_features_per_grid);
+    }
+    
+    return selected_indices;
 }
 
 } // namespace lightweight_vio

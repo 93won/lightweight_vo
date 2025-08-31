@@ -22,6 +22,17 @@ bool Config::load(const std::string& config_file) {
         m_max_features = (int)feature_detection["max_features"];
         m_quality_level = (double)feature_detection["quality_level"];
         m_min_distance = (double)feature_detection["min_distance"];
+        
+        // Grid-based feature distribution parameters
+        if (!feature_detection["grid_cols"].empty()) {
+            m_grid_cols = (int)feature_detection["grid_cols"];
+        }
+        if (!feature_detection["grid_rows"].empty()) {
+            m_grid_rows = (int)feature_detection["grid_rows"];
+        }
+        if (!feature_detection["max_features_per_grid"].empty()) {
+            m_max_features_per_grid = (int)feature_detection["max_features_per_grid"];
+        }
     }
     
     // Optical Flow Parameters
@@ -119,6 +130,12 @@ bool Config::load(const std::string& config_file) {
         if (pose_optimization["enable_solver_logging"].isInt()) {
             m_enable_pose_solver_logging = (bool)(int)pose_optimization["enable_solver_logging"];
         }
+        if (pose_optimization["minimizer_progress_to_stdout"].isInt()) {
+            m_minimizer_progress_to_stdout = (bool)(int)pose_optimization["minimizer_progress_to_stdout"];
+        }
+        if (pose_optimization["print_summary"].isInt()) {
+            m_print_summary = (bool)(int)pose_optimization["print_summary"];
+        }
     }
     
     // Camera Parameters
@@ -127,6 +144,11 @@ bool Config::load(const std::string& config_file) {
         m_image_width = (int)camera["image_width"];
         m_image_height = (int)camera["image_height"];
         m_border_size = (int)camera["border_size"];
+        
+        // Load baseline if specified
+        if (!camera["baseline"].empty()) {
+            m_baseline = (double)camera["baseline"];
+        }
         
         // Load camera intrinsics
         cv::FileNode left_intrinsics = camera["left_intrinsics"];

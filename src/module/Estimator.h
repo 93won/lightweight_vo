@@ -91,7 +91,7 @@ public:
      * @param gt_pose Ground truth pose (Twb)
      */
     void set_initial_gt_pose(const Eigen::Matrix4f& gt_pose);
-
+    
     /**
      * @brief Apply ground truth pose to current frame (for debugging)
      * @param gt_pose Ground truth pose (Twb)
@@ -162,20 +162,6 @@ private:
     int create_new_map_points(std::shared_ptr<Frame> frame);
     
     /**
-     * @brief Associate tracked features with existing map points from previous frames
-     * @param frame Frame to associate features
-     * @return Number of associated features
-     */
-    int associate_tracked_features_with_map_points(std::shared_ptr<Frame> frame);
-    
-    /**
-     * @brief Associate features with existing map points
-     * @param frame Frame to associate features
-     * @return Number of associated features
-     */
-    int associate_features_with_map_points(std::shared_ptr<Frame> frame);
-    
-    /**
      * @brief Count how many features have associated map points
      * @param frame Frame to count
      * @return Number of features with map points
@@ -207,12 +193,6 @@ private:
      * @param frame Frame to compute reprojection errors for
      */
     void compute_reprojection_error_statistics(std::shared_ptr<Frame> frame);
-    
-    /**
-     * @brief Update map points based on optimization results
-     * @param frame Frame with updated pose
-     */
-    void update_map_points(std::shared_ptr<Frame> frame);
 };
 
 } // namespace lightweight_vio

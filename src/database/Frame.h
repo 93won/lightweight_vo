@@ -41,6 +41,7 @@ public:
     const cv::Mat& get_right_image() const { return m_right_image; }
     const cv::Mat& get_image() const { return m_left_image; } // For backward compatibility
     const std::vector<std::shared_ptr<Feature>>& get_features() const { return m_features; }
+    std::vector<std::shared_ptr<Feature>>& get_features_mutable() { return m_features; }
     const Eigen::Matrix3f& get_rotation() const { return m_rotation; }
     const Eigen::Vector3f& get_translation() const { return m_translation; }
     bool is_keyframe() const { return m_is_keyframe; }
@@ -68,6 +69,7 @@ public:
     std::shared_ptr<MapPoint> get_map_point(int feature_index) const;
     bool has_map_point(int feature_index) const;
     const std::vector<std::shared_ptr<MapPoint>>& get_map_points() const { return m_map_points; }
+    std::vector<std::shared_ptr<MapPoint>>& get_map_points_mutable() { return m_map_points; }
 
     // Outlier flag management
     void set_outlier_flag(int feature_index, bool is_outlier);

@@ -44,6 +44,11 @@ namespace lightweight_vio
         double m_quality_level = 0.01;
         double m_min_distance = 30.0;
 
+        // Grid-based Feature Distribution Parameters
+        int m_grid_cols = 20;
+        int m_grid_rows = 10;
+        int m_max_features_per_grid = 4;
+
         // Optical Flow Parameters
         int m_window_size = 21;
         int m_max_level = 3;
@@ -83,33 +88,33 @@ namespace lightweight_vio
         double m_max_reprojection_error = 10.0;
         double m_min_parallax = 0.5;
 
-    // Keyframe Parameters
-    int m_keyframe_interval = 10;
-    
-    // Pose Optimization Parameters
-    int m_pose_max_iterations = 10;
-    double m_pose_function_tolerance = 1e-6;
-    double m_pose_gradient_tolerance = 1e-10;
-    double m_pose_parameter_tolerance = 1e-8;
-    bool m_enable_pose_solver_logging = false;
-    
-    // Robust kernel parameters
-    bool m_use_robust_kernel = true;
-    double m_huber_delta_mono = 5.99;    // sqrt(chi2_2dof_95%)
-    double m_huber_delta_stereo = 7.81;  // sqrt(chi2_3dof_95%)
-    
-    // Outlier detection
-    bool m_enable_outlier_detection = true;
-    int m_outlier_detection_rounds = 3;
-    
-    // Logging
-    bool m_minimizer_progress_to_stdout = false;
-    bool m_print_summary = false;
-    
-    // Camera Parameters
-    int m_image_width = 752;
-    int m_image_height = 480;
-    int m_border_size = 1;        // Baseline for convenience (EuRoC dataset)
+        // Keyframe Parameters
+        int m_keyframe_interval = 10;
+
+        // Pose Optimization Parameters
+        int m_pose_max_iterations = 10;
+        double m_pose_function_tolerance = 1e-6;
+        double m_pose_gradient_tolerance = 1e-10;
+        double m_pose_parameter_tolerance = 1e-8;
+        bool m_enable_pose_solver_logging = false;
+
+        // Robust kernel parameters
+        bool m_use_robust_kernel = true;
+        double m_huber_delta_mono = 5.99;   // sqrt(chi2_2dof_95%)
+        double m_huber_delta_stereo = 7.81; // sqrt(chi2_3dof_95%)
+
+        // Outlier detection
+        bool m_enable_outlier_detection = true;
+        int m_outlier_detection_rounds = 3;
+
+        // Logging
+        bool m_minimizer_progress_to_stdout = false;
+        bool m_print_summary = false;
+
+        // Camera Parameters
+        int m_image_width = 752;
+        int m_image_height = 480;
+        int m_border_size = 1; // Baseline for convenience (EuRoC dataset)
         double m_baseline = 0.11;
 
         // Performance Parameters

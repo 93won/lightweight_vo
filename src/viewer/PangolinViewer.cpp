@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cmath>
 #include <cstdio>
+#include <unordered_map>
 #include <spdlog/spdlog.h>
 #include <util/Config.h>
 #include <database/Feature.h>
@@ -48,6 +49,7 @@ PangolinViewer::PangolinViewer()
     , m_separator("ui.─────────", "")
     , m_auto_mode_checkbox("ui.Auto Mode", true, true)
     , m_feed_data_button("ui.Feed Data", false, false)
+    , m_show_map_point_indices("ui.Show Map Point IDs", false, true)
 {
 }
 
@@ -90,52 +92,52 @@ bool PangolinViewer::initialize(int width, int height) {
 }
 
 void PangolinViewer::setup_panels() {
-    // UI 패널 너비를 윈도우 너비의 1/4로 설정
+    // Set UI panel width to 1/4 of window width
     int ui_panel_width = m_window_width / 4;
     
-    // Config에서 실제 이미지 크기 읽어오기
+    // Get actual image size from config
     float image_width, image_height;
     try {
         const auto& config = Config::getInstance();
         image_width = static_cast<float>(config.m_image_width);
         image_height = static_cast<float>(config.m_image_height);
     } catch (const std::exception& e) {
-        // 기본값으로 fallback (EuRoC 표준)
+        // Fallback to default values (EuRoC standard)
         image_width = 752.0f;
         image_height = 480.0f;
     }
 
-    // 2. Feature tracking 이미지 - UI 패널 너비에 맞춰 실제 이미지 비율로 동적 계산
+    // 2. Feature tracking image - dynamically calculated based on UI panel width and actual image ratio
     float tracking_aspect = image_width / image_height;  // 752/480 = 1.567
-    float display_width = static_cast<float>(m_window_width) * 0.25f;  // UI 패널 너비 (창 너비의 25%)
+    float display_width = static_cast<float>(m_window_width) * 0.25f;  // UI panel width (25% of window width)
     float tracking_height = display_width / tracking_aspect;
     float tracking_normalized_height = tracking_height / static_cast<float>(m_window_height);
     
-    // 3. Stereo matching 이미지 - 너비 2배 (좌우 이미지 합쳐짐)
+    // 3. Stereo matching image - width doubled (left and right images combined)
     float stereo_aspect = (image_width * 2.0f) / image_height;  // (752*2)/480 = 3.133
     float stereo_height = display_width / stereo_aspect;
     float stereo_normalized_height = stereo_height / static_cast<float>(m_window_height);
     
-    // UI 패널 높이를 동적으로 계산 - 이미지들과 겹치지 않게
+    // Dynamically calculate UI panel height - avoid overlapping with images
     float total_image_height = tracking_normalized_height + stereo_normalized_height;
     float available_space_for_ui = 1.0f - total_image_height;
-    float ui_panel_height = std::max(0.2f, available_space_for_ui); // 최소 20% 높이 보장
+    float ui_panel_height = std::max(0.2f, available_space_for_ui); // Ensure minimum 20% height
     
-    // 이미지 위치 계산 - 아래쪽부터 차곡차곡
-    m_stereo_image_bottom = 0.0f; // 맨 아래
+    // Calculate image positions - stacking from bottom
+    m_stereo_image_bottom = 0.0f; // Bottom-most
     float stereo_image_top = m_stereo_image_bottom + stereo_normalized_height;
     
-    m_tracking_image_bottom = stereo_image_top; // 스테레오 이미지 바로 위
+    m_tracking_image_bottom = stereo_image_top; // Right above stereo image
     float tracking_image_top = m_tracking_image_bottom + tracking_normalized_height;
     
-    // UI 패널은 이미지들 위쪽 공간에
+    // UI panel in the space above images
     float ui_panel_bottom = tracking_image_top;
     float ui_panel_top = 1.0f;
     
     if (!m_panels_created) {
-        // 처음에만 패널들을 생성
+        // Create panels only once
         
-        // UI 패널 너비를 비율로 계산 (윈도우 너비의 1/4)
+        // Calculate UI panel width as ratio (1/4 of window width)
         float ui_panel_ratio = 0.25f;  // 1/4
         
         // Create main 3D view (takes up most of the screen on the right side)
@@ -143,24 +145,24 @@ void PangolinViewer::setup_panels() {
             .SetBounds(0.0, 1.0, pangolin::Attach::Frac(ui_panel_ratio), pangolin::Attach::Frac(1.0f))
             .SetHandler(new pangolin::Handler3D(s_cam));
 
-        // 1. UI 패널 - 왼쪽 상단 (이미지들 위쪽)
+        // 1. UI panel - top left (above images)
         d_panel = pangolin::CreatePanel("ui")
             .SetBounds(ui_panel_bottom, ui_panel_top, 0.0, pangolin::Attach::Frac(ui_panel_ratio));
         
-        // 2. Feature tracking 이미지
+        // 2. Feature tracking image
         d_img_left = pangolin::CreateDisplay()
             .SetBounds(m_tracking_image_bottom, tracking_image_top, 0.0, pangolin::Attach::Frac(ui_panel_ratio), -tracking_aspect);
         
-        // 3. Stereo matching 이미지
+        // 3. Stereo matching image
         d_img_right = pangolin::CreateDisplay()
             .SetBounds(m_stereo_image_bottom, stereo_image_top, 0.0, pangolin::Attach::Frac(ui_panel_ratio), -stereo_aspect);
         
         m_panels_created = true;
     } else {
-        // 이미 생성된 패널들의 크기만 업데이트 (비율 기반으로)
+        // Update size of already created panels (based on ratio)
         float ui_panel_ratio = 0.25f;  // 1/4
         
-        // 이미지 크기도 다시 계산 (창 크기 변경 반영)
+        // Recalculate image sizes (reflecting window size changes)
         float new_display_width = static_cast<float>(m_window_width) * ui_panel_ratio;
         float new_tracking_height = new_display_width / tracking_aspect;
         float new_tracking_normalized_height = new_tracking_height / static_cast<float>(m_window_height);
@@ -168,19 +170,19 @@ void PangolinViewer::setup_panels() {
         float new_stereo_height = new_display_width / stereo_aspect;
         float new_stereo_normalized_height = new_stereo_height / static_cast<float>(m_window_height);
         
-        // UI 패널 높이를 동적으로 재계산
+        // Dynamically recalculate UI panel height
         float new_total_image_height = new_tracking_normalized_height + new_stereo_normalized_height;
         float new_available_space_for_ui = 1.0f - new_total_image_height;
         float new_ui_panel_height = std::max(0.2f, new_available_space_for_ui);
         
-        // 이미지 위치 재계산 - 아래쪽부터 차곡차곡
-        m_stereo_image_bottom = 0.0f; // 맨 아래
+        // Recalculate image positions - stacking from bottom
+        m_stereo_image_bottom = 0.0f; // Bottom-most
         float new_stereo_image_top = m_stereo_image_bottom + new_stereo_normalized_height;
         
-        m_tracking_image_bottom = new_stereo_image_top; // 스테레오 이미지 바로 위
+        m_tracking_image_bottom = new_stereo_image_top; // Right above stereo image
         float new_tracking_image_top = m_tracking_image_bottom + new_tracking_normalized_height;
         
-        // UI 패널은 이미지들 위쪽 공간에
+        // UI panel in the space above images
         float new_ui_panel_bottom = new_tracking_image_top;
         float new_ui_panel_top = 1.0f;
         
@@ -621,9 +623,60 @@ void PangolinViewer::update_tracking_image_with_map_points(const cv::Mat& image,
                                                           const std::vector<std::shared_ptr<MapPoint>>& map_points) {
     if (image.empty()) return;
     
-    // Just pass through the original image without drawing additional features
-    // The image should already have features drawn by Frame::draw_features()
-    m_tracking_image = create_texture_from_cv_mat(image);
+    // Create a copy of the image to draw on
+    cv::Mat image_with_grid = image.clone();
+    
+    // Draw grid overlay for feature distribution visualization
+    draw_feature_grid(image_with_grid);
+    
+    // Draw map points and indices if enabled
+    if (m_show_map_point_indices && !features.empty() && !map_points.empty()) {
+        // Create a map from feature to map point for efficient lookup
+        std::unordered_map<int, std::shared_ptr<MapPoint>> feature_to_mappoint;
+        
+        // Build the mapping - this assumes features and map_points are aligned by index
+        for (size_t i = 0; i < std::min(features.size(), map_points.size()); ++i) {
+            if (features[i] && map_points[i]) {
+                feature_to_mappoint[features[i]->get_feature_id()] = map_points[i];
+            }
+        }
+        
+        // Draw features with map point indices
+        for (const auto& feature : features) {
+            if (!feature || !feature->is_valid()) continue;
+            
+            cv::Point2f pixel_coord = feature->get_pixel_coord();
+            
+            // Check if this feature has an associated map point
+            auto it = feature_to_mappoint.find(feature->get_feature_id());
+            if (it != feature_to_mappoint.end() && it->second && !it->second->is_bad()) {
+                auto map_point = it->second;
+                
+                // Draw feature point
+                cv::circle(image_with_grid, pixel_coord, 3, cv::Scalar(0, 255, 0), -1);  // Green filled circle
+                
+                // Draw map point ID
+                std::string id_text = std::to_string(map_point->get_id());
+                cv::Point2f text_pos(pixel_coord.x + 5, pixel_coord.y - 5);  // Offset text slightly
+                
+                // Draw text background for better visibility
+                cv::Size text_size = cv::getTextSize(id_text, cv::FONT_HERSHEY_SIMPLEX, 0.4, 1, nullptr);
+                cv::Rect text_bg(text_pos.x - 1, text_pos.y - text_size.height - 1, 
+                                 text_size.width + 2, text_size.height + 2);
+                cv::rectangle(image_with_grid, text_bg, cv::Scalar(0, 0, 0), -1);  // Black background
+                
+                // Draw the text
+                cv::putText(image_with_grid, id_text, text_pos, 
+                           cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);  // White text
+            } else {
+                // Draw feature without map point (if any)
+                cv::circle(image_with_grid, pixel_coord, 2, cv::Scalar(128, 128, 128), -1);  // Gray circle
+            }
+        }
+    }
+    
+    // Convert to texture
+    m_tracking_image = create_texture_from_cv_mat(image_with_grid);
     m_has_tracking_image = true;
 
     // The bounds and aspect ratio are now handled exclusively by setup_panels().
@@ -651,9 +704,11 @@ void PangolinViewer::process_keyboard_input(bool& auto_play, bool& step_mode, bo
         if (auto_play) {
             auto_play = false;
             step_mode = true;
+            m_auto_mode_checkbox = false;  // Update UI checkbox
         } else {
             auto_play = true;
             step_mode = false;
+            m_auto_mode_checkbox = true;   // Update UI checkbox
         }
         m_space_pressed = false;
     }
@@ -664,6 +719,21 @@ void PangolinViewer::process_keyboard_input(bool& auto_play, bool& step_mode, bo
             advance_frame = true;
         }
         m_next_pressed = false;
+    }
+}
+
+void PangolinViewer::sync_ui_state(bool& auto_play, bool& step_mode) {
+    // Check if UI checkbox state has changed and update mode accordingly
+    bool ui_auto_mode = m_auto_mode_checkbox;
+    
+    if (ui_auto_mode && !auto_play) {
+        // UI checkbox enabled but currently in step mode - switch to auto
+        auto_play = true;
+        step_mode = false;
+    } else if (!ui_auto_mode && auto_play) {
+        // UI checkbox disabled but currently in auto mode - switch to step
+        auto_play = false;
+        step_mode = true;
     }
 }
 
@@ -680,6 +750,29 @@ void PangolinViewer::update_tracking_stats(int frame_id, int total_features, int
 
 bool PangolinViewer::is_auto_mode_enabled() const {
     return m_auto_mode_checkbox;
+}
+
+void PangolinViewer::draw_feature_grid(cv::Mat& image) {
+    const auto& config = Config::getInstance();
+    const int grid_cols = config.m_grid_cols;  // From config
+    const int grid_rows = config.m_grid_rows;  // From config
+    const cv::Scalar grid_color(100, 100, 100);  // Gray color for grid lines
+    const int thickness = 1;
+    
+    const float cell_width = (float)image.cols / grid_cols;   // ~37.6 pixels per cell
+    const float cell_height = (float)image.rows / grid_rows; // ~48.0 pixels per cell
+    
+    // Draw vertical grid lines (20 divisions)
+    for (int i = 1; i < grid_cols; i++) {
+        int x = (int)(i * cell_width);
+        cv::line(image, cv::Point(x, 0), cv::Point(x, image.rows), grid_color, thickness);
+    }
+    
+    // Draw horizontal grid lines (10 divisions)
+    for (int i = 1; i < grid_rows; i++) {
+        int y = (int)(i * cell_height);
+        cv::line(image, cv::Point(0, y), cv::Point(image.cols, y), grid_color, thickness);
+    }
 }
 
 } // namespace lightweight_vio
