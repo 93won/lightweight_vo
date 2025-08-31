@@ -72,10 +72,10 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters, double* residuals,
     // Calculate reprojection error magnitude for debugging
     double reproj_error = residual_vec.norm();
     
-    // Debug output to compare with external reprojection calculation
-    spdlog::debug("[PNP_FACTOR] obs=({:.1f},{:.1f}) proj=({:.1f},{:.1f}) error={:.2f}px world=({:.2f},{:.2f},{:.2f})",
-                 m_observation.x(), m_observation.y(), u, v, reproj_error,
-                 m_world_point.x(), m_world_point.y(), m_world_point.z());
+    // // Debug output to compare with external reprojection calculation
+    // spdlog::debug("[PNP_FACTOR] obs=({:.1f},{:.1f}) proj=({:.1f},{:.1f}) error={:.2f}px world=({:.2f},{:.2f},{:.2f})",
+    //              m_observation.x(), m_observation.y(), u, v, reproj_error,
+    //              m_world_point.x(), m_world_point.y(), m_world_point.z());
     
     // Apply information matrix weighting to residuals: r_weighted = sqrt(Info) * r
     Eigen::LLT<Eigen::Matrix2d> llt(m_information);

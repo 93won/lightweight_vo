@@ -69,11 +69,9 @@ void FeatureTracker::track_features(std::shared_ptr<Frame> current_frame,
         new_map_points_from_extraction = extraction_stats.second;
     }
 
-    // Perform batch stereo matching to compute depth for features (no map point creation)
-    auto batch_stereo_start = std::chrono::high_resolution_clock::now();
-    int batch_stereo_matches = batch_stereo_matching(current_frame);
-    auto batch_stereo_end = std::chrono::high_resolution_clock::now();
-    auto batch_stereo_time = std::chrono::duration_cast<std::chrono::microseconds>(batch_stereo_end - batch_stereo_start).count() / 1000.0;
+    // Note: Stereo matching is now handled by Frame::compute_stereo_depth() in Estimator
+    // This avoids duplicate stereo matching operations
+    
     int total_new_map_points = new_map_points_from_tracking + new_map_points_from_extraction;
 
     auto total_end = std::chrono::high_resolution_clock::now();
@@ -178,7 +176,8 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
                             prev_pts, cur_pts, status, err,
                             cv::Size(window_size, window_size), 
                             Config::getInstance().m_max_level, 
-                            Config::getInstance().term_criteria());
+                            Config::getInstance().term_criteria(),
+                            0, Config::getInstance().m_min_eigen_threshold);
     
     auto flow_end = std::chrono::high_resolution_clock::now();
     auto flow_time = std::chrono::duration_cast<std::chrono::microseconds>(flow_end - flow_start).count() / 1000.0;
@@ -192,12 +191,14 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
     
     for (size_t i = 0; i < prev_pts.size(); ++i) {
         if (status[i] && is_in_border(cur_pts[i], current_frame->get_image().size())) {
-            // Basic checks for tracking quality (relaxed thresholds - main filtering done later)
+            // Apply optical flow quality checks using config parameters
             float dx = cur_pts[i].x - prev_pts[i].x;
             float dy = cur_pts[i].y - prev_pts[i].y;
+            float movement = std::sqrt(dx*dx + dy*dy);
             
-            // Only reject extremely bad tracking results here, main outlier rejection done later
-            if (err[i] < Config::getInstance().m_error_threshold * 2.0) {  // Relaxed error threshold
+            // Check error threshold and max movement from config
+            if (err[i] < Config::getInstance().m_error_threshold && 
+                movement < Config::getInstance().m_max_movement) {
                 // Get the original feature index
                 int original_feature_idx = feature_indices[i];
                 auto prev_feature = previous_frame->get_features()[original_feature_idx];
@@ -504,102 +505,6 @@ bool FeatureTracker::is_in_border(const cv::Point2f& point, const cv::Size& img_
     int img_y = cvRound(point.y);
     return border_size <= img_x && img_x < img_size.width - border_size && 
            border_size <= img_y && img_y < img_size.height - border_size;
-}
-
-bool FeatureTracker::can_triangulate_feature(std::shared_ptr<Feature> feature, std::shared_ptr<Frame> frame) {
-    if (!feature || !frame) {
-        return false;
-    }
-    
-    // Check if this is a stereo frame
-    if (!frame->is_stereo()) {
-        return false;
-    }
-    
-    cv::Point2f pixel_coord = feature->get_pixel_coord();
-    
-    // Check if feature is within image bounds with some margin
-    int border_margin = 10;
-    if (pixel_coord.x < border_margin || pixel_coord.y < border_margin || 
-        pixel_coord.x >= frame->get_image().cols - border_margin || 
-        pixel_coord.y >= frame->get_image().rows - border_margin) {
-        return false;
-    }
-    
-    // Use Frame's stereo depth functionality to check if triangulation is feasible
-    // This might be the slow part - let's time it
-    auto stereo_check_start = std::chrono::high_resolution_clock::now();
-    bool result = frame->has_valid_stereo_depth(pixel_coord);
-    auto stereo_check_end = std::chrono::high_resolution_clock::now();
-    auto stereo_check_time = std::chrono::duration_cast<std::chrono::microseconds>(stereo_check_end - stereo_check_start).count() / 1000.0;
-    
-    // Log if stereo depth check is very slow (raised threshold)
-    if (stereo_check_time > 1.0) {
-        std::cout << "[STEREO CHECK] Very slow stereo depth check: " << stereo_check_time << "ms" << std::endl;
-    }
-    
-    return result;
-}
-
-int FeatureTracker::batch_stereo_matching(const std::shared_ptr<Frame>& frame) {
-    if (!frame->is_stereo()) {
-        return 0;
-    }
-
-    // Collect all features without stereo matches (both tracked and newly extracted)
-    std::vector<cv::Point2f> left_points;
-    std::vector<int> feature_indices;
-    
-    const auto& features = frame->get_features();
-    for (int i = 0; i < features.size(); i++) {
-        if (!features[i]->has_stereo_match()) {
-            left_points.push_back(features[i]->get_pixel_coord());
-            feature_indices.push_back(i);
-        }
-    }
-    
-    if (left_points.empty()) {
-        return 0;
-    }
-    
-    // Use optical flow to find corresponding points in right image
-    std::vector<cv::Point2f> right_points;
-    std::vector<uchar> status;
-    std::vector<float> error;
-    
-    cv::calcOpticalFlowPyrLK(
-        frame->get_left_image(), 
-        frame->get_right_image(),
-        left_points, 
-        right_points,
-        status, 
-        error,
-        cv::Size(21, 21), 
-        3,
-        cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, 0.01),
-        0, 
-        0.001
-    );
-    
-    int successful_matches = 0;
-    
-    for (int i = 0; i < left_points.size(); i++) {
-        if (status[i]) {
-            double disparity = left_points[i].x - right_points[i].x;
-            
-            // Check disparity constraints
-            if (disparity > 0) {
-                successful_matches++;
-                
-                // Set stereo match info on the feature (no map point creation)
-                int feature_idx = feature_indices[i];
-                auto feature = features[feature_idx];
-                feature->set_stereo_match(right_points[i], disparity);
-            }
-        }
-    }
-    
-    return successful_matches;
 }
 
 } // namespace lightweight_vio

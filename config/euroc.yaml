@@ -7,7 +7,7 @@
 # Feature Detection Parameters
 # Controls how corner features are detected using goodFeaturesToTrack
 feature_detection:
-  max_features: 100           # Maximum number of features to track per frame
+  max_features: 200           # Maximum number of features to track per frame
   quality_level: 0.5         # Minimum accepted quality of corners (0.01 = 1% of best corner)
   min_distance: 30.0          # Minimum distance between features in pixels (prevents clustering)
 
@@ -20,7 +20,7 @@ optical_flow:
   epsilon: 0.01               # Convergence criteria - stop when change < epsilon
   error_threshold: 30.0       # Maximum tracking error to accept a match (pixels)
   max_movement: 100.0         # Maximum pixel movement between frames (rejects large jumps)
-  min_eigen_threshold: 5e-2   # Minimum eigenvalue threshold for optical flow
+  min_eigen_threshold: 1e-2   # Minimum eigenvalue threshold for optical flow
 
 # Outlier Rejection Parameters
 # Multi-stage outlier filtering to improve tracking robustness  
@@ -107,12 +107,12 @@ pose_optimization:
   
   # Outlier detection
   enable_outlier_detection: true   # Enable ORB-SLAM style outlier detection
-  outlier_detection_rounds: 4      # Number of optimization rounds with outlier detection
+  outlier_detection_rounds: 1      # Number of optimization rounds with outlier detection
   
   # Logging
   enable_solver_logging: false    # Enable Ceres solver logging (PER_MINIMIZER_ITERATION vs SILENT)
   minimizer_progress_to_stdout: false  # Print Ceres solver progress
-  print_summary: true             # Print optimization summary
+  print_summary: false             # Print optimization summary
 
 # Performance Parameters
 # Debug and timing control flags

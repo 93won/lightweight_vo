@@ -49,10 +49,6 @@ private:
     void update_features_with_points(std::vector<std::shared_ptr<Feature>>& features, 
                                     const std::vector<cv::Point2f>& points,
                                     const std::vector<uchar>& status);
-    
-    // Stereo matching (depth computation only, no map point creation)
-    bool can_triangulate_feature(std::shared_ptr<Feature> feature, std::shared_ptr<Frame> frame);
-    int batch_stereo_matching(const std::shared_ptr<Frame>& frame);
 };
 
 } // namespace lightweight_vio

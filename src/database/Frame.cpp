@@ -655,8 +655,6 @@ void Frame::undistort_features() {
             // Undistort to normalized coordinates (output is already normalized)
             cv::undistortPoints(distorted_pts, undistorted_pts, left_K, left_D);
 
-            std::cout<<distorted_pts<<"\n";
-            std::cout<<undistorted_pts<<"\n";
             
             // Convert normalized coordinates back to pixel coordinates for set_undistorted_coord
             cv::Point2f undistorted_pixel;

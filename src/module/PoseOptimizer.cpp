@@ -37,9 +37,9 @@ namespace lightweight_vio
         frame->get_camera_intrinsics(fx, fy, cx, cy);
         factor::CameraParameters camera_params(fx, fy, cx, cy);
         
-        // DEBUG: Print camera intrinsics
-        spdlog::debug("[DEBUG_CAM] Camera intrinsics: fx={:.2f}, fy={:.2f}, cx={:.2f}, cy={:.2f}",
-                     fx, fy, cx, cy);
+        // // DEBUG: Print camera intrinsics
+        // spdlog::debug("[DEBUG_CAM] Camera intrinsics: fx={:.2f}, fy={:.2f}, cx={:.2f}, cy={:.2f}",
+        //              fx, fy, cx, cy);
 
         // Add observations to the problem
         std::vector<ObservationInfo> observations;
@@ -90,9 +90,9 @@ namespace lightweight_vio
 
             // Debug: Check if projection makes sense for first few features
             if (num_valid_observations < 3) {
-                spdlog::debug("[PROJECTION] Feature {}: pixel=({:.2f},{:.2f}), world=({:.2f},{:.2f},{:.2f})", 
-                             i, observation.x(), observation.y(), 
-                             world_point.x(), world_point.y(), world_point.z());
+                // spdlog::debug("[PROJECTION] Feature {}: pixel=({:.2f},{:.2f}), world=({:.2f},{:.2f},{:.2f})", 
+                //              i, observation.x(), observation.y(), 
+                //              world_point.x(), world_point.y(), world_point.z());
             }
 
             if (obs_info.residual_id)
@@ -132,7 +132,7 @@ namespace lightweight_vio
                 // Reset pose to initial value for each round
                 if (round > 0) {
                     pose_params = initial_pose_params;
-                    spdlog::debug("[POSE_OPT] Round {}: Reset pose to initial value", round);
+                    // spdlog::debug("[POSE_OPT] Round {}: Reset pose to initial value", round);
                 }
                 
                 // Solve
@@ -169,9 +169,9 @@ namespace lightweight_vio
             int final_inliers = detect_outliers(const_cast<double const *const *>(&pose_data), observations, feature_indices, frame);
             int final_outliers = observations.size() - final_inliers;
             
-            spdlog::info("[POSE_OPT] {} rounds: cost {:.3e} -> {:.3e}, {} iters, {} inliers/{} outliers", 
-                        config.m_outlier_detection_rounds, initial_cost, final_cost, 
-                        total_iterations, final_inliers, final_outliers);
+            // spdlog::info("[POSE_OPT] {} rounds: cost {:.3e} -> {:.3e}, {} iters, {} inliers/{} outliers", 
+            //             config.m_outlier_detection_rounds, initial_cost, final_cost, 
+            //             total_iterations, final_inliers, final_outliers);
                         
             // Print detailed Ceres summary if requested (last round only)
             if (config.m_print_summary && config.m_outlier_detection_rounds > 0) {
@@ -193,14 +193,14 @@ namespace lightweight_vio
                 int num_inliers = detect_outliers(const_cast<double const *const *>(&pose_data), observations, feature_indices, frame);
                 int num_outliers = observations.size() - num_inliers;
                 
-                spdlog::info("[POSE_OPT] Single solve: cost {:.3e} -> {:.3e}, {} iters, {} inliers/{} outliers", 
-                            summary.initial_cost, summary.final_cost, summary.iterations.size(),
-                            num_inliers, num_outliers);
+                // spdlog::info("[POSE_OPT] Single solve: cost {:.3e} -> {:.3e}, {} iters, {} inliers/{} outliers", 
+                //             summary.initial_cost, summary.final_cost, summary.iterations.size(),
+                //             num_inliers, num_outliers);
             } else {
                 // No outlier detection
-                spdlog::info("[POSE_OPT] Single solve: cost {:.3e} -> {:.3e}, {} iters, ALL {} features treated as inliers", 
-                            summary.initial_cost, summary.final_cost, summary.iterations.size(),
-                            observations.size());
+                // spdlog::info("[POSE_OPT] Single solve: cost {:.3e} -> {:.3e}, {} iters, ALL {} features treated as inliers", 
+                //             summary.initial_cost, summary.final_cost, summary.iterations.size(),
+                //             observations.size());
             }
 
             result.success = (summary.termination_type == ceres::CONVERGENCE);
@@ -246,7 +246,7 @@ namespace lightweight_vio
             }
             
             if (disconnected_map_points > 0) {
-                spdlog::warn("[POSE_OPT] Disconnected {} outlier map points", disconnected_map_points);
+                spdlog::warn("POSE_OPT[] Disconnected {} outlier map points", disconnected_map_points);
             }
         } else {
             // Treat all observations as inliers when outlier detection is disabled
@@ -348,8 +348,8 @@ namespace lightweight_vio
                 
                 // Log recovery if this feature was previously an outlier
                 if (was_outlier) {
-                    spdlog::debug("[POSE_OPT] Feature {} recovered from outlier (chi2: {:.3f})", 
-                                 feature_idx, chi2_error);
+                    // spdlog::debug("[POSE_OPT] Feature {} recovered from outlier (chi2: {:.3f})", 
+                    //              feature_idx, chi2_error);
                 }
             }
             else
@@ -358,8 +358,7 @@ namespace lightweight_vio
                 
                 // Log new outlier detection
                 if (!was_outlier) {
-                    spdlog::debug("[POSE_OPT] Feature {} marked as outlier (chi2: {:.3f})", 
-                                 feature_idx, chi2_error);
+                    // spdlog::debug("[POSE_OPT] Feature {} marked as outlier (chi2: {:.3f})", feature_idx, chi2_error);
                 }
             }
         }
