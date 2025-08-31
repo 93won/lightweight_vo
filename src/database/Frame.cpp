@@ -248,7 +248,7 @@ cv::Mat Frame::draw_features() const {
             if (map_point && !map_point->is_bad()) {
                 // Feature with MapPoint: Blue to red gradient based on track count
                 int track_count = feature->get_track_count();
-                float ratio = std::min(1.0f, static_cast<float>(track_count) / 5.0f);
+                float ratio = std::min(1.0f, static_cast<float>(track_count) / 30.0f);
                 
                 // BGR color: Blue (255,0,0) -> Red (0,0,255)
                 int blue = static_cast<int>(255 * (1.0f - ratio));   // 255 -> 0
@@ -265,13 +265,13 @@ cv::Mat Frame::draw_features() const {
             cv::circle(display_image, pt, 3, point_color, 2);
             
             // Display MapPoint ID if feature has associated map point
-            if (map_point && !map_point->is_bad()) {
-                std::string id_text = std::to_string(map_point->get_id());
-                cv::Point2f text_pt(pt.x + 5, pt.y - 5);  // Offset text slightly from point
-                // Use blue color for text (BGR: 255,0,0) and increase font size to 0.7
-                cv::putText(display_image, id_text, text_pt, 
-                           cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
-            }
+            // if (map_point && !map_point->is_bad()) {
+            //     std::string id_text = std::to_string(map_point->get_id());
+            //     cv::Point2f text_pt(pt.x + 5, pt.y - 5);  // Offset text slightly from point
+            //     // Use blue color for text (BGR: 255,0,0) and increase font size to 0.7
+            //     cv::putText(display_image, id_text, text_pt, 
+            //                cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
+            // }
         }
     }
 

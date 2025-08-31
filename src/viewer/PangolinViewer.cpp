@@ -2,7 +2,6 @@
 #include <iostream>
 #include <cmath>
 #include <cstdio>
-#include <unordered_map>
 #include <spdlog/spdlog.h>
 #include <util/Config.h>
 #include <database/Feature.h>
@@ -27,7 +26,7 @@ PangolinViewer::PangolinViewer()
     , m_has_stereo_image(false)
     , m_space_pressed(false)
     , m_next_pressed(false)
-    , m_feed_data_pressed(false)
+    , m_step_forward_pressed(false)
     , m_initialized(false)
     , m_window_width(1280)
     , m_window_height(960)
@@ -43,13 +42,12 @@ PangolinViewer::PangolinViewer()
     , m_follow_camera(false)
     , m_point_size(3.0f)
     , m_trajectory_width(2.0f)
-    , m_successful_matches("ui.Successful matches", 0, 0, get_max_features_from_config())
     , m_frame_id("ui.Frame ID", 0)
-    , m_map_points("ui.Num of Map Points", 0)
-    , m_separator("ui.─────────", "")
-    , m_auto_mode_checkbox("ui.Auto Mode", true, true)
-    , m_feed_data_button("ui.Feed Data", false, false)
-    , m_show_map_point_indices("ui.Show Map Point IDs", false, true)
+    , m_successful_matches("ui.Num Tracked Map Points", 0, 0, get_max_features_from_config())
+    , m_separator("ui.================================================================================", "")
+    , m_auto_mode_checkbox("ui.1. Auto Mode", true, true)
+    , m_show_map_point_indices("ui.2. Show Map Point IDs", false, true)
+    , m_step_forward_button("ui.3. Step Forward", false, false)
 {
 }
 
@@ -289,9 +287,9 @@ void PangolinViewer::render() {
     // Pangolin automatically renders the UI panel with tracking variables
     // No custom drawing needed - the pangolin::Var variables are displayed automatically
 
-    // Check Auto mode or Feed Data button
-    if (m_auto_mode_checkbox || pangolin::Pushed(m_feed_data_button)) {
-        m_feed_data_pressed = true;
+    // Check Step Forward button
+    if (pangolin::Pushed(m_step_forward_button)) {
+        m_step_forward_pressed = true;
     }
 
     // Process keyboard input - will be handled externally
@@ -629,49 +627,24 @@ void PangolinViewer::update_tracking_image_with_map_points(const cv::Mat& image,
     // Draw grid overlay for feature distribution visualization
     draw_feature_grid(image_with_grid);
     
-    // Draw map points and indices if enabled
+    // Draw map point indices if enabled (replaces the original blue text in Frame.cpp)
     if (m_show_map_point_indices && !features.empty() && !map_points.empty()) {
-        // Create a map from feature to map point for efficient lookup
-        std::unordered_map<int, std::shared_ptr<MapPoint>> feature_to_mappoint;
+        // Simple approach: assume features and map_points are aligned by index
+        size_t min_size = std::min(features.size(), map_points.size());
         
-        // Build the mapping - this assumes features and map_points are aligned by index
-        for (size_t i = 0; i < std::min(features.size(), map_points.size()); ++i) {
-            if (features[i] && map_points[i]) {
-                feature_to_mappoint[features[i]->get_feature_id()] = map_points[i];
-            }
-        }
-        
-        // Draw features with map point indices
-        for (const auto& feature : features) {
-            if (!feature || !feature->is_valid()) continue;
+        for (size_t i = 0; i < min_size; ++i) {
+            if (!features[i] || !features[i]->is_valid()) continue;
+            if (!map_points[i] || map_points[i]->is_bad()) continue;
             
-            cv::Point2f pixel_coord = feature->get_pixel_coord();
+            cv::Point2f pixel_coord = features[i]->get_pixel_coord();
             
-            // Check if this feature has an associated map point
-            auto it = feature_to_mappoint.find(feature->get_feature_id());
-            if (it != feature_to_mappoint.end() && it->second && !it->second->is_bad()) {
-                auto map_point = it->second;
-                
-                // Draw feature point
-                cv::circle(image_with_grid, pixel_coord, 3, cv::Scalar(0, 255, 0), -1);  // Green filled circle
-                
-                // Draw map point ID
-                std::string id_text = std::to_string(map_point->get_id());
-                cv::Point2f text_pos(pixel_coord.x + 5, pixel_coord.y - 5);  // Offset text slightly
-                
-                // Draw text background for better visibility
-                cv::Size text_size = cv::getTextSize(id_text, cv::FONT_HERSHEY_SIMPLEX, 0.4, 1, nullptr);
-                cv::Rect text_bg(text_pos.x - 1, text_pos.y - text_size.height - 1, 
-                                 text_size.width + 2, text_size.height + 2);
-                cv::rectangle(image_with_grid, text_bg, cv::Scalar(0, 0, 0), -1);  // Black background
-                
-                // Draw the text
-                cv::putText(image_with_grid, id_text, text_pos, 
-                           cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);  // White text
-            } else {
-                // Draw feature without map point (if any)
-                cv::circle(image_with_grid, pixel_coord, 2, cv::Scalar(128, 128, 128), -1);  // Gray circle
-            }
+            // Draw map point ID (red text) - NO CIRCLE DRAWING
+            std::string id_text = std::to_string(map_points[i]->get_id());
+            cv::Point2f text_pos(pixel_coord.x + 5, pixel_coord.y - 5);  // Offset text slightly
+            
+            // Use blue color for text (BGR: 255,0,0) and font size 0.7
+            cv::putText(image_with_grid, id_text, text_pos, 
+                       cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 0, 0), 2);  // Blue text
         }
     }
     
@@ -720,6 +693,14 @@ void PangolinViewer::process_keyboard_input(bool& auto_play, bool& step_mode, bo
         }
         m_next_pressed = false;
     }
+    
+    // Handle Step Forward button press - advance one frame in step mode
+    if (m_step_forward_pressed) {
+        if (step_mode) {
+            advance_frame = true;
+        }
+        m_step_forward_pressed = false;
+    }
 }
 
 void PangolinViewer::sync_ui_state(bool& auto_play, bool& step_mode) {
@@ -745,7 +726,6 @@ void PangolinViewer::update_frame_info(int frame_id, int total_features, int tra
 void PangolinViewer::update_tracking_stats(int frame_id, int total_features, int stereo_matches, int map_points, float success_rate, float position_error) {
     m_frame_id = frame_id;
     m_successful_matches = stereo_matches;  // Show successful stereo matches
-    m_map_points = map_points;
 }
 
 bool PangolinViewer::is_auto_mode_enabled() const {

@@ -62,7 +62,7 @@ depth:
 # Triangulation Parameters
 # Controls 3D point generation from stereo matches
 triangulation:
-  max_reprojection_error: 0.5 # Maximum reprojection error for valid triangulation (pixels)
+  max_reprojection_error: 1.0 # Maximum reprojection error for valid triangulation (pixels)
   min_parallax: 0.5           # Minimum parallax angle for reliable triangulation (degrees)
 
 # Camera Parameters (EuRoC dataset specific)
