@@ -20,16 +20,16 @@ Frame::Frame(long long timestamp, int frame_id)
     // Initialize default distortion coefficients (no distortion)
     m_distortion_coeffs = {0.0, 0.0, 0.0, 0.0, 0.0};
     
-    // Get T_cb from config
+    // Get T_BC from config and convert to T_CB (body to camera)
     const Config& config = Config::getInstance();
-    cv::Mat T_bc_cv = config.left_T_BC();
-    Eigen::Matrix4d T_bc;
+    cv::Mat T_bc_cv = config.left_T_BC();  // T_BC (camera to body)
+    Eigen::Matrix4d T_bc;  // T_BC (camera to body)
     for (int i = 0; i < 4; ++i) {
         for (int j = 0; j < 4; ++j) {
             T_bc(i, j) = T_bc_cv.at<double>(i, j);
         }
     }
-    m_T_CB = T_bc.inverse();
+    m_T_CB = T_bc.inverse();  // Convert T_BC to T_CB (body to camera)
 }
 
 Frame::Frame(long long timestamp, int frame_id, 
@@ -45,16 +45,16 @@ Frame::Frame(long long timestamp, int frame_id,
     , m_baseline(baseline)
     , m_distortion_coeffs(distortion_coeffs)
 {
-    // Get T_CB from config
+    // Get T_BC from config and convert to T_CB (body to camera)
     const Config& config = Config::getInstance();
-    cv::Mat T_BC_cv = config.left_T_BC();
-    Eigen::Matrix4d T_BC;
+    cv::Mat T_BC_cv = config.left_T_BC();  // T_BC (camera to body)
+    Eigen::Matrix4d T_BC;  // T_BC (camera to body)
     for (int i = 0; i < 4; ++i) {
         for (int j = 0; j < 4; ++j) {
             T_BC(i, j) = T_BC_cv.at<double>(i, j);
         }
     }
-    m_T_CB = T_BC.inverse();
+    m_T_CB = T_BC.inverse();  // Convert T_BC to T_CB (body to camera)
 }
 
 Frame::Frame(long long timestamp, int frame_id,
@@ -74,16 +74,16 @@ Frame::Frame(long long timestamp, int frame_id,
     , m_baseline(baseline)
     , m_distortion_coeffs(distortion_coeffs)
 {
-    // Get T_cb from config
+    // Get T_BC from config and convert to T_CB (body to camera)
     const Config& config = Config::getInstance();
-    cv::Mat T_bc_cv = config.left_T_BC();
-    Eigen::Matrix4d T_bc;
+    cv::Mat T_bc_cv = config.left_T_BC();  // T_BC (camera to body)
+    Eigen::Matrix4d T_bc;  // T_BC (camera to body)
     for (int i = 0; i < 4; ++i) {
         for (int j = 0; j < 4; ++j) {
             T_bc(i, j) = T_bc_cv.at<double>(i, j);
         }
     }
-    m_T_CB = T_bc.inverse();
+    m_T_CB = T_bc.inverse();  // Convert T_BC to T_CB (body to camera)
 }
 
 Frame::Frame(long long timestamp, int frame_id,
@@ -122,17 +122,17 @@ Frame::Frame(long long timestamp, int frame_id,
         m_distortion_coeffs = {0.0, 0.0, 0.0, 0.0, 0.0}; // No distortion
     }
     
-    // Get T_cb (camera to body transform) from config
-    cv::Mat T_bc_cv = config.left_T_BC();
+    // Get T_BC (camera to body) from config and convert to T_CB (body to camera)
+    cv::Mat T_bc_cv = config.left_T_BC();  // T_BC (camera to body)
     if (!T_bc_cv.empty()) {
         // Convert cv::Mat to Eigen::Matrix4d
-        Eigen::Matrix4d T_bc;
+        Eigen::Matrix4d T_bc;  // T_BC (camera to body)
         for (int i = 0; i < 4; ++i) {
             for (int j = 0; j < 4; ++j) {
                 T_bc(i, j) = T_bc_cv.at<double>(i, j);
             }
         }
-        // Store T_cb = T_bc.inverse()
+        // Store T_CB = T_BC.inverse() → Convert to body to camera
         m_T_CB = T_bc.inverse();
     } else {
         // Fallback to identity if config not available
@@ -240,26 +240,37 @@ cv::Mat Frame::draw_features() const {
         const auto& feature = m_features[i];
         if (feature->is_valid()) {
             const cv::Point2f& pt = feature->get_pixel_coord();
-            int track_count = feature->get_track_count();
             
-            // Blue to red gradient based on track count (5 tracks = full red)
-            float ratio = std::min(1.0f, static_cast<float>(track_count) / 5.0f);
+            // Check if feature has associated map point
+            auto map_point = get_map_point(i);
+            cv::Scalar point_color;
             
-            // BGR color: Blue (255,0,0) -> Red (0,0,255)
-            int blue = static_cast<int>(255 * (1.0f - ratio));   // 255 -> 0
-            int green = 0;                                       // Always 0
-            int red = static_cast<int>(255 * ratio);             // 0 -> 255
+            if (map_point && !map_point->is_bad()) {
+                // Feature with MapPoint: Blue to red gradient based on track count
+                int track_count = feature->get_track_count();
+                float ratio = std::min(1.0f, static_cast<float>(track_count) / 5.0f);
+                
+                // BGR color: Blue (255,0,0) -> Red (0,0,255)
+                int blue = static_cast<int>(255 * (1.0f - ratio));   // 255 -> 0
+                int green = 0;                                       // Always 0
+                int red = static_cast<int>(255 * ratio);             // 0 -> 255
+                
+                point_color = cv::Scalar(blue, green, red);
+            } else {
+                // Feature without MapPoint: Orange color (BGR: 0,165,255)
+                point_color = cv::Scalar(0, 165, 255);
+            }
             
-            cv::Scalar color(blue, green, red);
-            cv::circle(display_image, pt, 2, color, 2);
+            // Increase circle size to match PangolinViewer (radius 3, thickness 2)
+            cv::circle(display_image, pt, 3, point_color, 2);
             
             // Display MapPoint ID if feature has associated map point
-            auto map_point = get_map_point(i);
             if (map_point && !map_point->is_bad()) {
                 std::string id_text = std::to_string(map_point->get_id());
                 cv::Point2f text_pt(pt.x + 5, pt.y - 5);  // Offset text slightly from point
+                // Use blue color for text (BGR: 255,0,0) and increase font size to 0.7
                 cv::putText(display_image, id_text, text_pt, 
-                           cv::FONT_HERSHEY_SIMPLEX, 0.3, color, 1);
+                           cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
             }
         }
     }
@@ -643,11 +654,17 @@ void Frame::undistort_features() {
             
             // Undistort to normalized coordinates (output is already normalized)
             cv::undistortPoints(distorted_pts, undistorted_pts, left_K, left_D);
+
+            std::cout<<distorted_pts<<"\n";
+            std::cout<<undistorted_pts<<"\n";
             
-            // Store undistorted coordinate (for compatibility, though we mainly use normalized)
-            feature->set_undistorted_coord(undistorted_pts[0]);
+            // Convert normalized coordinates back to pixel coordinates for set_undistorted_coord
+            cv::Point2f undistorted_pixel;
+            undistorted_pixel.x = undistorted_pts[0].x * m_fx + m_cx;
+            undistorted_pixel.y = undistorted_pts[0].y * m_fy + m_cy;
+            feature->set_undistorted_coord(undistorted_pixel);
             
-            // Store normalized coordinate (same as undistorted in this case)
+            // Store normalized coordinate (from cv::undistortPoints output)
             Eigen::Vector2f normalized(undistorted_pts[0].x, undistorted_pts[0].y);
             feature->set_normalized_coord(normalized);
             
@@ -667,8 +684,13 @@ void Frame::undistort_features() {
                     // Also calculate normalized coordinates for right camera
                     Eigen::Vector2f right_normalized(right_undistorted[0].x, right_undistorted[0].y);
                     
+                    // Convert normalized coordinates back to pixel coordinates for set_undistorted_stereo_match
+                    cv::Point2f right_undistorted_pixel;
+                    right_undistorted_pixel.x = right_undistorted[0].x * m_fx + m_cx; // Use left camera intrinsics for consistency
+                    right_undistorted_pixel.y = right_undistorted[0].y * m_fy + m_cy;
+                    
                     // Store right undistorted coordinate and normalized coordinate
-                    feature->set_undistorted_stereo_match(right_undistorted[0], right_normalized, -1.0f);
+                    feature->set_undistorted_stereo_match(right_undistorted_pixel, right_normalized, -1.0f);
                 } else {
                     // Invalid stereo match
                     feature->set_undistorted_stereo_match(cv::Point2f(-1, -1), Eigen::Vector2f(-1,-1), -1.0f);

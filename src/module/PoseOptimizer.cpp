@@ -78,10 +78,12 @@ namespace lightweight_vio
 
             auto feature = frame->get_features()[i];
 
-            // Undistort the feature point
-            cv::Point2f distorted_point(feature->get_u(), feature->get_v());
-            cv::Point2f undistorted_point = frame->undistort_point(distorted_point);
-            Eigen::Vector2d observation(undistorted_point.x, undistorted_point.y);
+            // Get undistorted normalized coordinates and convert to pixel coordinates (consistent with CREATE_MP)
+            cv::Point2f undistorted_pixel = feature->get_undistorted_coord();
+
+            double undist_u = undistorted_pixel.x;
+            double undist_v = undistorted_pixel.y;
+            Eigen::Vector2d observation(undist_u, undist_v);
 
             // Add mono PnP observation with desired pixel noise standard deviation
             auto obs_info = add_mono_observation(problem, pose_params.data(), world_point, observation, camera_params, frame, 2.0);
@@ -170,60 +172,86 @@ namespace lightweight_vio
             spdlog::info("[POSE_OPT] {} rounds: cost {:.3e} -> {:.3e}, {} iters, {} inliers/{} outliers", 
                         config.m_outlier_detection_rounds, initial_cost, final_cost, 
                         total_iterations, final_inliers, final_outliers);
+                        
+            // Print detailed Ceres summary if requested (last round only)
+            if (config.m_print_summary && config.m_outlier_detection_rounds > 0) {
+                // Re-solve to get final summary
+                ceres::Solver::Summary final_summary;
+                ceres::Solve(options, &problem, &final_summary);
+                spdlog::info("[CERES_SUMMARY] Detailed solver report:\n{}", final_summary.FullReport());
+            }
         }
         else
         {
-            // Single solve without outlier detection
+            // Single solve without outlier detection rounds
             ceres::Solver::Summary summary;
             ceres::Solve(options, &problem, &summary);
 
-            // Check outliers for final report even without outlier detection rounds
-            double *pose_data = pose_params.data();
-            int num_inliers = detect_outliers(const_cast<double const *const *>(&pose_data), observations, feature_indices, frame);
-            int num_outliers = observations.size() - num_inliers;
-            
-            spdlog::info("[POSE_OPT] Single solve: cost {:.3e} -> {:.3e}, {} iters, {} inliers/{} outliers", 
-                        summary.initial_cost, summary.final_cost, summary.iterations.size(),
-                        num_inliers, num_outliers);
+            if (config.m_enable_outlier_detection) {
+                // Perform outlier detection for final report
+                double *pose_data = pose_params.data();
+                int num_inliers = detect_outliers(const_cast<double const *const *>(&pose_data), observations, feature_indices, frame);
+                int num_outliers = observations.size() - num_inliers;
+                
+                spdlog::info("[POSE_OPT] Single solve: cost {:.3e} -> {:.3e}, {} iters, {} inliers/{} outliers", 
+                            summary.initial_cost, summary.final_cost, summary.iterations.size(),
+                            num_inliers, num_outliers);
+            } else {
+                // No outlier detection
+                spdlog::info("[POSE_OPT] Single solve: cost {:.3e} -> {:.3e}, {} iters, ALL {} features treated as inliers", 
+                            summary.initial_cost, summary.final_cost, summary.iterations.size(),
+                            observations.size());
+            }
 
             result.success = (summary.termination_type == ceres::CONVERGENCE);
             result.final_cost = summary.final_cost;
             result.num_iterations = summary.iterations.size();
+            
+            // Print detailed Ceres summary if requested
+            if (config.m_print_summary) {
+                spdlog::info("[CERES_SUMMARY] Detailed solver report:\n{}", summary.FullReport());
+            }
         }
 
-        // Count final inliers/outliers and disconnect outlier map points
-        result.num_inliers = 0;
-        result.num_outliers = 0;
-        int disconnected_map_points = 0;
-        
-        const auto &outlier_flags = frame->get_outlier_flags();
-        for (size_t i = 0; i < outlier_flags.size(); ++i)
-        {
-            bool is_outlier = outlier_flags[i];
-            if (is_outlier)
+        // Count final inliers/outliers and disconnect outlier map points based on config
+        if (config.m_enable_outlier_detection) {
+            result.num_inliers = 0;
+            result.num_outliers = 0;
+            int disconnected_map_points = 0;
+            
+            const auto &outlier_flags = frame->get_outlier_flags();
+            for (size_t i = 0; i < outlier_flags.size(); ++i)
             {
-                result.num_outliers++;
-                
-                // Disconnect outlier feature from its map point
-                auto map_point = frame->get_map_point(i);
-                if (map_point && !map_point->is_bad()) {
-                    // Remove observation from map point
-                    map_point->remove_observation(frame);
+                bool is_outlier = outlier_flags[i];
+                if (is_outlier)
+                {
+                    result.num_outliers++;
                     
-                    // Remove map point from frame
-                    frame->set_map_point(i, nullptr);
-                    
-                    disconnected_map_points++;
+                    // Disconnect outlier feature from its map point
+                    auto map_point = frame->get_map_point(i);
+                    if (map_point && !map_point->is_bad()) {
+                        // Remove observation from map point
+                        map_point->remove_observation(frame);
+                        
+                        // Remove map point from frame
+                        frame->set_map_point(i, nullptr);
+                        
+                        disconnected_map_points++;
+                    }
+                }
+                else
+                {
+                    result.num_inliers++;
                 }
             }
-            else
-            {
-                result.num_inliers++;
+            
+            if (disconnected_map_points > 0) {
+                spdlog::warn("[POSE_OPT] Disconnected {} outlier map points", disconnected_map_points);
             }
-        }
-        
-        if (disconnected_map_points > 0) {
-            spdlog::warn("[POSE_OPT] Disconnected {} outlier map points", disconnected_map_points);
+        } else {
+            // Treat all observations as inliers when outlier detection is disabled
+            result.num_inliers = observations.size();
+            result.num_outliers = 0;
         }
 
         // Update result
@@ -263,13 +291,6 @@ namespace lightweight_vio
         // Get T_cb (body-to-camera transform) from frame directly - NO CONFIG ACCESS!
         const Eigen::Matrix4d& T_cb = frame->get_T_CB();
         
-        // DEBUG: Print T_cb matrix from frame
-        spdlog::debug("[DEBUG_FRAME_TCB] Using T_cb from Frame (cached):");
-        for (int row = 0; row < 4; ++row) {
-            spdlog::debug("[DEBUG_FRAME_TCB] [{:.6f}, {:.6f}, {:.6f}, {:.6f}]",
-                         T_cb(row, 0), T_cb(row, 1), T_cb(row, 2), T_cb(row, 3));
-        }
-
         // Create mono PnP cost function with information matrix and T_cb
         auto cost_function = new factor::MonoPnPFactor(observation, world_point, camera_params, T_cb, information);
 
@@ -374,7 +395,7 @@ namespace lightweight_vio
         // Convert matrix to string for logging
         std::stringstream ss;
         ss << current_pose.matrix();
-        spdlog::debug("[OUTLIER_DEBUG] Current pose Twb:\n{}", ss.str());
+        // spdlog::debug("[OUTLIER_DEBUG] Current pose Twb:\n{}", ss.str());
         
         for (size_t i = 0; i < observations.size() && debug_count < 3; ++i)
         {
@@ -394,17 +415,8 @@ namespace lightweight_vio
                 Eigen::Matrix3d Rbw = Rwb.transpose();
                 Eigen::Vector3d t_bw = -Rbw * t_wb;
                 
-                // Get T_cb (body-to-camera transform) from configuration
-                // T_cb = T_bc.inverse() where T_bc is camera-to-body transform
-                const auto& config = Config::getInstance();
-                cv::Mat T_bc_cv = config.left_T_BC();
-                Eigen::Matrix4d T_bc;
-                for (int i = 0; i < 4; ++i) {
-                    for (int j = 0; j < 4; ++j) {
-                        T_bc(i, j) = T_bc_cv.at<double>(i, j);
-                    }
-                }
-                Eigen::Matrix4d T_cb = T_bc.inverse();
+                // Get T_cb (body-to-camera transform) from frame directly - CONSISTENT WITH add_mono_observation
+                const Eigen::Matrix4d& T_cb = frame->get_T_CB();
                 
                 // Transform to camera coordinates: Pc = T_cb * (Rbw * Pw + t_bw)
                 Eigen::Vector3d point_body = Rbw * world_pos + t_bw;
@@ -420,13 +432,18 @@ namespace lightweight_vio
                     double u_proj = fx * point_camera.x() / point_camera.z() + cx;
                     double v_proj = fy * point_camera.y() / point_camera.z() + cy;
                     
+                    // Get undistorted observation using normalized coordinates (consistent with CREATE_MP)
+                    cv::Point2f undistorted_pixel = feature->get_undistorted_coord();
+                    double undist_u = undistorted_pixel.x;
+                    double undist_v = undistorted_pixel.y;
+
                     auto map_point = frame->get_map_point(feature_idx);
-                    spdlog::debug("[OUTLIER_DEBUG] Feature {}: chi2={:.3f}, observed=({:.1f},{:.1f}), projected=({:.1f},{:.1f}), world=({:.2f},{:.2f},{:.2f})", 
-                                 feature_idx, chi2_error, feature->get_u(), feature->get_v(),
-                                 u_proj, v_proj, world_pos.x(), world_pos.y(), world_pos.z());
+                    // spdlog::debug("[OUTLIER_DEBUG] Feature {}: chi2={:.3f}, observed_undist=({:.1f},{:.1f}), projected=({:.1f},{:.1f}), world=({:.2f},{:.2f},{:.2f})", 
+                    //              feature_idx, chi2_error, undist_u, undist_v,
+                    //              u_proj, v_proj, world_pos.x(), world_pos.y(), world_pos.z());
                 } else {
-                    spdlog::debug("[OUTLIER_DEBUG] Feature {}: chi2={:.3f}, BEHIND_CAMERA: z={:.2f}", 
-                                 feature_idx, chi2_error, point_camera.z());
+                    // spdlog::debug("[OUTLIER_DEBUG] Feature {}: chi2={:.3f}, BEHIND_CAMERA: z={:.2f}", 
+                    //              feature_idx, chi2_error, point_camera.z());
                 }
                 debug_count++;
             }

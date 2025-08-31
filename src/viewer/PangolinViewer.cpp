@@ -26,6 +26,7 @@ PangolinViewer::PangolinViewer()
     , m_has_stereo_image(false)
     , m_space_pressed(false)
     , m_next_pressed(false)
+    , m_feed_data_pressed(false)
     , m_initialized(false)
     , m_window_width(1280)
     , m_window_height(960)
@@ -44,6 +45,9 @@ PangolinViewer::PangolinViewer()
     , m_successful_matches("ui.Successful matches", 0, 0, get_max_features_from_config())
     , m_frame_id("ui.Frame ID", 0)
     , m_map_points("ui.Num of Map Points", 0)
+    , m_separator("ui.─────────", "")
+    , m_auto_mode_checkbox("ui.Auto Mode", true, true)
+    , m_feed_data_button("ui.Feed Data", false, false)
 {
 }
 
@@ -282,6 +286,11 @@ void PangolinViewer::render() {
 
     // Pangolin automatically renders the UI panel with tracking variables
     // No custom drawing needed - the pangolin::Var variables are displayed automatically
+
+    // Check Auto mode or Feed Data button
+    if (m_auto_mode_checkbox || pangolin::Pushed(m_feed_data_button)) {
+        m_feed_data_pressed = true;
+    }
 
     // Process keyboard input - will be handled externally
     // Note: Space bar and 'n' key handling is done in the main application loop
@@ -612,37 +621,14 @@ void PangolinViewer::update_tracking_image_with_map_points(const cv::Mat& image,
                                                           const std::vector<std::shared_ptr<MapPoint>>& map_points) {
     if (image.empty()) return;
     
-    cv::Mat display_image;
-    if (image.channels() == 1) {
-        cv::cvtColor(image, display_image, cv::COLOR_GRAY2BGR);
-    } else {
-        display_image = image.clone();
-    }
-    
-    // Draw features and map points
-    for (size_t i = 0; i < features.size() && i < map_points.size(); ++i) {
-        if (features[i] && map_points[i] && !map_points[i]->is_bad()) {
-            cv::Point2f pt = features[i]->get_undistorted_coord();
-            std::string text = std::to_string(i);
-            
-            // Draw red circle for feature with map point
-            cv::circle(display_image, pt, 3, cv::Scalar(0, 0, 255), 2);
-            // Draw text index
-            cv::putText(display_image, text, cv::Point(pt.x + 5, pt.y - 5), 
-                       cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 255), 1);
-        } else if (features[i]) {
-            // Draw green circle for feature without map point
-            cv::Point2f pt = features[i]->get_undistorted_coord();
-            cv::circle(display_image, pt, 2, cv::Scalar(0, 255, 0), 1);
-        }
-    }
-    
-    m_tracking_image = create_texture_from_cv_mat(display_image);
+    // Just pass through the original image without drawing additional features
+    // The image should already have features drawn by Frame::draw_features()
+    m_tracking_image = create_texture_from_cv_mat(image);
     m_has_tracking_image = true;
 
     // The bounds and aspect ratio are now handled exclusively by setup_panels().
     // This function is only responsible for updating the texture.
-    // spdlog::debug("[PangolinViewer] Updated tracking image with features texture {}x{}", display_image.cols, display_image.rows);
+    // spdlog::debug("[PangolinViewer] Updated tracking image with features texture {}x{}", image.cols, image.rows);
 }
 
 void PangolinViewer::update_stereo_image(const cv::Mat& image) {
@@ -690,6 +676,10 @@ void PangolinViewer::update_tracking_stats(int frame_id, int total_features, int
     m_frame_id = frame_id;
     m_successful_matches = stereo_matches;  // Show successful stereo matches
     m_map_points = map_points;
+}
+
+bool PangolinViewer::is_auto_mode_enabled() const {
+    return m_auto_mode_checkbox;
 }
 
 } // namespace lightweight_vio

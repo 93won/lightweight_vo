@@ -160,7 +160,7 @@ std::vector<Eigen::Vector3f> extract_all_accumulated_map_points(const Estimator&
 
 int main(int argc, char* argv[]) {
     // Initialize spdlog for immediate colored output
-    spdlog::set_level(spdlog::level::debug);  // Enable debug messages for timestamp matching
+    spdlog::set_level(spdlog::level::debug);  // Enable debug for PnP Factor comparison
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
     
     if (argc != 2) {
@@ -236,14 +236,14 @@ int main(int argc, char* argv[]) {
     }
     
     // Control variables for step mode
-    bool auto_play = true;
-    bool step_mode = false;
+    bool auto_play = true;  // Start in manual mode  
+    bool step_mode = true;   // Start in step mode
     bool advance_frame = false;
     
     // Process all frames
     size_t current_idx = 0;
     size_t processed_frames = 0;
-    while (current_idx < image_data.size()) {
+    while (current_idx <1000) {  // Process only 2 frames for debugging
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {
             spdlog::info("[Viewer] User requested exit");
@@ -253,6 +253,12 @@ int main(int argc, char* argv[]) {
         // Process keyboard input if viewer is available
         if (viewer) {
             viewer->process_keyboard_input(auto_play, step_mode, advance_frame);
+            
+            // Check if Feed Data button was pressed
+            if (viewer->is_feed_data_pressed()) {
+                advance_frame = true;
+                viewer->reset_feed_data_pressed();
+            }
         }
         
         // In step mode, wait for user input before processing
@@ -307,13 +313,11 @@ int main(int argc, char* argv[]) {
             if (gt_pose_opt.has_value()) {
                 Eigen::Matrix4f gt_pose = gt_pose_opt.value();
                 
-                // For the first frame only: apply GT pose to initialize VIO with same starting point
-                // TEMPORARILY DISABLED: Let VIO start from identity to avoid coordinate conflicts
-                if (false && processed_frames == 0) {
+                // 🎯 Apply GT pose ONLY for the first frame to initialize VIO
+                if (processed_frames == 0) {
                     estimator.apply_gt_pose_to_current_frame(gt_pose);
-                    // spdlog::info("[GT_INIT] First frame initialized with GT pose for fair comparison");
-                } else if (processed_frames == 0) {
-                    // spdlog::info("[VIO_INIT] First frame initialized with identity pose (no GT applied)");
+                    spdlog::info("[GT_INIT] ✅ First frame initialized with GT pose for fair comparison");
+                    spdlog::info("[VIO_START] From frame 1 onwards, VIO will use its own pose estimation");
                 }
                 
                 // Always add GT pose to viewer trajectory for comparison

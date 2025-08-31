@@ -1,5 +1,6 @@
 #include "PnPFactors.h"
 #include <limits>
+#include <spdlog/spdlog.h>
 
 namespace lightweight_vio {
 namespace factor {
@@ -38,9 +39,13 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters, double* residuals,
     Eigen::Matrix3d R_bw = R_wb.transpose();
     Eigen::Vector3d t_bw = -R_bw * t_wb;
     
-    // T_cw = T_cb * T_bw
-    Eigen::Matrix3d R_cw = m_Tcb.block<3, 3>(0, 0) * R_bw;
-    Eigen::Vector3d t_cw = m_Tcb.block<3, 3>(0, 0) * t_bw + m_Tcb.block<3, 1>(0, 3);
+    // m_Tcb is T_CB (body to camera), use it directly
+    Eigen::Matrix3d R_cb = m_Tcb.block<3, 3>(0, 0);
+    Eigen::Vector3d t_cb = m_Tcb.block<3, 1>(0, 3);
+    
+    // T_cw = T_CB * T_BW (world to camera = body to camera × body to world)
+    Eigen::Matrix3d R_cw = R_cb * R_bw;
+    Eigen::Vector3d t_cw = R_cb * t_bw + t_cb;
     
     // Transform world point to camera coordinates: Pc = R_cw * Pw + t_cw
     Eigen::Vector3d point_camera = R_cw * m_world_point + t_cw;
@@ -64,6 +69,14 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters, double* residuals,
     Eigen::Vector2d residual_vec;
     residual_vec << m_observation.x() - u, m_observation.y() - v;
     
+    // Calculate reprojection error magnitude for debugging
+    double reproj_error = residual_vec.norm();
+    
+    // Debug output to compare with external reprojection calculation
+    spdlog::debug("[PNP_FACTOR] obs=({:.1f},{:.1f}) proj=({:.1f},{:.1f}) error={:.2f}px world=({:.2f},{:.2f},{:.2f})",
+                 m_observation.x(), m_observation.y(), u, v, reproj_error,
+                 m_world_point.x(), m_world_point.y(), m_world_point.z());
+    
     // Apply information matrix weighting to residuals: r_weighted = sqrt(Info) * r
     Eigen::LLT<Eigen::Matrix2d> llt(m_information);
     if (llt.info() == Eigen::Success) {
@@ -85,8 +98,8 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters, double* residuals,
         double z_inv_sq = z_inv * z_inv;
         
         // Jacobian calculation
-        // Camera extrinsic rotation matrix
-        Eigen::Matrix3d Rcb = m_Tcb.block<3, 3>(0, 0);
+        // Use T_CB (body to camera) directly
+        Eigen::Matrix3d Rcb = R_cb;  // T_CB rotation matrix
         
         // Body frame coordinates: Pb = Rbw * Pw + tbw
         Eigen::Vector3d Pb = R_bw * m_world_point + t_bw;
@@ -102,7 +115,7 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters, double* residuals,
         
         // Chain rule: ∂(error)/∂(twist) = ∂(error)/∂(Pc) * ∂(Pc)/∂(twist)
         
-        // Translation part: ∂(Pc)/∂(translation) = -Rcb
+        // Translation part: ∂(Pc)/∂(translation) = -Rcb (using T_CB)
         Eigen::Matrix<double, 2, 3> J_translation = J_error_wrt_Pc * (-Rcb);
         
         // Rotation part: ∂(Pc)/∂(rotation) = Rcb * [Pb]× for right perturbation
@@ -138,9 +151,13 @@ double MonoPnPFactor::compute_chi_square(double const* const* parameters) const 
     Eigen::Matrix3d R_bw = R_wb.transpose();
     Eigen::Vector3d t_bw = -R_bw * t_wb;
     
-    // T_cw = T_cb * T_bw
-    Eigen::Matrix3d R_cw = m_Tcb.block<3, 3>(0, 0) * R_bw;
-    Eigen::Vector3d t_cw = m_Tcb.block<3, 3>(0, 0) * t_bw + m_Tcb.block<3, 1>(0, 3);
+    // m_Tcb is T_CB (body to camera), use it directly
+    Eigen::Matrix3d R_cb = m_Tcb.block<3, 3>(0, 0);
+    Eigen::Vector3d t_cb = m_Tcb.block<3, 1>(0, 3);
+    
+    // T_cw = T_CB * T_BW (world to camera = body to camera × body to world)
+    Eigen::Matrix3d R_cw = R_cb * R_bw;
+    Eigen::Vector3d t_cw = R_cb * t_bw + t_cb;
     
     // Transform world point to camera coordinates: Pc = R_cw * Pw + t_cw
     Eigen::Vector3d point_camera = R_cw * m_world_point + t_cw;

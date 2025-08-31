@@ -112,7 +112,7 @@ pose_optimization:
   # Logging
   enable_solver_logging: false    # Enable Ceres solver logging (PER_MINIMIZER_ITERATION vs SILENT)
   minimizer_progress_to_stdout: false  # Print Ceres solver progress
-  print_summary: false             # Print optimization summary
+  print_summary: true             # Print optimization summary
 
 # Performance Parameters
 # Debug and timing control flags

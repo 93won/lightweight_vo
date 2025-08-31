@@ -57,6 +57,13 @@ public:
     void set_space_pressed(bool pressed) { m_space_pressed = pressed; }
     void set_next_pressed(bool pressed) { m_next_pressed = pressed; }
     
+    // Button controls for step-by-step processing
+    bool is_feed_data_pressed() const { return m_feed_data_pressed; }
+    void reset_feed_data_pressed() { m_feed_data_pressed = false; }
+    
+    // Auto mode control
+    bool is_auto_mode_enabled() const;
+    
     // Frame info updates
     void update_frame_info(int frame_id, int total_features, int tracked_features, int new_features);
     void update_tracking_stats(int frame_id, int total_features, int stereo_matches, int map_points, float success_rate, float position_error);
@@ -100,6 +107,12 @@ private:
     pangolin::Var<int> m_successful_matches;
     pangolin::Var<int> m_frame_id;
     pangolin::Var<int> m_map_points;
+    pangolin::Var<std::string> m_separator;
+    
+    // Control buttons
+    pangolin::Var<bool> m_auto_mode_checkbox;
+    pangolin::Var<bool> m_feed_data_button;
+    mutable bool m_feed_data_pressed;
     
     // Input state
     bool m_space_pressed;

@@ -37,7 +37,7 @@ public:
      * @param observation Observed 2D pixel coordinates [u, v]
      * @param world_point 3D point in world coordinates
      * @param camera_params Camera intrinsic parameters
-     * @param Tcb Body-to-camera transformation matrix [4x4] (T_CB)
+     * @param Tcb Body-to-camera transformation matrix [4x4] (T_CB, despite variable name)
      * @param information Information matrix (precision matrix) [2x2]
      */
     MonoPnPFactor(const Eigen::Vector2d& observation,
@@ -80,7 +80,7 @@ private:
     Eigen::Vector2d m_observation;    // Observed pixel coordinates
     Eigen::Vector3d m_world_point;    // 3D world coordinates
     CameraParameters m_camera_params; // Camera intrinsics
-    Eigen::Matrix4d m_Tcb;            // Body-to-camera transformation (T_CB)
+    Eigen::Matrix4d m_Tcb;            // Body-to-camera transformation (T_CB, despite variable name)
     Eigen::Matrix2d m_information;    // Information matrix (precision matrix)
     bool m_is_outlier;                // Outlier flag to disable optimization
 };

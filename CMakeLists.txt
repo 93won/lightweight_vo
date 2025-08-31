@@ -55,7 +55,6 @@ include_directories(${EIGEN3_INCLUDE_DIR})
 include_directories(src)
 include_directories(thirdparty/pangolin/include)
 include_directories(${CMAKE_BINARY_DIR}/thirdparty/pangolin/include)
-include_directories(thirdparty/imgui/backends)
 include_directories(thirdparty/Sophus)
 include_directories(thirdparty/spdlog/include)
 include_directories(thirdparty/ceres-solver/include)
@@ -107,13 +106,9 @@ target_link_libraries(test_vio_viewer
 
 # Link Eigen3 to all targets
 if(TARGET Eigen3::Eigen)
-    # target_link_libraries(test Eigen3::Eigen)
-    # target_link_libraries(test_imgui_viewer Eigen3::Eigen)
     target_link_libraries(test_vio_viewer Eigen3::Eigen)
 else()
     # Fallback for older CMake versions
-    # target_include_directories(test PRIVATE ${EIGEN3_INCLUDE_DIR})
-    # target_include_directories(test_imgui_viewer PRIVATE ${EIGEN3_INCLUDE_DIR})
     target_include_directories(test_vio_viewer PRIVATE ${EIGEN3_INCLUDE_DIR})
 endif()
 

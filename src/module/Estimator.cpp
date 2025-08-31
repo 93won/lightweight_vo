@@ -65,29 +65,28 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
                     result.num_features, num_tracked_with_map_points);
         
         if (num_tracked_with_map_points > 0) {
-            // DISABLED: Pose optimization temporarily disabled - using GT poses only
-            // if (num_tracked_with_map_points >= 5) {
-            //     auto opt_result = optimize_pose(m_current_frame);
-            //     result.success = opt_result.success;
-            //     result.num_inliers = opt_result.num_inliers;
-            //     result.num_outliers = opt_result.num_outliers;
-            //     
-            //     if (opt_result.success) {
-            //         m_current_pose = opt_result.optimized_pose;
-            //         m_current_frame->set_Twb(m_current_pose);
-            //         spdlog::info("[POSE_OPT] Optimization successful: {} inliers, {} outliers", 
-            //                     opt_result.num_inliers, opt_result.num_outliers);
-            //     } else {
-            //         spdlog::warn("[POSE_OPT] Optimization failed");
-            //     }
-            // } else {
-            //     spdlog::warn("[POSE_OPT] Not enough map point associations for optimization: {}", num_tracked_with_map_points);
-            // }
-            
-            // For now, just use the current pose as-is (GT will be applied externally)
-            result.success = true;
-            result.num_inliers = num_tracked_with_map_points;
-            result.num_outliers = 0; 
+            // ✅ ENABLED: Pose optimization re-enabled after fixing coordinate space mismatch!
+            if (num_tracked_with_map_points >= 5) {
+                auto opt_result = optimize_pose(m_current_frame);
+                result.success = opt_result.success;
+                result.num_inliers = opt_result.num_inliers;
+                result.num_outliers = opt_result.num_outliers;
+                
+                if (opt_result.success) {
+                    m_current_pose = opt_result.optimized_pose;
+                    m_current_frame->set_Twb(m_current_pose);
+                    spdlog::info("[POSE_OPT] ✅ Optimization successful: {} inliers, {} outliers, final_cost={:.6f}, iterations={}", 
+                                opt_result.num_inliers, opt_result.num_outliers, opt_result.final_cost, opt_result.num_iterations);
+                } else {
+                    spdlog::warn("[POSE_OPT] ❌ Optimization failed - keeping previous pose");
+                }
+            } else {
+                spdlog::warn("[POSE_OPT] ⚠️ Not enough map point associations for optimization: {} (need ≥5)", num_tracked_with_map_points);
+                // Fallback: use current pose as-is
+                result.success = true;
+                result.num_inliers = num_tracked_with_map_points;
+                result.num_outliers = 0;
+            } 
         } else {
             // No tracking, keep previous pose (already set in create_frame)
             m_current_pose = m_current_frame->get_Twb();
@@ -214,21 +213,9 @@ std::shared_ptr<Frame> Estimator::create_frame(const cv::Mat& left_image, const 
     
     // Set initial pose to previous frame's pose (or identity for first frame)
     if (m_previous_frame) {
-        // Check if we can get GT pose for current frame
-        if (lightweight_vio::EurocUtils::has_ground_truth() && 
-            lightweight_vio::EurocUtils::get_matched_count() > m_frame_id_counter) {
-            auto gt_pose_opt = lightweight_vio::EurocUtils::get_matched_pose(m_frame_id_counter);
-            if (gt_pose_opt.has_value()) {
-                frame->set_Twb(gt_pose_opt.value());
-                spdlog::debug("[GT_POSE] Applied GT pose for frame {}", m_frame_id_counter);
-            } else {
-                frame->set_Twb(m_previous_frame->get_Twb());
-                spdlog::debug("[PREV_POSE] Used previous frame pose for frame {}", m_frame_id_counter);
-            }
-        } else {
-            frame->set_Twb(m_previous_frame->get_Twb());
-            spdlog::debug("[PREV_POSE] Used previous frame pose for frame {}", m_frame_id_counter);
-        }
+        // 🚫 GT pose only used for first frame initialization - now use VIO estimated pose
+        frame->set_Twb(m_previous_frame->get_Twb());
+        spdlog::debug("[VIO_POSE] Used VIO estimated pose from previous frame for frame {}", m_frame_id_counter);
     } else {
         // First frame - use ground truth pose if available, otherwise identity
         if (m_has_initial_gt_pose) {
@@ -298,10 +285,10 @@ int lightweight_vio::Estimator::create_initial_map_points(std::shared_ptr<Frame>
                 float v_proj = fy * camera_pos.y() / camera_pos.z() + cy;
                 
                 // Get original undistorted pixel coordinates for fair comparison
-                cv::Point2f undistorted_norm = feature->get_undistorted_coord();
+                cv::Point2f undistorted_pixel = feature->get_undistorted_coord();
                 // Convert normalized to undistorted pixel coordinates
-                float undist_u = fx * undistorted_norm.x + cx;
-                float undist_v = fy * undistorted_norm.y + cy;
+                float undist_u = undistorted_pixel.x;
+                float undist_v = undistorted_pixel.y;
                 
                 // Compute reprojection error in undistorted pixel coordinate space
                 double error_x = undist_u - u_proj;
@@ -419,8 +406,8 @@ int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> fra
         frame->set_map_point(i, map_point);
         
         // Real-time reprojection verification for new map point
-        spdlog::debug("NEW Map Point {}: world_pos=({:.3f}, {:.3f}, {:.3f})", 
-                     m_map_points.size() - 1, world_pos.x(), world_pos.y(), world_pos.z());
+        // spdlog::debug("NEW Map Point {}: world_pos=({:.3f}, {:.3f}, {:.3f})", 
+        //              m_map_points.size() - 1, world_pos.x(), world_pos.y(), world_pos.z());
         
         // Verify reprojection in current frame
         Eigen::Matrix4f T_wc = T_wb * T_bc;  // World to camera
@@ -444,8 +431,8 @@ int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> fra
                 
                 float reprojection_error = sqrt(pow(observed_pt.x - projected_x, 2) + pow(observed_pt.y - projected_y, 2));
                 
-                spdlog::debug("  Reprojection: observed=({:.2f}, {:.2f}), projected=({:.2f}, {:.2f}), error={:.3f}px", 
-                             observed_pt.x, observed_pt.y, projected_x, projected_y, reprojection_error);
+                // spdlog::debug("  Reprojection: observed=({:.2f}, {:.2f}), projected=({:.2f}, {:.2f}), error={:.3f}px", 
+                //              observed_pt.x, observed_pt.y, projected_x, projected_y, reprojection_error);
             }
         }
         
@@ -614,7 +601,7 @@ void lightweight_vio::Estimator::compute_reprojection_error_statistics(std::shar
     frame->get_camera_intrinsics(fx, fy, cx, cy);
     
     // DEBUG: Print camera parameters
-    spdlog::debug("[REPROJ_DEBUG] Camera params: fx={:.2f}, fy={:.2f}, cx={:.2f}, cy={:.2f}", fx, fy, cx, cy);
+    // spdlog::debug("[REPROJ_DEBUG] Camera params: fx={:.2f}, fy={:.2f}, cx={:.2f}, cy={:.2f}", fx, fy, cx, cy);
     
     // Get current pose
     Eigen::Matrix4f T_wb = frame->get_Twb();
@@ -660,11 +647,11 @@ void lightweight_vio::Estimator::compute_reprojection_error_statistics(std::shar
         float v_proj = fy * camera_pos.y() / camera_pos.z() + cy;
         
         // Get original undistorted pixel coordinates for fair comparison
-        cv::Point2f undistorted_norm = feature->get_undistorted_coord();
+        cv::Point2f undistorted_pixel = feature->get_undistorted_coord();
         // Convert normalized to undistorted pixel coordinates
-        float undist_u = fx * undistorted_norm.x + cx;
-        float undist_v = fy * undistorted_norm.y + cy;
-        
+        float undist_u = undistorted_pixel.x;
+        float undist_v = undistorted_pixel.y;
+
         // Compute reprojection error in undistorted pixel coordinate space
         double error_x = undist_u - u_proj;
         double error_y = undist_v - v_proj;
@@ -674,9 +661,9 @@ void lightweight_vio::Estimator::compute_reprojection_error_statistics(std::shar
         valid_projections++;
         
         // Print core info for all features in one line  
-        spdlog::info("[REPROJ] F{}: obs_undist=({:.1f},{:.1f}) proj_pixel=({:.1f},{:.1f}) err={:.2f}px world=({:.2f},{:.2f},{:.2f})", 
-                     i, undist_u, undist_v, u_proj, v_proj, error,
-                     world_pos.x(), world_pos.y(), world_pos.z());
+        // spdlog::info("[REPROJ] F{}: obs_undist=({:.1f},{:.1f}) proj_pixel=({:.1f},{:.1f}) err={:.2f}px world=({:.2f},{:.2f},{:.2f})", 
+        //              i, undist_u, undist_v, u_proj, v_proj, error,
+        //              world_pos.x(), world_pos.y(), world_pos.z());
     }
     
     if (valid_projections > 0) {
@@ -692,9 +679,9 @@ void lightweight_vio::Estimator::compute_reprojection_error_statistics(std::shar
         int outliers = std::count_if(reprojection_errors.begin(), reprojection_errors.end(), 
                                    [](double error) { return error > 5.0; });
         
-        spdlog::info("[REPROJ_ERROR] Frame {}: {}/{} valid, mean={:.2f}px, median={:.2f}px, min={:.2f}px, max={:.2f}px, outliers={}", 
-                    frame->get_frame_id(), valid_projections, features.size(), 
-                    mean_error, median_error, min_error, max_error, outliers);
+        // spdlog::info("[REPROJ_ERROR] Frame {}: {}/{} valid, mean={:.2f}px, median={:.2f}px, min={:.2f}px, max={:.2f}px, outliers={}", 
+        //             frame->get_frame_id(), valid_projections, features.size(), 
+        //             mean_error, median_error, min_error, max_error, outliers);
         
         if (behind_camera > 0) {
             spdlog::warn("[REPROJ_ERROR] {} points behind camera", behind_camera);
