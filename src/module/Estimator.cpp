@@ -293,20 +293,23 @@ int lightweight_vio::Estimator::create_initial_map_points(std::shared_ptr<Frame>
             Eigen::Vector3f camera_pos = camera_pos_h.head<3>();
             
             if (camera_pos.z() > 0) {
+                // Project to pixel coordinates using camera intrinsics
                 float u_proj = fx * camera_pos.x() / camera_pos.z() + cx;
                 float v_proj = fy * camera_pos.y() / camera_pos.z() + cy;
                 
-                // Get undistorted observed pixel
-                cv::Point2f distorted_point(feature->get_u(), feature->get_v());
-                cv::Point2f undistorted_point = frame->undistort_point(distorted_point);
+                // Get original undistorted pixel coordinates for fair comparison
+                cv::Point2f undistorted_norm = feature->get_undistorted_coord();
+                // Convert normalized to undistorted pixel coordinates
+                float undist_u = fx * undistorted_norm.x + cx;
+                float undist_v = fy * undistorted_norm.y + cy;
                 
-                // Compute reprojection error
-                double error_x = undistorted_point.x - u_proj;
-                double error_y = undistorted_point.y - v_proj;
+                // Compute reprojection error in undistorted pixel coordinate space
+                double error_x = undist_u - u_proj;
+                double error_y = undist_v - v_proj;
                 double error = std::sqrt(error_x * error_x + error_y * error_y);
                 
-                spdlog::info("[CREATE_MP] #{}: obs=({:.0f},{:.0f}) proj=({:.1f},{:.1f}) err={:.2f}px world=({:.2f},{:.2f},{:.2f})", 
-                           num_created, undistorted_point.x, undistorted_point.y, u_proj, v_proj, error,
+                spdlog::info("[CREATE_MP] #{}: obs_undist=({:.1f},{:.1f}) proj_pixel=({:.1f},{:.1f}) err={:.2f}px world=({:.2f},{:.2f},{:.2f})", 
+                           num_created, undist_u, undist_v, u_proj, v_proj, error,
                            world_pos.x(), world_pos.y(), world_pos.z());
             } else {
                 spdlog::warn("[CREATE_MP] #{}: Point behind camera! world=({:.2f},{:.2f},{:.2f})", 
@@ -652,25 +655,27 @@ void lightweight_vio::Estimator::compute_reprojection_error_statistics(std::shar
             continue;
         }
         
-        // Project to image plane
+        // Project to pixel coordinates using camera intrinsics
         float u_proj = fx * camera_pos.x() / camera_pos.z() + cx;
         float v_proj = fy * camera_pos.y() / camera_pos.z() + cy;
         
-        // Get undistorted observed pixel
-        cv::Point2f distorted_point(feature->get_u(), feature->get_v());
-        cv::Point2f undistorted_point = frame->undistort_point(distorted_point);
+        // Get original undistorted pixel coordinates for fair comparison
+        cv::Point2f undistorted_norm = feature->get_undistorted_coord();
+        // Convert normalized to undistorted pixel coordinates
+        float undist_u = fx * undistorted_norm.x + cx;
+        float undist_v = fy * undistorted_norm.y + cy;
         
-        // Compute reprojection error
-        double error_x = undistorted_point.x - u_proj;
-        double error_y = undistorted_point.y - v_proj;
+        // Compute reprojection error in undistorted pixel coordinate space
+        double error_x = undist_u - u_proj;
+        double error_y = undist_v - v_proj;
         double error = std::sqrt(error_x * error_x + error_y * error_y);
         
         reprojection_errors.push_back(error);
         valid_projections++;
         
-        // Print core info for all features in one line
-        spdlog::info("[REPROJ] F{}: obs=({:.0f},{:.0f}) proj=({:.1f},{:.1f}) err={:.2f}px world=({:.2f},{:.2f},{:.2f})", 
-                     i, undistorted_point.x, undistorted_point.y, u_proj, v_proj, error,
+        // Print core info for all features in one line  
+        spdlog::info("[REPROJ] F{}: obs_undist=({:.1f},{:.1f}) proj_pixel=({:.1f},{:.1f}) err={:.2f}px world=({:.2f},{:.2f},{:.2f})", 
+                     i, undist_u, undist_v, u_proj, v_proj, error,
                      world_pos.x(), world_pos.y(), world_pos.z());
     }
     
@@ -683,7 +688,7 @@ void lightweight_vio::Estimator::compute_reprojection_error_statistics(std::shar
         double min_error = reprojection_errors.front();
         double max_error = reprojection_errors.back();
         
-        // Count outliers (error > 5 pixels)
+        // Count outliers (error > 5.0 pixels in undistorted pixel space)
         int outliers = std::count_if(reprojection_errors.begin(), reprojection_errors.end(), 
                                    [](double error) { return error > 5.0; });
         

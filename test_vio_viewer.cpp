@@ -243,7 +243,7 @@ int main(int argc, char* argv[]) {
     // Process all frames
     size_t current_idx = 0;
     size_t processed_frames = 0;
-    while (current_idx < 2){//image_data.size()) {
+    while (current_idx < image_data.size()) {
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {
             spdlog::info("[Viewer] User requested exit");
