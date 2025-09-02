@@ -8,33 +8,24 @@
 # Controls how corner features are detected using goodFeaturesToTrack
 feature_detection:
   max_features: 200           # Maximum number of features to track per frame
-  quality_level: 0.5         # Minimum accepted quality of corners (0.01 = 1% of best corner)
-  min_distance: 30.0          # Minimum distance between features in pixels (prevents clustering)
+  quality_level: 0.01        # Minimum accepted quality of corners (0.01 = 1% of best corner)
+  min_distance: 20.0          # Minimum distance between features in pixels (prevents clustering)
   
   # Grid-based feature distribution parameters
   grid_cols: 20               # Number of grid columns for feature distribution
   grid_rows: 10               # Number of grid rows for feature distribution  
-  max_features_per_grid: 2   # Maximum features allowed per grid cell
+  max_features_per_grid: 4   # Maximum features allowed per grid cell
+  max_observation_without_mappoint: 1  # Remove features after this many observations without map point
 
 # Optical Flow Tracking Parameters  
 # Controls Lucas-Kanade optical flow for feature tracking between frames
 optical_flow:
-  window_size: 21             # Size of search window (21x21 pixels) for frame-to-frame tracking
+  window_size: 31             # Size of search window (21x21 pixels) for frame-to-frame tracking
   max_level: 3                # Number of pyramid levels (0 = no pyramid, 3 = 4 levels total)
   max_iterations: 30          # Maximum iterations for iterative LK algorithm
   epsilon: 0.01               # Convergence criteria - stop when change < epsilon
   error_threshold: 30.0       # Maximum tracking error to accept a match (pixels)
-  max_movement: 100.0         # Maximum pixel movement between frames (rejects large jumps)
-  min_eigen_threshold: 1e-2   # Minimum eigenvalue threshold for optical flow
-
-# Outlier Rejection Parameters
-# Multi-stage outlier filtering to improve tracking robustness  
-outlier_rejection:
-  fundamental_threshold: 5.0  # RANSAC threshold for fundamental matrix (pixels) - increased from 1.0
-  fundamental_confidence: 0.95 # Confidence level for RANSAC fundamental matrix estimation - decreased from 0.99
-  max_movement_distance: 50.0 # Maximum allowed movement distance (pixels) in outlier check - increased from 50.0
-  max_velocity_change: 30.0   # Maximum change in velocity between frames (pixels) - increased from 100.0
-  min_points_for_ransac: 8    # Minimum points required to estimate fundamental matrix
+  min_eigen_threshold: 1e-3   # Minimum eigenvalue threshold for optical flow
 
 # Stereo Matching Parameters
 # Controls stereo correspondence matching between left/right images
@@ -47,8 +38,8 @@ stereo_matching:
   min_eigen_threshold: 1e-3   # Lower eigenvalue threshold for stereo (more permissive)
   
   # Stereo matching thresholds
-  error_threshold: 20.0       # Maximum optical flow error for stereo matches (pixels)
-  min_disparity: 1          # Minimum disparity (pixels) - filters out very far points
+  error_threshold: 50.0       # Maximum optical flow error for stereo matches (pixels)
+  min_disparity: 0          # Minimum disparity (pixels) - filters out very far points
   max_disparity: 100.0        # Maximum disparity (pixels) - filters out very close points  
   max_y_difference: 50.0      # Maximum Y-coordinate difference for stereo pairs (pixels)
   epipolar_threshold: 1.0     # Maximum distance from epipolar line using estimated F matrix (pixels)
@@ -62,7 +53,7 @@ depth:
 # Triangulation Parameters
 # Controls 3D point generation from stereo matches
 triangulation:
-  max_reprojection_error: 1.0 # Maximum reprojection error for valid triangulation (pixels)
+  max_reprojection_error: 2.447651936 # Maximum reprojection error for valid triangulation (pixels)
   min_parallax: 0.5           # Minimum parallax angle for reliable triangulation (degrees)
 
 # Camera Parameters (EuRoC dataset specific)
@@ -113,7 +104,7 @@ pose_optimization:
   
   # Outlier detection
   enable_outlier_detection: true   # Enable ORB-SLAM style outlier detection
-  outlier_detection_rounds: 1      # Number of optimization rounds with outlier detection
+  outlier_detection_rounds: 4      # Number of optimization rounds with outlier detection
   
   # Logging
   enable_solver_logging: false    # Enable Ceres solver logging (PER_MINIMIZER_ITERATION vs SILENT)

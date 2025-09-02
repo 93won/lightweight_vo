@@ -28,16 +28,15 @@ public:
     std::pair<int, int> optical_flow_tracking(std::shared_ptr<Frame> current_frame, 
                               std::shared_ptr<Frame> previous_frame);
     
-    // Outlier rejection
-    void reject_outliers(std::shared_ptr<Frame> current_frame,
-                         std::shared_ptr<Frame> previous_frame);
-
     // Feature distribution
     void set_mask(std::shared_ptr<Frame> frame);
     
     // Grid-based feature distribution management
     void manage_grid_based_features(std::shared_ptr<Frame> frame);
     void assign_features_to_grid(std::shared_ptr<Frame> frame, std::vector<std::vector<std::vector<int>>>& temp_grid);
+    void assign_features_to_grid_with_indices(std::shared_ptr<Frame> frame, 
+                                              std::vector<std::vector<std::vector<int>>>& temp_grid,
+                                              const std::vector<int>& valid_indices);
     void limit_features_per_grid(std::shared_ptr<Frame> frame, std::vector<std::vector<std::vector<int>>>& temp_grid);
     std::vector<int> select_features_for_tracking(std::shared_ptr<Frame> previous_frame);
 

@@ -108,6 +108,7 @@ private:
     // Control buttons
     pangolin::Var<bool> m_auto_mode_checkbox;
     pangolin::Var<bool> m_show_map_point_indices;
+    pangolin::Var<bool> m_show_accumulated_map_points;
     pangolin::Var<bool> m_step_forward_button;
     mutable bool m_step_forward_pressed;
     

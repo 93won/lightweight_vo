@@ -522,16 +522,7 @@ void Frame::compute_stereo_matches() {
     cv::Mat fundamental_matrix;
     std::vector<uchar> inlier_mask;
     
-    if (good_left_pts.size() >= 8) {
-        // Estimate fundamental matrix with RANSAC
-        fundamental_matrix = cv::findFundamentalMat(
-            good_left_pts, good_right_pts, cv::FM_RANSAC, 
-            Config::getInstance().m_fundamental_threshold, 
-            Config::getInstance().m_fundamental_confidence, inlier_mask
-        );
-        
-        // Debug output removed for cleaner logs
-    }
+   
     
     // Now apply matches with epipolar constraint
     feature_idx = 0;

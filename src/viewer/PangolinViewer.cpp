@@ -47,7 +47,8 @@ PangolinViewer::PangolinViewer()
     , m_separator("ui.================================================================================", "")
     , m_auto_mode_checkbox("ui.1. Auto Mode", true, true)
     , m_show_map_point_indices("ui.2. Show Map Point IDs", false, true)
-    , m_step_forward_button("ui.3. Step Forward", false, false)
+    , m_show_accumulated_map_points("ui.3. Show Accumulated Map Points", true, true)
+    , m_step_forward_button("ui.4. Step Forward", false, false)
 {
 }
 
@@ -369,7 +370,7 @@ void PangolinViewer::draw_axis() {
 }
 
 void PangolinViewer::draw_points() {
-    glPointSize(m_point_size);
+    glPointSize(m_point_size*5.0f); // Slightly larger for visibility
     glColor3f(1.0f, 0.0f, 0.0f); // Red points
     
     glBegin(GL_POINTS);
@@ -382,8 +383,8 @@ void PangolinViewer::draw_points() {
 }
 
 void PangolinViewer::draw_map_points() {
-    // Draw accumulated map points in white
-    if (!m_all_map_points.empty()) {
+    // Draw accumulated map points in white (only if toggle is enabled)
+    if (!m_all_map_points.empty() && m_show_accumulated_map_points) {
         glPointSize(m_point_size);
         glColor3f(1.0f, 1.0f, 1.0f); // White for accumulated map points
         
@@ -394,9 +395,9 @@ void PangolinViewer::draw_map_points() {
         glEnd();
     }
     
-    // Draw current frame tracking points in red (overlay on top)
+    // Draw current frame tracking points in red (always shown - overlay on top)
     if (!m_current_map_points.empty()) {
-        glPointSize(m_point_size + 1.0f); // Slightly larger for visibility
+        glPointSize(m_point_size*4.0f); // Slightly larger for visibility
         glColor3f(1.0f, 0.0f, 0.0f); // Red for current frame tracking points
         
         glBegin(GL_POINTS);

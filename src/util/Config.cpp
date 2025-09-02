@@ -33,6 +33,9 @@ bool Config::load(const std::string& config_file) {
         if (!feature_detection["max_features_per_grid"].empty()) {
             m_max_features_per_grid = (int)feature_detection["max_features_per_grid"];
         }
+        if (!feature_detection["max_observation_without_mappoint"].empty()) {
+            m_max_observation_without_mappoint = (int)feature_detection["max_observation_without_mappoint"];
+        }
     }
     
     // Optical Flow Parameters
@@ -43,18 +46,7 @@ bool Config::load(const std::string& config_file) {
         m_max_iterations = (int)optical_flow["max_iterations"];
         m_epsilon = (double)optical_flow["epsilon"];
         m_error_threshold = (double)optical_flow["error_threshold"];
-        m_max_movement = (double)optical_flow["max_movement"];
         m_min_eigen_threshold = (double)optical_flow["min_eigen_threshold"];
-    }
-    
-    // Outlier Rejection Parameters
-    cv::FileNode outlier_rejection = fs["outlier_rejection"];
-    if (!outlier_rejection.empty()) {
-        m_fundamental_threshold = (double)outlier_rejection["fundamental_threshold"];
-        m_fundamental_confidence = (double)outlier_rejection["fundamental_confidence"];
-        m_max_movement_distance = (double)outlier_rejection["max_movement_distance"];
-        m_max_velocity_change = (double)outlier_rejection["max_velocity_change"];
-        m_min_points_for_ransac = (int)outlier_rejection["min_points_for_ransac"];
     }
     
     // Stereo Matching Parameters

@@ -48,6 +48,7 @@ namespace lightweight_vio
         int m_grid_cols = 20;
         int m_grid_rows = 10;
         int m_max_features_per_grid = 4;
+        int m_max_observation_without_mappoint = 5;  // Remove features after this many observations without map point
 
         // Optical Flow Parameters
         int m_window_size = 21;
@@ -55,15 +56,7 @@ namespace lightweight_vio
         int m_max_iterations = 30;
         double m_epsilon = 0.01;
         double m_error_threshold = 30.0;
-        double m_max_movement = 100.0;
         double m_min_eigen_threshold = 5e-2;
-
-        // Outlier Rejection Parameters
-        double m_fundamental_threshold = 5.0;
-        double m_fundamental_confidence = 0.99;
-        double m_max_movement_distance = 50.0;
-        double m_max_velocity_change = 20.0;
-        int m_min_points_for_ransac = 8;
 
         // Stereo Matching Parameters
         int m_stereo_window_size = 31;
