@@ -8,7 +8,7 @@
 # Controls keyframe selection and sliding window management
 keyframe_management:
   keyframe_window_size: 10
-  grid_coverage_ratio: 0.7  # Add keyframe when coverage drops to 70% of last keyframe's coverage
+  grid_coverage_ratio: 0.8  # Add keyframe when coverage drops to 80% of last keyframe's coverage
 
 # Feature Detection Parameters
 # Controls how corner features are detected using goodFeaturesToTrack
