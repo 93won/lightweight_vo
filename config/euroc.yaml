@@ -9,23 +9,25 @@
 feature_detection:
   max_features: 200           # Maximum number of features to track per frame
   quality_level: 0.01        # Minimum accepted quality of corners (0.01 = 1% of best corner)
-  min_distance: 20.0          # Minimum distance between features in pixels (prevents clustering)
+  min_distance: 30.0          # Minimum distance between features in pixels (prevents clustering)
   
   # Grid-based feature distribution parameters
   grid_cols: 20               # Number of grid columns for feature distribution
   grid_rows: 10               # Number of grid rows for feature distribution  
   max_features_per_grid: 4   # Maximum features allowed per grid cell
-  max_observation_without_mappoint: 1  # Remove features after this many observations without map point
+  max_observation_without_mappoint: 10  # Remove features after this many observations without map point
 
 # Optical Flow Tracking Parameters  
 # Controls Lucas-Kanade optical flow for feature tracking between frames
 optical_flow:
-  window_size: 31             # Size of search window (21x21 pixels) for frame-to-frame tracking
+  window_size: 21             # Size of search window (21x21 pixels) for frame-to-frame tracking
   max_level: 3                # Number of pyramid levels (0 = no pyramid, 3 = 4 levels total)
   max_iterations: 30          # Maximum iterations for iterative LK algorithm
   epsilon: 0.01               # Convergence criteria - stop when change < epsilon
   error_threshold: 30.0       # Maximum tracking error to accept a match (pixels)
+  max_movement: 100.0         # Maximum pixel movement between frames to accept tracking (pixels)
   min_eigen_threshold: 1e-3   # Minimum eigenvalue threshold for optical flow
+  F_threshold: 1.0            # Fundamental matrix RANSAC distance threshold (pixels)
 
 # Stereo Matching Parameters
 # Controls stereo correspondence matching between left/right images
@@ -35,13 +37,13 @@ stereo_matching:
   window_size: 31             # Search window size for stereo optical flow (larger for robustness)
   max_level: 4                # Pyramid levels for stereo optical flow (more levels for better matching)
   max_iterations: 50          # Max iterations for stereo optical flow (more for convergence)
-  min_eigen_threshold: 1e-3   # Lower eigenvalue threshold for stereo (more permissive)
+  min_eigen_threshold: 1e-4   # Lower eigenvalue threshold for stereo (more permissive)
   
   # Stereo matching thresholds
   error_threshold: 50.0       # Maximum optical flow error for stereo matches (pixels)
-  min_disparity: 0          # Minimum disparity (pixels) - filters out very far points
+  min_disparity: 0.1          # Minimum disparity (pixels) - filters out very far points
   max_disparity: 100.0        # Maximum disparity (pixels) - filters out very close points  
-  max_y_difference: 50.0      # Maximum Y-coordinate difference for stereo pairs (pixels)
+  max_y_difference: 100.0      # Maximum Y-coordinate difference for stereo pairs (pixels)
   epipolar_threshold: 1.0     # Maximum distance from epipolar line using estimated F matrix (pixels)
 
 # Global Depth Parameters
@@ -54,7 +56,7 @@ depth:
 # Controls 3D point generation from stereo matches
 triangulation:
   max_reprojection_error: 2.447651936 # Maximum reprojection error for valid triangulation (pixels)
-  min_parallax: 0.5           # Minimum parallax angle for reliable triangulation (degrees)
+  min_parallax: 0.1           # Minimum parallax angle for reliable triangulation (degrees)
 
 # Camera Parameters (EuRoC dataset specific)
 # Image dimensions and processing parameters
@@ -85,9 +87,11 @@ camera:
                0.0, 0.0, 0.0, 1.0]
 
 # Keyframe Parameters
-# Controls when new keyframes are created
+# Controls when new keyframes are created based on grid-based feature distribution
 keyframe:
-  interval: 1                # Create keyframe every N frames
+  # Grid-based keyframe generation (instead of simple interval)
+  min_grid_coverage: 0.5      # Minimum ratio of grid cells with map points (0.5 = 50%)
+  # When less than 50% of grid cells have features with map points, create keyframe
 
 # Pose Optimization Parameters
 # Controls Ceres-based pose optimization behavior
@@ -115,4 +119,4 @@ pose_optimization:
 # Debug and timing control flags
 performance:
   enable_timing: true         # Print timing information for performance analysis
-  enable_debug_output: true   # Print debug messages and feature counts
+  enable_debug_output: false   # Print debug messages and feature counts

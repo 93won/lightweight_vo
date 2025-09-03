@@ -56,7 +56,9 @@ namespace lightweight_vio
         int m_max_iterations = 30;
         double m_epsilon = 0.01;
         double m_error_threshold = 30.0;
+        double m_max_movement = 100.0;
         double m_min_eigen_threshold = 5e-2;
+        double m_F_threshold = 1.0;  // Fundamental matrix RANSAC distance threshold (pixels)
 
         // Stereo Matching Parameters
         int m_stereo_window_size = 31;
@@ -82,7 +84,7 @@ namespace lightweight_vio
         double m_min_parallax = 0.5;
 
         // Keyframe Parameters
-        int m_keyframe_interval = 10;
+        double m_min_grid_coverage = 0.5;  // Minimum ratio of grid cells with map points for keyframe generation
 
         // Pose Optimization Parameters
         int m_pose_max_iterations = 10;

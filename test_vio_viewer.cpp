@@ -123,7 +123,7 @@ std::vector<Eigen::Vector3f> extract_current_frame_map_points(const Estimator& e
     }
     
     const auto& frame_map_points = current_frame->get_map_points();
-    spdlog::info("[MAP_POINTS] Current frame has {} map point slots", frame_map_points.size());
+    // spdlog::info("[MAP_POINTS] Current frame has {} map point slots", frame_map_points.size());
     
     int valid_count = 0;
     for (const auto& mp : frame_map_points) {
@@ -134,7 +134,7 @@ std::vector<Eigen::Vector3f> extract_current_frame_map_points(const Estimator& e
         }
     }
     
-    spdlog::info("[MAP_POINTS] Found {} valid map points in current frame", valid_count);
+    // spdlog::info("[MAP_POINTS] Found {} valid map points in current frame", valid_count);
     
     return points;
 }
@@ -152,8 +152,6 @@ std::vector<Eigen::Vector3f> extract_all_accumulated_map_points(const Estimator&
             valid_count++;
         }
     }
-    
-    spdlog::debug("[ALL_MAP_POINTS] Found {} total valid map points", valid_count);
     
     return points;
 }
@@ -332,22 +330,11 @@ int main(int argc, char* argv[]) {
                     Eigen::Vector3f vio_position = vio_estimated_pose.block<3,1>(0,3);
                     
                     float position_error = (gt_position - vio_position).norm();
-                    
-                    spdlog::info("[GT_COMPARE] Frame {}: GT ({:.3f}, {:.3f}, {:.3f}), VIO ({:.3f}, {:.3f}, {:.3f}), Error: {:.3f}m",
-                               processed_frames,
-                               gt_position.x(), gt_position.y(), gt_position.z(),
-                               vio_position.x(), vio_position.y(), vio_position.z(),
-                               position_error);
-                }
+            }
             }
         }
             
         auto frame_end = std::chrono::high_resolution_clock::now();
-        
-        // Timing calculation
-        auto preprocess_time = std::chrono::duration_cast<std::chrono::milliseconds>(estimation_start - preprocess_start).count();
-        auto estimation_time = std::chrono::duration_cast<std::chrono::milliseconds>(frame_end - estimation_start).count();
-        auto total_time = std::chrono::duration_cast<std::chrono::milliseconds>(frame_end - frame_start).count();
         
         // Update viewer if available
         if (viewer) {
@@ -364,11 +351,23 @@ int main(int argc, char* argv[]) {
                 Eigen::Matrix4f current_pose = current_frame->get_Twb();
                 viewer->update_pose(current_pose);
                 
+                // Update current frame camera pose (T_wc) - same as keyframes
+                Eigen::Matrix4f current_camera_pose = current_frame->get_Twc();
+                viewer->update_camera_pose(current_camera_pose);
+                
                 // Update trajectory
                 Eigen::Vector3f current_position = current_pose.block<3, 1>(0, 3);
                 static std::vector<Eigen::Vector3f> trajectory_points;
                 trajectory_points.push_back(current_position);
                 viewer->update_trajectory(trajectory_points);
+                
+                // Update keyframe frustums (sky blue) - using camera coordinates
+                const auto& keyframes = estimator.get_keyframes();
+                std::vector<Eigen::Matrix4f> keyframe_poses;
+                for (const auto& kf : keyframes) {
+                    keyframe_poses.push_back(kf->get_Twc());  // World to camera transform
+                }
+                viewer->update_keyframe_poses(keyframe_poses);
                 
                 // Update tracking image
                 static std::shared_ptr<Frame> previous_frame = nullptr;
@@ -405,8 +404,9 @@ int main(int argc, char* argv[]) {
                 stereo_matches = map_points_count; // Approximation - actual stereo matches might be slightly different
                 
                 // Calculate success rate
-                float success_rate = (result.num_features > 0) ? 
-                    (static_cast<float>(stereo_matches) / static_cast<float>(result.num_features)) * 100.0f : 0.0f;
+                int total_features = current_frame->get_feature_count();
+                float success_rate = (total_features > 0) ? 
+                    (static_cast<float>(stereo_matches) / static_cast<float>(total_features)) * 100.0f : 0.0f;
                 
                 // Get position error if ground truth is available
                 float position_error = 0.0f;
@@ -426,7 +426,7 @@ int main(int argc, char* argv[]) {
                 // Update tracking statistics in viewer
                 viewer->update_tracking_stats(
                     current_idx + 1,           // frame_id
-                    result.num_features,       // total_features  
+                    total_features,            // total_features  
                     stereo_matches,            // stereo_matches
                     map_points_count,          // map_points
                     success_rate,              // success_rate
@@ -434,7 +434,7 @@ int main(int argc, char* argv[]) {
                 );
                 
                 // Update viewer frame information (legacy)
-                viewer->update_frame_info(current_idx + 1, result.num_features, tracked_features, new_features);
+                viewer->update_frame_info(current_idx + 1, total_features, tracked_features, new_features);
                 
                 // Update tracking image with map point indices
                 if (current_frame) {
@@ -453,15 +453,9 @@ int main(int argc, char* argv[]) {
                     viewer->update_stereo_image(stereo_image);
                     // spdlog::debug("[Viewer] Updated stereo matching image");
                 } else {
-                    // For testing: show processed right image if available
-                    if (!processed_right_image.empty()) {
-                        viewer->update_stereo_image(processed_right_image);
-                        // spdlog::debug("[Viewer] Updated with right image");
-                    } else {
-                        // As fallback, show the left image in right panel too
-                        viewer->update_stereo_image(tracking_image);
-                        // spdlog::debug("[Viewer] Updated with fallback left image");
-                    }
+                    // As fallback, show the left image in right panel too
+                    viewer->update_stereo_image(tracking_image);
+                    // spdlog::debug("[Viewer] Updated with fallback left image");
                 }
                 
                 previous_frame = current_frame;

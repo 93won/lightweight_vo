@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <vector>
+#include <optional>
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
 #include <module/PoseOptimizer.h>
@@ -134,6 +135,9 @@ private:
     // Current pose
     Eigen::Matrix4f m_current_pose;
     
+    // Constant velocity model for pose prediction
+    Eigen::Matrix4f m_transform_from_last;  // Transformation from last frame to current frame
+    
     // Ground truth initialization
     bool m_has_initial_gt_pose;
     Eigen::Matrix4f m_initial_gt_pose;
@@ -146,6 +150,16 @@ private:
      * @return New frame
      */
     std::shared_ptr<Frame> create_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp);
+    
+    /**
+     * @brief Predict current frame pose using constant velocity model
+     */
+    void predict_state();
+    
+    /**
+     * @brief Update transform from last frame for velocity estimation
+     */
+    void update_transform_from_last();
     
     /**
      * @brief Create initial map points from stereo or motion
@@ -174,6 +188,13 @@ private:
      * @return True if should create keyframe
      */
     bool should_create_keyframe(std::shared_ptr<Frame> frame);
+    
+    /**
+     * @brief Calculate grid coverage ratio with features that have map points
+     * @param frame Frame to analyze
+     * @return Ratio of grid cells that have features with map points (0.0 to 1.0)
+     */
+    double calculate_grid_coverage_with_map_points(std::shared_ptr<Frame> frame);
     
     /**
      * @brief Create a new keyframe

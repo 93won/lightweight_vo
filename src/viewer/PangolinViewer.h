@@ -38,7 +38,9 @@ public:
     // Data updates
     void update_points(const std::vector<Eigen::Vector3f>& points);
     void update_pose(const Eigen::Matrix4f& pose);
+    void update_camera_pose(const Eigen::Matrix4f& T_wc);  // Update current frame camera pose
     void update_trajectory(const std::vector<Eigen::Vector3f>& trajectory);
+    void update_keyframe_poses(const std::vector<Eigen::Matrix4f>& keyframe_poses);
     void add_ground_truth_pose(const Eigen::Matrix4f& gt_pose);
     void update_ground_truth_trajectory(const std::vector<Eigen::Vector3f>& gt_trajectory);
     
@@ -76,8 +78,10 @@ private:
     // Data storage
     std::vector<Eigen::Vector3f> m_points;
     std::vector<Eigen::Vector3f> m_trajectory;
+    std::vector<Eigen::Matrix4f> m_keyframe_poses;  // Store full poses for frustum drawing
     std::vector<Eigen::Vector3f> m_gt_trajectory;
     Eigen::Matrix4f m_current_pose;
+    Eigen::Matrix4f m_current_camera_pose;  // Store current frame camera pose (T_wc)
     
     // Map point storage for color differentiation
     std::vector<Eigen::Vector3f> m_all_map_points;      // White - accumulated map points
@@ -92,6 +96,7 @@ private:
     // Control variables (simplified - no UI toggles)
     bool m_show_points;
     bool m_show_trajectory;
+    bool m_show_keyframe_frustums;
     bool m_show_gt_trajectory;
     bool m_show_camera_frustum;
     bool m_show_grid;
@@ -137,6 +142,7 @@ private:
     void draw_points();
     void draw_map_points();  // New function for colored map points
     void draw_trajectory();
+    void draw_keyframe_frustums();
     void draw_gt_trajectory();
     void draw_pose();
     void draw_camera_frustum();

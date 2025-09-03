@@ -39,6 +39,16 @@ public:
                                               const std::vector<int>& valid_indices);
     void limit_features_per_grid(std::shared_ptr<Frame> frame, std::vector<std::vector<std::vector<int>>>& temp_grid);
     std::vector<int> select_features_for_tracking(std::shared_ptr<Frame> previous_frame);
+    
+    // Map point projection
+    cv::Point2f project_map_point_to_current_frame(std::shared_ptr<MapPoint> map_point, std::shared_ptr<Frame> current_frame, cv::Point2f prev_pixel = cv::Point2f(-1, -1));
+    
+    // Velocity-based quality assessment
+    void assess_feature_quality_by_velocity(std::shared_ptr<Frame> current_frame);
+    
+    // Fundamental matrix RANSAC filtering
+    void apply_fundamental_matrix_filter(std::shared_ptr<Frame> current_frame, 
+                                       std::shared_ptr<Frame> previous_frame);
 
 private:
     // Configuration reference

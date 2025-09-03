@@ -160,6 +160,20 @@ Eigen::Matrix4f Frame::get_Twb() const {
     return T_wb;
 }
 
+Eigen::Matrix4f Frame::get_Twc() const {
+    // Get T_wb (body to world transform)
+    Eigen::Matrix4f T_wb = get_Twb();
+    
+    // Get T_CB (body to camera transform) 
+    Eigen::Matrix4f T_CB = m_T_CB.cast<float>();
+    
+    // Calculate T_wc = T_wb * T_bc = T_wb * T_cb.inverse()
+    Eigen::Matrix4f T_bc = T_CB.inverse();
+    Eigen::Matrix4f T_wc = T_wb * T_bc;
+    
+    return T_wc;
+}
+
 void Frame::add_feature(std::shared_ptr<Feature> feature) {
     m_features.push_back(feature);
     m_feature_id_to_index[feature->get_feature_id()] = m_features.size() - 1;
@@ -501,6 +515,7 @@ void Frame::compute_stereo_matches() {
     int error_threshold_failed = 0;
     int epipolar_failed = 0;
     int y_diff_failed = 0;
+    int disparity_failed = 0;
     int total_features = 0;
     
     // For unrectified stereo, we need more sophisticated matching
@@ -551,8 +566,16 @@ void Frame::compute_stereo_matches() {
             
             bool is_valid_match = true;
             
+            // Check disparity (right point should be to the left of left point for positive disparity)
+            float disparity = abs(left_pt.x - right_pt.x);
+            if (disparity <= Config::getInstance().m_min_disparity || disparity >= Config::getInstance().m_max_disparity) {
+                // Invalid disparity range
+                disparity_failed++;
+                is_valid_match = false;
+            }
+            
             // Check epipolar constraint if fundamental matrix is available
-            if (!fundamental_matrix.empty()) {
+            if (is_valid_match && !fundamental_matrix.empty()) {
                 // Convert points to homogeneous coordinates with correct type
                 cv::Mat left_homo = (cv::Mat_<double>(3, 1) << left_pt.x, left_pt.y, 1.0);
                 cv::Mat right_homo = (cv::Mat_<double>(3, 1) << right_pt.x, right_pt.y, 1.0);
@@ -577,12 +600,14 @@ void Frame::compute_stereo_matches() {
             }
             
             // Additional basic checks (remove disparity-based checks)
-            float y_diff = std::abs(left_pt.y - right_pt.y);
-            
-            // Reject if y-coordinate difference is too large (basic sanity check)
-            if (y_diff > Config::getInstance().m_max_y_difference) {
-                y_diff_failed++;
-                is_valid_match = false;
+            if (is_valid_match) {
+                float y_diff = std::abs(left_pt.y - right_pt.y);
+                
+                // Reject if y-coordinate difference is too large (basic sanity check)
+                if (y_diff > Config::getInstance().m_max_y_difference) {
+                    y_diff_failed++;
+                    is_valid_match = false;
+                }
             }
             
             if (is_valid_match) {
@@ -606,6 +631,14 @@ void Frame::compute_stereo_matches() {
     
     // STEREO debug logs removed - keeping only essential information
     float success_rate = total_features > 0 ? (float)matches_found / total_features * 100.0f : 0.0f;
+    
+    // // Debug stereo matching failures if significant
+    // if (Config::getInstance().m_enable_debug_output && total_features > 0) {
+    //     spdlog::info("[STEREO] Matching results: {}/{} successful ({:.1f}%)", 
+    //                 matches_found, total_features, success_rate);
+    //     spdlog::info("[STEREO] Failures: optical_flow={}, error_thresh={}, disparity={}, epipolar={}, y_diff={}", 
+    //                 optical_flow_failed, error_threshold_failed, disparity_failed, epipolar_failed, y_diff_failed);
+    // }
 }
 
 void Frame::undistort_features() {
@@ -743,13 +776,23 @@ void Frame::triangulate_stereo_points() {
     // Calculate baseline for triangulation (removed debug output)
     double baseline = t_eigen.norm();
     
-    // Counters for debugging
+    // Counters for debugging with detailed failure analysis
     int triangulated_count = 0;
     int depth_rejected = 0;
     int reprojection_rejected = 0;
     int total_stereo_matches = 0;
-    int normalized_fail_count = 0;
+    
+    // Detailed failure analysis counters
+    int invalid_stereo_match_count = 0;
+    int svd_fail_count = 0;
+    int negative_depth_left = 0;
+    int negative_depth_right = 0;
+    
+    // Detailed failure statistics
     std::vector<double> depth_values;
+    std::vector<double> failed_depths;
+    std::vector<double> reprojection_errors;
+    std::vector<std::pair<std::string, int>> failure_reasons;
     
     for (auto& feature : m_features) {
         if (feature->is_valid() && feature->has_stereo_match()) {
@@ -761,6 +804,13 @@ void Frame::triangulate_stereo_points() {
             
             // Check if stereo match is valid
             if (right_norm_2d[0] == -1.0f || right_norm_2d[1] == -1.0f) {
+                invalid_stereo_match_count++;
+                if (config.m_enable_debug_output && invalid_stereo_match_count <= 5) {
+                    cv::Point2f left_px = feature->get_pixel_coord();
+                    cv::Point2f right_px = feature->get_right_coord();
+                    // spdlog::debug("[TRIANGULATION] Invalid stereo match: left({:.1f},{:.1f}) -> right({:.1f},{:.1f})", 
+                    //              left_px.x, left_px.y, right_px.x, right_px.y);
+                }
                 continue;
             }
             
@@ -794,14 +844,29 @@ void Frame::triangulate_stereo_points() {
             Eigen::Vector4d X_h = svd.matrixV().col(3);
             
             // Check homogeneous coordinate
-            if (std::abs(X_h[3]) < 1e-6) {
-                normalized_fail_count++;
+            if (std::abs(X_h[3]) < 1e-3) {
+                svd_fail_count++;
+                if (config.m_enable_debug_output && svd_fail_count <= 5) {
+                    // spdlog::debug("[TRIANGULATION] SVD failed: homogeneous coordinate too small ({:.2e})", X_h[3]);
+                    // spdlog::debug("  Left norm: ({:.3f},{:.3f}), Right norm: ({:.3f},{:.3f})", 
+                    //              left_norm_2d[0], left_norm_2d[1], right_norm_2d[0], right_norm_2d[1]);
+                }
                 continue;
             }
             
             // Convert to 3D point in left camera frame
             X_h /= X_h[3];
-            Eigen::Vector3d pos_3d = X_h.head<3>();
+            Eigen::Vector3d pos_3d = X_h.head(3);
+            
+            // Detailed depth analysis
+            if (pos_3d[2] <= 0) {
+                negative_depth_left++;
+                if (config.m_enable_debug_output && negative_depth_left <= 3) {
+                    // spdlog::debug("[TRIANGULATION] Negative depth in left camera: {:.3f}", pos_3d[2]);
+                }
+                failed_depths.push_back(pos_3d[2]);
+                continue;
+            }
             
             depth_values.push_back(pos_3d[2]);
             
@@ -816,10 +881,15 @@ void Frame::triangulate_stereo_points() {
             // Check depth range (positive depth in front of camera)
             if (pos_3d[2] < config.m_min_depth || pos_3d[2] > config.m_max_depth) {
                 depth_rejected++;
-                // if (config.m_enable_debug_output && depth_rejected <= 5) {
-                //     std::cout << "Depth rejected: " << pos_3d[2] << " (range: " 
-                //               << config.m_min_depth << " - " << config.m_max_depth << ")" << std::endl;
-                // }
+                if (config.m_enable_debug_output && depth_rejected <= 10) {
+                    bool too_close = pos_3d[2] < config.m_min_depth;
+                    bool too_far = pos_3d[2] > config.m_max_depth;
+                    SPDLOG_DEBUG("Depth range violation: {:.3f}m ({}) at pixel ({:.1f},{:.1f}) - range [{:.1f},{:.1f}]m",
+                                pos_3d[2], 
+                                too_close ? "too close" : "too far",
+                                stereo_matches[i].first.x, stereo_matches[i].first.y,
+                                config.m_min_depth, config.m_max_depth);
+                }
                 continue;
             }
             
@@ -831,7 +901,12 @@ void Frame::triangulate_stereo_points() {
             // Project 3D point to right camera using T_rl (left-to-right)
             Eigen::Vector3d pos_right = R_eigen * pos_3d + t_eigen;
             if (pos_right[2] <= 0) { // Check positive depth in right camera
-                depth_rejected++;
+                negative_depth_right++;
+                if (config.m_enable_debug_output && negative_depth_right <= 10) {
+                    SPDLOG_DEBUG("Negative depth in right camera: {:.3f} at pixel ({:.1f},{:.1f})",
+                                pos_right[2], 
+                                stereo_matches[i].first.x, stereo_matches[i].first.y);
+                }
                 continue;
             }
             Eigen::Vector3d reproj_right = pos_right / pos_right[2];
@@ -846,6 +921,17 @@ void Frame::triangulate_stereo_points() {
             
             if (max_error > max_reproj_error) {
                 reprojection_rejected++;
+                if (config.m_enable_debug_output && reprojection_rejected <= 10) {
+                    SPDLOG_DEBUG("Reprojection error too high: L={:.6f}, R={:.6f}, max={:.6f}, thresh={:.6f} at pixel ({:.1f},{:.1f})",
+                                left_error, right_error, max_error, max_reproj_error,
+                                stereo_matches[i].first.x, stereo_matches[i].first.y);
+                    SPDLOG_DEBUG("  Expected: L=({:.6f},{:.6f}), R=({:.6f},{:.6f})",
+                                left_normalized[0], left_normalized[1],
+                                right_normalized[0], right_normalized[1]);
+                    SPDLOG_DEBUG("  Reprojected: L=({:.6f},{:.6f}), R=({:.6f},{:.6f})",
+                                reproj_left[0], reproj_left[1],
+                                reproj_right[0], reproj_right[1]);
+                }
                 continue;
             }
             
@@ -866,10 +952,34 @@ void Frame::triangulate_stereo_points() {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     
-    // Log triangulation results for debugging
-    spdlog::info("[TRIANGULATION] Frame {}: {}/{} features triangulated (depth_reject={}, reproj_reject={}) in {:.1f}ms", 
-                m_frame_id, triangulated_count, total_stereo_matches, 
-                depth_rejected, reprojection_rejected, duration.count() / 1000.0);
+    // Detailed triangulation failure analysis
+    int total_failures = invalid_stereo_match_count + svd_fail_count + negative_depth_left + 
+                        negative_depth_right + depth_rejected + reprojection_rejected;
+    
+    // // Log triangulation results for debugging
+    // spdlog::info("[TRIANGULATION] Frame {}: {}/{} features triangulated ({:.1f}%) in {:.1f}ms", 
+    //             m_frame_id, triangulated_count, total_stereo_matches, 
+    //             (triangulated_count * 100.0) / std::max(1, total_stereo_matches),
+    //             duration.count() / 1000.0);
+    
+    // Always show failure breakdown if there are failures
+    // if (total_failures > 0) {
+    //     // spdlog::info("Failure breakdown: invalid_stereo={}, svd_fail={}, neg_depth_L={}, neg_depth_R={}, depth_range={}, reproj_error={}",
+    //     //             invalid_stereo_match_count, svd_fail_count, negative_depth_left, 
+    //     //             negative_depth_right, depth_rejected, reprojection_rejected);
+        
+    //     // if (config.m_enable_debug_output) {
+    //     //     double invalid_rate = (invalid_stereo_match_count * 100.0) / std::max(1, total_stereo_matches);
+    //     //     double svd_rate = (svd_fail_count * 100.0) / std::max(1, total_stereo_matches);
+    //     //     double depth_l_rate = (negative_depth_left * 100.0) / std::max(1, total_stereo_matches);
+    //     //     double depth_r_rate = (negative_depth_right * 100.0) / std::max(1, total_stereo_matches);
+    //     //     double depth_range_rate = (depth_rejected * 100.0) / std::max(1, total_stereo_matches);
+    //     //     double reproj_rate = (reprojection_rejected * 100.0) / std::max(1, total_stereo_matches);
+            
+    //     //     spdlog::info("Failure rates: invalid={:.1f}%, svd={:.1f}%, neg_L={:.1f}%, neg_R={:.1f}%, range={:.1f}%, reproj={:.1f}%",
+    //     //                 invalid_rate, svd_rate, depth_l_rate, depth_r_rate, depth_range_rate, reproj_rate);
+    //     // }
+    // }
 }
 
 void Frame::initialize_map_points() {
@@ -1045,17 +1155,6 @@ bool Frame::has_valid_stereo_depth(const cv::Point2f& pixel_coord) const {
     return disparity > 0.0;
 }
 
-double Frame::get_stereo_depth(const cv::Point2f& pixel_coord) const {
-    if (!has_valid_stereo_depth(pixel_coord)) {
-        return 0.0;
-    }
-    
-    double disparity = compute_disparity_at_point(pixel_coord);
-    if (disparity > 0.0) {
-        return (m_fx * m_baseline) / disparity;
-    }
-    return 0.0;
-}
 
 double Frame::compute_disparity_at_point(const cv::Point2f& pixel_coord) const {
     // Simple stereo matching using normalized cross correlation

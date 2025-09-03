@@ -165,14 +165,21 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
     std::vector<cv::Point2f> prev_pts;
     std::vector<int> valid_feature_indices;  // Track valid feature indices for tracking
     
-    const auto& prev_features = previous_frame->get_features();
-    for (int idx : feature_indices) {
-        if (idx >= 0 && idx < prev_features.size() && prev_features[idx] && prev_features[idx]->is_valid()) {
-            prev_pts.push_back(prev_features[idx]->get_pixel_coord());
-            valid_feature_indices.push_back(idx);  // Store the original index
-        }
+    // Variables for tracking pixel movement from map point projections
+    float total_projection_movement = 0.0f;
+    int projection_count = 0;
+
+    const auto &prev_features = previous_frame->get_features();
+    for (int idx : feature_indices)
+    {
+
+        if (!prev_features[idx]->is_valid())
+            continue;
+
+        prev_pts.push_back(prev_features[idx]->get_pixel_coord());
+        valid_feature_indices.push_back(idx); // Store the original index
     }
-    
+
     auto point_extraction_end = std::chrono::high_resolution_clock::now();
     auto point_extraction_time = std::chrono::duration_cast<std::chrono::microseconds>(point_extraction_end - point_extraction_start).count() / 1000.0;
     
@@ -204,6 +211,7 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
     int optical_flow_failed = 0;
     int border_failed = 0;
     int error_threshold_failed = 0;
+    int movement_exceeded = 0;
     int total_attempted = prev_pts.size();
     
     for (size_t i = 0; i < prev_pts.size(); ++i) {
@@ -225,6 +233,12 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
         // Check error threshold
         if (err[i] >= Config::getInstance().m_error_threshold) {
             error_threshold_failed++;
+            continue;
+        }
+        
+        // Check maximum movement threshold
+        if (movement >= Config::getInstance().m_max_movement) {
+            movement_exceeded++;
             continue;
         }
         
@@ -273,12 +287,29 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
     auto feature_creation_end = std::chrono::high_resolution_clock::now();
     auto feature_creation_time = std::chrono::duration_cast<std::chrono::microseconds>(feature_creation_end - feature_creation_start).count() / 1000.0;
 
+    // Apply fundamental matrix RANSAC filtering if we have enough features
+    if (tracked_features >= 8) {
+        apply_fundamental_matrix_filter(current_frame, previous_frame);
+    }
+
+    // Perform velocity-based quality assessment
+    if (tracked_features > 0) {
+        assess_feature_quality_by_velocity(current_frame);
+    }
+
     auto end_time = std::chrono::high_resolution_clock::now();
     auto total_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count() / 1000.0;
     
-    // Debug output for tracking failures
-    if (m_config.m_enable_debug_output || total_attempted > 0) {
-        int total_failed = optical_flow_failed + border_failed + error_threshold_failed;
+    // Simple projection movement summary
+    if (projection_count > 0) {
+        float avg_movement = total_projection_movement / projection_count;
+        spdlog::info("[FRAME_CHANGE] {} map points projected, avg movement: {:.2f}px", 
+                    projection_count, avg_movement);
+    }
+    
+    // Debug output for tracking failures (only when explicitly enabled)
+    if (m_config.m_enable_debug_output && false) {  // Disabled tracking debug output
+        int total_failed = optical_flow_failed + border_failed + error_threshold_failed + movement_exceeded;
         float success_rate = total_attempted > 0 ? (float)tracked_features / total_attempted * 100.0f : 0.0f;
         
         spdlog::info("[TRACKING DEBUG] Frame-to-frame tracking results:");
@@ -292,6 +323,9 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
         spdlog::info("    - Error threshold (>{:.1f}): {} ({:.1f}%)", 
                      Config::getInstance().m_error_threshold, error_threshold_failed,
                      total_attempted > 0 ? (float)error_threshold_failed / total_attempted * 100.0f : 0.0f);
+        spdlog::info("    - Movement exceeded (>{:.1f}px): {} ({:.1f}%)", 
+                     Config::getInstance().m_max_movement, movement_exceeded,
+                     total_attempted > 0 ? (float)movement_exceeded / total_attempted * 100.0f : 0.0f);
         spdlog::info("  Map point associations: {}", associated_map_points);
     }
     
@@ -606,8 +640,7 @@ std::vector<int> FeatureTracker::select_features_for_tracking(std::shared_ptr<Fr
             // Filter out this feature - it's been observed many times but never became a map point
             filtered_count++;
             if (m_config.m_enable_debug_output && filtered_count <= 5) {
-                spdlog::debug("Filtering feature {} with {} observations but no map point", 
-                             features[i]->get_feature_id(), track_count);
+                // spdlog::debug("Filtering feature {} with {} observations but no map point", features[i]->get_feature_id(), track_count);
             }
             continue;
         }
@@ -615,10 +648,9 @@ std::vector<int> FeatureTracker::select_features_for_tracking(std::shared_ptr<Fr
         valid_feature_indices.push_back(i);
     }
     
-    if (m_config.m_enable_debug_output && filtered_count > 0) {
-        spdlog::info("Filtered {} features with ≥{} observations but no map point", 
-                     filtered_count, max_observation_threshold);
-    }
+    // if (m_config.m_enable_debug_output && filtered_count > 0) {
+    //     spdlog::info("Filtered {} features with ≥{} observations but no map point",  filtered_count, max_observation_threshold);
+    // }
     
     // Initialize grid
     const int grid_rows = m_config.m_grid_rows;
@@ -662,16 +694,189 @@ std::vector<int> FeatureTracker::select_features_for_tracking(std::shared_ptr<Fr
         }
     }
     
-    if (m_config.m_enable_debug_output) {
-        spdlog::info("Grid-based feature selection: {} features selected for tracking from {} valid (filtered {} high-observation features without map points)", 
-                     selected_indices.size(), valid_feature_indices.size(), filtered_count);
-        // spdlog::info("Max features per grid: {}, Grid size: {}x{} = {} cells", 
-        //              max_features_per_grid, grid_cols, grid_rows, grid_cols * grid_rows);
-        // spdlog::info("Theoretical max features: {} ({}x{}x{})", 
-        //              grid_cols * grid_rows * max_features_per_grid, grid_cols, grid_rows, max_features_per_grid);
-    }
+    // if (m_config.m_enable_debug_output) {
+    //     spdlog::info("Grid-based feature selection: {} features selected for tracking from {} valid (filtered {} high-observation features without map points)", 
+    //                  selected_indices.size(), valid_feature_indices.size(), filtered_count);
+    //     // spdlog::info("Max features per grid: {}, Grid size: {}x{} = {} cells", 
+    //     //              max_features_per_grid, grid_cols, grid_rows, grid_cols * grid_rows);
+    //     // spdlog::info("Theoretical max features: {} ({}x{}x{})", 
+    //     //              grid_cols * grid_rows * max_features_per_grid, grid_cols, grid_rows, max_features_per_grid);
+    // }
     
     return selected_indices;
+}
+
+cv::Point2f FeatureTracker::project_map_point_to_current_frame(std::shared_ptr<MapPoint> map_point, std::shared_ptr<Frame> current_frame, cv::Point2f prev_pixel) {
+    if (!map_point || !current_frame) {
+        return cv::Point2f(-1, -1);  // Invalid projection
+    }
+    
+    // Get 3D world point from map point
+    Eigen::Vector3f world_point = map_point->get_position();
+    
+    // Get current frame pose (T_wb: body to world)
+    Eigen::Matrix4f T_wb = current_frame->get_Twb();
+    
+    // Get T_CB (body to camera) from frame
+    Eigen::Matrix4d T_CB_double = current_frame->get_T_CB();
+    Eigen::Matrix4f T_CB = T_CB_double.cast<float>();
+    
+    // Calculate T_cw = T_cb * T_bw = T_cb * T_wb.inverse()
+    Eigen::Matrix4f T_cw = T_CB * T_wb.inverse();
+    
+    // Transform world point to camera coordinates
+    Eigen::Vector4f world_point_homo(world_point.x(), world_point.y(), world_point.z(), 1.0f);
+    Eigen::Vector4f camera_point_homo = T_cw * world_point_homo;
+    
+    // Check if point is in front of camera
+    if (camera_point_homo.z() <= 0) {
+        return cv::Point2f(-1, -1);  // Point behind camera
+    }
+    
+    // Convert to 3D camera coordinates
+    Eigen::Vector3f camera_point = camera_point_homo.head<3>() / camera_point_homo.w();
+    
+    // Get camera intrinsics
+    const Config& config = Config::getInstance();
+    cv::Mat K = config.left_camera_matrix();
+    cv::Mat D = config.left_dist_coeffs();
+    
+    if (K.empty()) {
+        return cv::Point2f(-1, -1);  // No camera intrinsics
+    }
+    
+    // Project to distorted pixel coordinates using OpenCV
+    std::vector<cv::Point3f> points_3d = {cv::Point3f(camera_point.x(), camera_point.y(), camera_point.z())};
+    std::vector<cv::Point2f> pixel_points;
+    cv::projectPoints(points_3d, cv::Mat::zeros(3, 1, CV_64F), cv::Mat::zeros(3, 1, CV_64F), K, D, pixel_points);
+    
+    cv::Point2f pixel_point = pixel_points[0];
+    
+    // Calculate pixel movement
+    float pixel_movement = cv::norm(pixel_point - prev_pixel);
+    
+    // Check if projection is within image bounds
+    if (pixel_point.x < 0 || pixel_point.y < 0 || 
+        pixel_point.x >= config.m_image_width || pixel_point.y >= config.m_image_height) {
+        return cv::Point2f(-1, -1);  // Outside image bounds
+    }
+    
+    return pixel_point;
+}
+
+void FeatureTracker::assess_feature_quality_by_velocity(std::shared_ptr<Frame> current_frame) {
+    if (!current_frame || current_frame->get_feature_count() == 0) {
+        return;
+    }
+    
+    std::vector<float> velocity_magnitudes;
+    
+    // Collect all velocity magnitudes from tracked features
+    const auto& features = current_frame->get_features();
+    for (const auto& feature : features) {
+        if (feature && feature->is_valid() && feature->get_track_count() > 1) {
+            float vel_mag = feature->get_velocity().norm();
+            velocity_magnitudes.push_back(vel_mag);
+        }
+    }
+    
+    if (velocity_magnitudes.empty()) {
+        return; // No tracked features to analyze
+    }
+    
+    // Calculate velocity statistics
+    std::sort(velocity_magnitudes.begin(), velocity_magnitudes.end());
+    float median_velocity = velocity_magnitudes[velocity_magnitudes.size() / 2];
+    float velocity_threshold = median_velocity * 3.0f; // 3-sigma rule
+    
+    // Count outliers and log statistics
+    int outlier_count = 0;
+    int total_tracked = 0;
+    
+    // Filter out features with abnormal velocity
+    for (size_t i = 0; i < features.size(); ++i) {
+        const auto& feature = features[i];
+        if (feature && feature->is_valid() && feature->get_track_count() > 1) {
+            total_tracked++;
+            float vel_mag = feature->get_velocity().norm();
+            if (vel_mag > velocity_threshold) {
+                // Mark as velocity outlier in frame
+                current_frame->set_outlier_flag(i, true);
+                outlier_count++;
+                
+                // if (m_config.m_enable_debug_output && outlier_count <= 5) {
+                //     spdlog::debug("Feature {} marked as velocity outlier: {:.2f}px (threshold: {:.2f}px)", 
+                //                  feature->get_feature_id(), vel_mag, velocity_threshold);
+                // }
+            }
+        }
+    }
+    
+    // if (m_config.m_enable_debug_output && outlier_count > 0) {
+    //     spdlog::info("Velocity outlier detection: {}/{} features marked as outliers (median_vel: {:.2f}px, threshold: {:.2f}px)", 
+    //                  outlier_count, total_tracked, median_velocity, velocity_threshold);
+    // }
+}
+
+void FeatureTracker::apply_fundamental_matrix_filter(std::shared_ptr<Frame> current_frame, 
+                                                    std::shared_ptr<Frame> previous_frame) {
+    // Collect matched feature points
+    std::vector<cv::Point2f> cur_pts, prev_pts;
+    std::vector<int> feature_indices;
+    
+    const auto& cur_features = current_frame->get_features();
+    const auto& prev_features = previous_frame->get_features();
+    
+    // Find matched features by tracked_feature_id
+    for (int i = 0; i < cur_features.size(); ++i) {
+        auto cur_feature = cur_features[i];
+        if (!cur_feature || !cur_feature->is_valid()) continue;
+        
+        int tracked_id = cur_feature->get_tracked_feature_id();
+        if (tracked_id < 0) continue;
+        
+        // Find corresponding feature in previous frame
+        for (int j = 0; j < prev_features.size(); ++j) {
+            auto prev_feature = prev_features[j];
+            if (prev_feature && prev_feature->is_valid() && 
+                prev_feature->get_feature_id() == tracked_id) {
+                
+                cur_pts.push_back(cur_feature->get_pixel_coord());
+                prev_pts.push_back(prev_feature->get_pixel_coord());
+                feature_indices.push_back(i);
+                break;
+            }
+        }
+    }
+    
+    // Need at least 8 points for fundamental matrix estimation
+    if (cur_pts.size() < 8) {
+        return;
+    }
+    
+    // Apply fundamental matrix RANSAC filtering (VINS-MONO style)
+    std::vector<uchar> status;
+    cv::Mat fundamental_matrix = cv::findFundamentalMat(
+        prev_pts, cur_pts, 
+        cv::FM_RANSAC, 
+        m_config.m_F_threshold,  // Distance threshold (pixels)
+        0.99,                    // Confidence level
+        status
+    );
+    
+    // Mark outliers based on fundamental matrix RANSAC
+    int outlier_count = 0;
+    for (size_t i = 0; i < status.size(); ++i) {
+        if (status[i] == 0) {  // RANSAC outlier
+            current_frame->set_outlier_flag(feature_indices[i], true);
+            outlier_count++;
+        }
+    }
+    
+    // if (m_config.m_enable_debug_output && outlier_count > 0) {
+    //     spdlog::info("Fundamental matrix RANSAC: {}/{} features marked as outliers (threshold: {:.1f}px)", 
+    //                  outlier_count, status.size(), m_config.m_F_threshold);
+    // }
 }
 
 } // namespace lightweight_vio

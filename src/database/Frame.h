@@ -53,6 +53,7 @@ public:
     void set_pose(const Eigen::Matrix3f& rotation, const Eigen::Vector3f& translation);
     void set_Twb(const Eigen::Matrix4f& T_wb);
     Eigen::Matrix4f get_Twb() const;
+    Eigen::Matrix4f get_Twc() const;  // World to camera transform
     void set_keyframe(bool is_keyframe) { m_is_keyframe = is_keyframe; }
 
     // Feature management
@@ -98,7 +99,6 @@ public:
     double get_depth(int feature_index) const;
     bool has_depth(int feature_index) const;
     bool has_valid_stereo_depth(const cv::Point2f& pixel_coord) const;
-    double get_stereo_depth(const cv::Point2f& pixel_coord) const;
     
     // Visualization functions (for viewer)
     cv::Mat draw_features() const;

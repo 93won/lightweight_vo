@@ -17,6 +17,7 @@ Estimator::Estimator()
     : m_frame_id_counter(0)
     , m_frames_since_last_keyframe(0)
     , m_current_pose(Eigen::Matrix4f::Identity())
+    , m_transform_from_last(Eigen::Matrix4f::Identity())
     , m_has_initial_gt_pose(false)
     , m_initial_gt_pose(Eigen::Matrix4f::Identity()) {
     
@@ -48,6 +49,9 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
     }
 
     if (m_previous_frame) {
+        // Predict current frame pose using GT pose from EurocUtils
+        predict_state();
+        
         // Track features from previous frame using FeatureTracker
         // FeatureTracker now handles both tracking and map point association/creation
         m_feature_tracker->track_features(m_current_frame, m_previous_frame);
@@ -75,6 +79,10 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
                 if (opt_result.success) {
                     m_current_pose = opt_result.optimized_pose;
                     m_current_frame->set_Twb(m_current_pose);
+                    
+                    // Update transform from last frame for velocity estimation
+                    update_transform_from_last();
+                    
                     spdlog::info("[POSE_OPT] ✅ Optimization successful: {} inliers, {} outliers, final_cost={:.6f}, iterations={}", 
                                 opt_result.num_inliers, opt_result.num_outliers, opt_result.final_cost, opt_result.num_iterations);
                 } else {
@@ -83,6 +91,11 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
             } else {
                 spdlog::warn("[POSE_OPT] ⚠️ Not enough map point associations for optimization: {} (need ≥5)", num_tracked_with_map_points);
                 // Fallback: use current pose as-is
+                m_current_pose = m_current_frame->get_Twb();
+                
+                // Update transform from last frame for velocity estimation
+                update_transform_from_last();
+                
                 result.success = true;
                 result.num_inliers = num_tracked_with_map_points;
                 result.num_outliers = 0;
@@ -90,6 +103,10 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         } else {
             // No tracking, keep previous pose (already set in create_frame)
             m_current_pose = m_current_frame->get_Twb();
+            
+            // Update transform from last frame for velocity estimation (even if tracking failed)
+            update_transform_from_last();
+            
             result.success = false;
         }
 
@@ -211,11 +228,11 @@ std::shared_ptr<Frame> Estimator::create_frame(const cv::Mat& left_image, const 
         global_config.left_dist_coeffs()
     );
     
-    // Set initial pose to previous frame's pose (or identity for first frame)
+    // Set initial pose
     if (m_previous_frame) {
-        // 🚫 GT pose only used for first frame initialization - now use VIO estimated pose
+        // For non-first frames, start with previous frame pose
+        // Actual prediction will be done in process_frame() via predict_state()
         frame->set_Twb(m_previous_frame->get_Twb());
-        spdlog::debug("[VIO_POSE] Used VIO estimated pose from previous frame for frame {}", m_frame_id_counter);
     } else {
         // First frame - use ground truth pose if available, otherwise identity
         if (m_has_initial_gt_pose) {
@@ -294,13 +311,8 @@ int lightweight_vio::Estimator::create_initial_map_points(std::shared_ptr<Frame>
                 double error_x = undist_u - u_proj;
                 double error_y = undist_v - v_proj;
                 double error = std::sqrt(error_x * error_x + error_y * error_y);
-                
-                spdlog::info("[CREATE_MP] #{}: obs_undist=({:.1f},{:.1f}) proj_pixel=({:.1f},{:.1f}) err={:.2f}px world=({:.2f},{:.2f},{:.2f})", 
-                           num_created, undist_u, undist_v, u_proj, v_proj, error,
-                           world_pos.x(), world_pos.y(), world_pos.z());
             } else {
-                spdlog::warn("[CREATE_MP] #{}: Point behind camera! world=({:.2f},{:.2f},{:.2f})", 
-                           num_created, world_pos.x(), world_pos.y(), world_pos.z());
+                // Point behind camera
             }
         }
     }
@@ -432,20 +444,21 @@ bool lightweight_vio::Estimator::should_create_keyframe(std::shared_ptr<Frame> f
         return false;
     }
     
-    // Simple keyframe creation policy
+    // First frame is always a keyframe
     if (m_keyframes.empty()) {
-        return true;  // First frame is always a keyframe
-    }
-    
-    if (m_frames_since_last_keyframe >= Config::getInstance().m_keyframe_interval) {
         return true;
     }
     
-    // Could add more sophisticated criteria:
-    // Could add more sophisticated criteria:
-    // - Translation/rotation distance from last keyframe
-    // - Number of inliers
-    // - Feature distribution
+    // Grid-based keyframe creation policy
+    // Create keyframe when less than min_grid_coverage of grid cells have features with map points
+    double grid_coverage = calculate_grid_coverage_with_map_points(frame);
+    
+    if (grid_coverage < Config::getInstance().m_min_grid_coverage) {
+        if (Config::getInstance().m_enable_debug_output) {
+            spdlog::info("[KEYFRAME] Creating keyframe due to low grid coverage: {:.2f} < {:.2f}", grid_coverage, Config::getInstance().m_min_grid_coverage);
+        }
+        return true;
+    }
     
     return false;
 }
@@ -458,8 +471,7 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
     frame->set_keyframe(true);
     m_keyframes.push_back(frame);
     
-    spdlog::info("[KEYFRAME] Created keyframe {} with {} features", 
-                frame->get_frame_id(), frame->get_feature_count());
+    // spdlog::info("[KEYFRAME] Created keyframe {} with {} features", frame->get_frame_id(), frame->get_feature_count());
 }
 
 OptimizationResult lightweight_vio::Estimator::optimize_pose(std::shared_ptr<Frame> frame) {
@@ -605,6 +617,136 @@ void lightweight_vio::Estimator::compute_reprojection_error_statistics(std::shar
     } else {
         spdlog::warn("[REPROJ_ERROR] Frame {}: No valid projections", frame->get_frame_id());
     }
+}
+
+void Estimator::predict_state() {
+    if (m_current_frame && m_previous_frame) {
+        Eigen::Matrix4f predicted_pose = m_previous_frame->get_Twb() * m_transform_from_last;
+        m_current_frame->set_Twb(predicted_pose);
+    }
+}
+
+
+void Estimator::update_transform_from_last() {
+    if (m_current_frame && m_previous_frame) {
+        // Calculate transform from last frame to current frame
+        // T_transform = T_last^-1 * T_current
+        Eigen::Matrix4f raw_transform = m_previous_frame->get_Twb().inverse() * m_current_frame->get_Twb();
+        
+        // // Apply threshold to translation components (0.01 order and below -> 0)
+        // Eigen::Vector3f translation = raw_transform.block<3,1>(0,3);
+        // const float translation_threshold = 0.001f;
+        
+        // for (int i = 0; i < 3; i++) {
+        //     if (std::abs(translation[i]) < translation_threshold) {
+        //         translation[i] = 0.0f;
+        //     }
+        // }
+        
+        // // Normalize rotation part
+        // Eigen::Matrix3f rotation = raw_transform.block<3,3>(0,0);
+        
+        // // Check if rotation is close to identity
+        // Eigen::Matrix3f identity = Eigen::Matrix3f::Identity();
+        // float rotation_threshold = 0.001f;  // Threshold for rotation similarity
+        
+        // // Calculate Frobenius norm of difference from identity
+        // Eigen::Matrix3f rotation_diff = rotation - identity;
+        // float frobenius_norm = rotation_diff.norm();
+        
+        // Eigen::Matrix3f normalized_rotation;
+        // if (frobenius_norm < rotation_threshold) {
+        //     // Very close to identity - use identity matrix
+        //     normalized_rotation = identity;
+        // } else {
+        //     // Ensure rotation matrix is properly orthogonal (SVD-based normalization)
+        //     Eigen::JacobiSVD<Eigen::Matrix3f> svd(rotation, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        //     normalized_rotation = svd.matrixU() * svd.matrixV().transpose();
+            
+        //     // Ensure proper rotation (det = 1, not -1)
+        //     if (normalized_rotation.determinant() < 0) {
+        //         Eigen::Matrix3f V_corrected = svd.matrixV();
+        //         V_corrected.col(2) *= -1;  // Flip last column
+        //         normalized_rotation = svd.matrixU() * V_corrected.transpose();
+        //     }
+        // }
+        
+        // Reconstruct clean transform
+        m_transform_from_last = raw_transform;//Eigen::Matrix4f::Identity();
+        // m_transform_from_last.block<3,3>(0,0) = normalized_rotation;
+        // m_transform_from_last.block<3,1>(0,3) = translation;
+    }
+}
+
+double lightweight_vio::Estimator::calculate_grid_coverage_with_map_points(std::shared_ptr<Frame> frame) {
+    if (!frame || frame->get_feature_count() == 0) {
+        return 0.0;
+    }
+    
+    const Config& config = Config::getInstance();
+    const int grid_rows = config.m_grid_rows;
+    const int grid_cols = config.m_grid_cols;
+    const int img_width = config.m_image_width;
+    const int img_height = config.m_image_height;
+    
+    // Initialize grid to track which cells have features with map points
+    std::vector<std::vector<bool>> grid_has_map_point(grid_rows, std::vector<bool>(grid_cols, false));
+    
+    // Check each feature
+    const auto& features = frame->get_features();
+    for (size_t i = 0; i < features.size(); ++i) {
+        const auto& feature = features[i];
+        if (!feature || !feature->is_valid()) {
+            continue;
+        }
+        
+        // Check if this feature has an associated map point
+        auto map_point = frame->get_map_point(i);
+        if (!map_point || map_point->is_bad()) {
+            continue;
+        }
+        
+        // Calculate grid coordinates
+        cv::Point2f pixel_coord = feature->get_pixel_coord();
+        
+        // Safety check for pixel coordinates
+        if (pixel_coord.x < 0 || pixel_coord.x >= img_width || 
+            pixel_coord.y < 0 || pixel_coord.y >= img_height) {
+            continue;
+        }
+        
+        float cell_width = (float)img_width / grid_cols;
+        float cell_height = (float)img_height / grid_rows;
+        
+        int grid_x = std::min((int)(pixel_coord.x / cell_width), grid_cols - 1);
+        int grid_y = std::min((int)(pixel_coord.y / cell_height), grid_rows - 1);
+        
+        // Additional safety check for grid indices
+        if (grid_x >= 0 && grid_x < grid_cols && grid_y >= 0 && grid_y < grid_rows) {
+            grid_has_map_point[grid_y][grid_x] = true;
+        }
+    }
+    
+    // Count cells with map points
+    int cells_with_map_points = 0;
+    int total_cells = grid_rows * grid_cols;
+    
+    for (int row = 0; row < grid_rows; ++row) {
+        for (int col = 0; col < grid_cols; ++col) {
+            if (grid_has_map_point[row][col]) {
+                cells_with_map_points++;
+            }
+        }
+    }
+    
+    double coverage_ratio = (double)cells_with_map_points / total_cells;
+    
+    // if (config.m_enable_debug_output) {
+    //     // spdlog::debug("Grid coverage: {}/{} cells have features with map points ({:.2f}%)", 
+    //     //              cells_with_map_points, total_cells, coverage_ratio * 100.0);
+    // }
+    
+    return coverage_ratio;
 }
 
 } // namespace lightweight_vio

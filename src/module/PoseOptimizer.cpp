@@ -245,9 +245,9 @@ namespace lightweight_vio
                 }
             }
             
-            if (disconnected_map_points > 0) {
-                spdlog::warn("POSE_OPT[] Disconnected {} outlier map points", disconnected_map_points);
-            }
+            // if (disconnected_map_points > 0) {
+            //     spdlog::warn("POSE_OPT[] Disconnected {} outlier map points", disconnected_map_points);
+            // }
         } else {
             // Treat all observations as inliers when outlier detection is disabled
             result.num_inliers = observations.size();

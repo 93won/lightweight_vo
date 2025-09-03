@@ -46,7 +46,9 @@ bool Config::load(const std::string& config_file) {
         m_max_iterations = (int)optical_flow["max_iterations"];
         m_epsilon = (double)optical_flow["epsilon"];
         m_error_threshold = (double)optical_flow["error_threshold"];
+        m_max_movement = (double)optical_flow["max_movement"];
         m_min_eigen_threshold = (double)optical_flow["min_eigen_threshold"];
+        m_F_threshold = (double)optical_flow["F_threshold"];
     }
     
     // Stereo Matching Parameters
@@ -83,10 +85,10 @@ bool Config::load(const std::string& config_file) {
     // Keyframe Parameters
     cv::FileNode keyframe = fs["keyframe"];
     if (!keyframe.empty()) {
-        m_keyframe_interval = (int)keyframe["interval"];
-        spdlog::info("Loaded keyframe interval from config: {}", m_keyframe_interval);
+        m_min_grid_coverage = (double)keyframe["min_grid_coverage"];
+        spdlog::info("Loaded keyframe min grid coverage from config: {}", m_min_grid_coverage);
     } else {
-        spdlog::warn("Keyframe section not found in config, using default: {}", m_keyframe_interval);
+        spdlog::warn("Keyframe section not found in config, using default: {}", m_min_grid_coverage);
     }
     
     // Pose Optimization Parameters

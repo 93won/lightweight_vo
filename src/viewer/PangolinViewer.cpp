@@ -22,6 +22,7 @@ static int get_max_features_from_config() {
 
 PangolinViewer::PangolinViewer()
     : m_current_pose(Eigen::Matrix4f::Identity())
+    , m_current_camera_pose(Eigen::Matrix4f::Identity())
     , m_has_tracking_image(false)
     , m_has_stereo_image(false)
     , m_space_pressed(false)
@@ -35,6 +36,7 @@ PangolinViewer::PangolinViewer()
     , m_panels_created(false)
     , m_show_points(true)
     , m_show_trajectory(true)
+    , m_show_keyframe_frustums(true)
     , m_show_gt_trajectory(true)
     , m_show_camera_frustum(true)
     , m_show_grid(true)
@@ -45,7 +47,7 @@ PangolinViewer::PangolinViewer()
     , m_frame_id("ui.Frame ID", 0)
     , m_successful_matches("ui.Num Tracked Map Points", 0, 0, get_max_features_from_config())
     , m_separator("ui.================================================================================", "")
-    , m_auto_mode_checkbox("ui.1. Auto Mode", true, true)
+    , m_auto_mode_checkbox("ui.1. Auto Mode", false, true)
     , m_show_map_point_indices("ui.2. Show Map Point IDs", false, true)
     , m_show_accumulated_map_points("ui.3. Show Accumulated Map Points", true, true)
     , m_step_forward_button("ui.4. Step Forward", false, false)
@@ -260,6 +262,10 @@ void PangolinViewer::render() {
         draw_trajectory();
     }
 
+    if (m_show_keyframe_frustums && !m_keyframe_poses.empty()) {
+        draw_keyframe_frustums();
+    }
+
     if (m_show_gt_trajectory && !m_gt_trajectory.empty()) {
         draw_gt_trajectory();
     }
@@ -425,6 +431,51 @@ void PangolinViewer::draw_trajectory() {
     glLineWidth(1.0f);
 }
 
+void PangolinViewer::draw_keyframe_frustums() {
+    if (m_keyframe_poses.empty()) return;
+    
+    // Set sky blue color for keyframe frustums
+    glColor3f(0.5f, 0.8f, 1.0f);
+    
+    for (const auto& T_wc : m_keyframe_poses) {
+        
+        Eigen::Vector3f position = T_wc.block<3, 1>(0, 3);
+        Eigen::Matrix3f rotation = T_wc.block<3, 3>(0, 0);
+        
+        // Draw smaller keyframe frustum
+        float scale = 0.1f;  // Smaller scale for keyframes
+        
+        // Camera frustum vertices (in camera coordinate)
+        std::vector<Eigen::Vector3f> frustum_points = {
+            Eigen::Vector3f(0, 0, 0),                    // Camera center
+            Eigen::Vector3f(-scale, -scale, scale * 2),  // Bottom-left
+            Eigen::Vector3f(scale, -scale, scale * 2),   // Bottom-right  
+            Eigen::Vector3f(scale, scale, scale * 2),    // Top-right
+            Eigen::Vector3f(-scale, scale, scale * 2)    // Top-left
+        };
+        
+        // Transform to world coordinates
+        for (auto& point : frustum_points) {
+            point = rotation * point + position;
+        }
+        
+        // Draw frustum edges
+        glBegin(GL_LINES);
+        // Lines from camera center to corners
+        for (int i = 1; i < 5; ++i) {
+            glVertex3f(frustum_points[0].x(), frustum_points[0].y(), frustum_points[0].z());
+            glVertex3f(frustum_points[i].x(), frustum_points[i].y(), frustum_points[i].z());
+        }
+        // Rectangle at far plane
+        for (int i = 1; i < 5; ++i) {
+            int next = (i % 4) + 1;
+            glVertex3f(frustum_points[i].x(), frustum_points[i].y(), frustum_points[i].z());
+            glVertex3f(frustum_points[next].x(), frustum_points[next].y(), frustum_points[next].z());
+        }
+        glEnd();
+    }
+}
+
 void PangolinViewer::draw_gt_trajectory() {
     if (m_gt_trajectory.size() < 2) return;
     
@@ -480,75 +531,52 @@ void PangolinViewer::draw_pose() {
 }
 
 void PangolinViewer::draw_camera_frustum() {
-    // Get camera pose using T_BC from config
-    try {
-        const auto& config = Config::getInstance();
-        cv::Mat T_bc_cv = config.left_T_BC();
-        Eigen::Matrix4f T_bc;
-        for (int i = 0; i < 4; ++i) {
-            for (int j = 0; j < 4; ++j) {
-                T_bc(i, j) = T_bc_cv.at<double>(i, j);
-            }
-        }
-        
-        // T_cb = T_bc^-1 (body to camera)
-        Eigen::Matrix4f T_cb = T_bc.inverse();
-        
-        // T_wc = T_wb * T_cb (world to camera)
-        Eigen::Matrix4f T_wc = m_current_pose * T_cb;
-        
-        // Draw camera frustum using Pangolin
-        glPushMatrix();
-        glMultMatrixf(T_wc.data());
-        
-        const float w = 0.15f;
-        const float h = w * 0.75f;
-        const float z = w;
-        
-        glLineWidth(2.0f);
-        glColor3f(1.0f, 1.0f, 0.0f); // Yellow frustum
-        
-        glBegin(GL_LINES);
-        
-        // Frustum lines from origin to corners
-        glVertex3f(0, 0, 0); glVertex3f(w, h, z);
-        glVertex3f(0, 0, 0); glVertex3f(w, -h, z);
-        glVertex3f(0, 0, 0); glVertex3f(-w, -h, z);
-        glVertex3f(0, 0, 0); glVertex3f(-w, h, z);
-        
-        // Frustum rectangle
-        glVertex3f(w, h, z); glVertex3f(w, -h, z);
-        glVertex3f(-w, h, z); glVertex3f(-w, -h, z);
-        glVertex3f(-w, h, z); glVertex3f(w, h, z);
-        glVertex3f(-w, -h, z); glVertex3f(w, -h, z);
-        
-        glEnd();
-        glLineWidth(1.0f);
-        
-        glPopMatrix();
-        
-    } catch (const std::exception& e) {
-        // If config not available, draw simple frustum
-        glPushMatrix();
-        glMultMatrixf(m_current_pose.data());
-        
-        const float w = 0.15f;
-        const float h = w * 0.75f;
-        const float z = w;
-        
-        glLineWidth(2.0f);
-        glColor3f(1.0f, 1.0f, 0.0f);
-        
-        glBegin(GL_LINES);
-        glVertex3f(0, 0, 0); glVertex3f(w, h, z);
-        glVertex3f(0, 0, 0); glVertex3f(w, -h, z);
-        glVertex3f(0, 0, 0); glVertex3f(-w, -h, z);
-        glVertex3f(0, 0, 0); glVertex3f(-w, h, z);
-        glEnd();
-        glLineWidth(1.0f);
-        
-        glPopMatrix();
+    // Draw current frame frustum using T_wc (same as keyframes)
+    // This ensures consistency with keyframe frustum rendering
+    
+    if (m_current_camera_pose.isZero()) {
+        return; // No camera pose available
     }
+    
+    // Use the stored T_wc directly (same as keyframes)
+    Eigen::Vector3f position = m_current_camera_pose.block<3, 1>(0, 3);
+    Eigen::Matrix3f rotation = m_current_camera_pose.block<3, 3>(0, 0);
+    
+    // Draw current frame frustum - larger than keyframes
+    float scale = 0.15f;  // Larger scale for current frame
+    
+    // Camera frustum vertices (in camera coordinate)
+    std::vector<Eigen::Vector3f> frustum_points = {
+        Eigen::Vector3f(0, 0, 0),                    // Camera center
+        Eigen::Vector3f(-scale, -scale, scale * 2),  // Bottom-left
+        Eigen::Vector3f(scale, -scale, scale * 2),   // Bottom-right  
+        Eigen::Vector3f(scale, scale, scale * 2),    // Top-right
+        Eigen::Vector3f(-scale, scale, scale * 2)    // Top-left
+    };
+    
+    // Transform to world coordinates (same as keyframes)
+    for (auto& point : frustum_points) {
+        point = rotation * point + position;
+    }
+    
+    glLineWidth(2.0f);
+    glColor3f(1.0f, 1.0f, 0.0f); // Yellow frustum
+    
+    // Draw frustum edges
+    glBegin(GL_LINES);
+    // Lines from camera center to corners
+    for (int i = 1; i < 5; ++i) {
+        glVertex3f(frustum_points[0].x(), frustum_points[0].y(), frustum_points[0].z());
+        glVertex3f(frustum_points[i].x(), frustum_points[i].y(), frustum_points[i].z());
+    }
+    // Rectangle at far plane
+    for (int i = 1; i < 5; ++i) {
+        int next = (i % 4) + 1;
+        glVertex3f(frustum_points[i].x(), frustum_points[i].y(), frustum_points[i].z());
+        glVertex3f(frustum_points[next].x(), frustum_points[next].y(), frustum_points[next].z());
+    }
+    glEnd();
+    glLineWidth(1.0f);
 }
 
 pangolin::GlTexture PangolinViewer::create_texture_from_cv_mat(const cv::Mat& mat) {
@@ -583,8 +611,16 @@ void PangolinViewer::update_pose(const Eigen::Matrix4f& pose) {
     m_current_pose = pose;
 }
 
+void PangolinViewer::update_camera_pose(const Eigen::Matrix4f& T_wc) {
+    m_current_camera_pose = T_wc;
+}
+
 void PangolinViewer::update_trajectory(const std::vector<Eigen::Vector3f>& trajectory) {
     m_trajectory = trajectory;
+}
+
+void PangolinViewer::update_keyframe_poses(const std::vector<Eigen::Matrix4f>& keyframe_poses) {
+    m_keyframe_poses = keyframe_poses;
 }
 
 void PangolinViewer::add_ground_truth_pose(const Eigen::Matrix4f& gt_pose) {
