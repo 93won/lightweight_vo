@@ -144,16 +144,19 @@ Frame::Frame(long long timestamp, int frame_id,
 }
 
 void Frame::set_pose(const Eigen::Matrix3f& rotation, const Eigen::Vector3f& translation) {
+    std::lock_guard<std::mutex> lock(m_pose_mutex);
     m_rotation = rotation;
     m_translation = translation;
 }
 
 void Frame::set_Twb(const Eigen::Matrix4f& T_wb) {
+    std::lock_guard<std::mutex> lock(m_pose_mutex);
     m_rotation = T_wb.block<3, 3>(0, 0);
     m_translation = T_wb.block<3, 1>(0, 3);
 }
 
 Eigen::Matrix4f Frame::get_Twb() const {
+    std::lock_guard<std::mutex> lock(m_pose_mutex);
     Eigen::Matrix4f T_wb = Eigen::Matrix4f::Identity();
     T_wb.block<3, 3>(0, 0) = m_rotation;
     T_wb.block<3, 1>(0, 3) = m_translation;
@@ -161,7 +164,7 @@ Eigen::Matrix4f Frame::get_Twb() const {
 }
 
 Eigen::Matrix4f Frame::get_Twc() const {
-    // Get T_wb (body to world transform)
+    // Get T_wb (body to world transform) - this call is already thread-safe
     Eigen::Matrix4f T_wb = get_Twb();
     
     // Get T_CB (body to camera transform) 

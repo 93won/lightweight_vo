@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include <Eigen/Dense>
+#include <mutex>
 
 namespace lightweight_vio {
 
@@ -53,6 +54,10 @@ private:
     Eigen::Vector3f m_position;
     std::vector<Observation> m_observations;
     bool m_is_bad;
+    
+    // Thread safety
+    mutable std::mutex m_position_mutex; // Mutex for position operations
+    mutable std::mutex m_data_mutex;     // Mutex for other data operations
     
     static int s_next_id;
 };

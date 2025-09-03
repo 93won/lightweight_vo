@@ -8,6 +8,7 @@
 #include <memory>
 #include <chrono>
 #include <unordered_map>
+#include <mutex>
 
 namespace lightweight_vio {
 
@@ -139,6 +140,9 @@ private:
     Eigen::Matrix3f m_rotation;    // Rotation matrix
     Eigen::Vector3f m_translation; // Translation vector
     bool m_is_keyframe;           // Whether this is a keyframe
+
+    // Thread safety
+    mutable std::mutex m_pose_mutex; // Mutex for pose operations
 
     // Feature detection parameters
     double m_quality_level = 0.01;

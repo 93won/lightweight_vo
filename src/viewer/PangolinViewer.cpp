@@ -6,6 +6,7 @@
 #include <util/Config.h>
 #include <database/Feature.h>
 #include <database/MapPoint.h>
+#include <database/Frame.h>
 
 namespace lightweight_vio {
 
@@ -23,6 +24,7 @@ static int get_max_features_from_config() {
 PangolinViewer::PangolinViewer()
     : m_current_pose(Eigen::Matrix4f::Identity())
     , m_current_camera_pose(Eigen::Matrix4f::Identity())
+    , m_relative_pose_from_last_keyframe(Eigen::Matrix4f::Identity())
     , m_has_tracking_image(false)
     , m_has_stereo_image(false)
     , m_space_pressed(false)
@@ -88,7 +90,6 @@ bool PangolinViewer::initialize(int width, int height) {
     glClearColor(0.1f, 0.1f, 0.15f, 1.0f);  // Dark navy background
 
     m_initialized = true;
-    std::cout << "PangolinViewer initialized successfully" << std::endl;
     return true;
 }
 
@@ -193,11 +194,7 @@ void PangolinViewer::setup_panels() {
         // 원본 이미지 aspect ratio 유지 (이미지 크기는 bounds로, 비율은 고정)
         d_img_left.SetBounds(m_tracking_image_bottom, new_tracking_image_top, 0.0, pangolin::Attach::Frac(ui_panel_ratio), -tracking_aspect);
         d_img_right.SetBounds(m_stereo_image_bottom, new_stereo_image_top, 0.0, pangolin::Attach::Frac(ui_panel_ratio), -stereo_aspect);
-        
-        std::cout << "[DEBUG] 패널과 이미지 모두 업데이트 완료: UI 비율=" << ui_panel_ratio 
-                  << ", 새 display_width=" << new_display_width 
-                  << ", tracking_bottom=" << m_tracking_image_bottom 
-                  << ", stereo_bottom=" << m_stereo_image_bottom << std::endl;
+     
     }
 }
 
@@ -262,7 +259,7 @@ void PangolinViewer::render() {
         draw_trajectory();
     }
 
-    if (m_show_keyframe_frustums && !m_keyframe_poses.empty()) {
+    if (m_show_keyframe_frustums && !m_keyframe_window.empty()) {
         draw_keyframe_frustums();
     }
 
@@ -389,21 +386,41 @@ void PangolinViewer::draw_points() {
 }
 
 void PangolinViewer::draw_map_points() {
-    // Draw accumulated map points in white (only if toggle is enabled)
-    if (!m_all_map_points.empty() && m_show_accumulated_map_points) {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    
+    // Draw all map points in light gray (background points)
+    if (!m_all_map_points_storage.empty() && m_show_accumulated_map_points) {
         glPointSize(m_point_size);
-        glColor3f(1.0f, 1.0f, 1.0f); // White for accumulated map points
+        glColor3f(0.8f, 0.8f, 0.8f); // Light gray for all map points
         
         glBegin(GL_POINTS);
-        for (const auto& point : m_all_map_points) {
-            glVertex3f(point.x(), point.y(), point.z());
+        for (const auto& point : m_all_map_points_storage) {
+            if (point && !point->is_bad()) {
+                Eigen::Vector3f position = point->get_position();
+                glVertex3f(position.x(), position.y(), position.z());
+            }
         }
         glEnd();
     }
     
-    // Draw current frame tracking points in red (always shown - overlay on top)
+    // Draw sliding window map points in white (more prominent)
+    if (!m_window_map_points_storage.empty()) {
+        glPointSize(m_point_size * 1.5f); // Slightly larger
+        glColor3f(1.0f, 1.0f, 1.0f); // White for window map points
+        
+        glBegin(GL_POINTS);
+        for (const auto& point : m_window_map_points_storage) {
+            if (point && !point->is_bad()) {
+                Eigen::Vector3f position = point->get_position();
+                glVertex3f(position.x(), position.y(), position.z());
+            }
+        }
+        glEnd();
+    }
+    
+    // Draw current frame tracking points in red (highest priority - overlay on top)
     if (!m_current_map_points.empty()) {
-        glPointSize(m_point_size*4.0f); // Slightly larger for visibility
+        glPointSize(m_point_size * 2.0f); // Largest for visibility
         glColor3f(1.0f, 0.0f, 0.0f); // Red for current frame tracking points
         
         glBegin(GL_POINTS);
@@ -432,12 +449,20 @@ void PangolinViewer::draw_trajectory() {
 }
 
 void PangolinViewer::draw_keyframe_frustums() {
-    if (m_keyframe_poses.empty()) return;
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    
+    // Use sliding window keyframes instead of old m_keyframe_poses
+    if (m_keyframe_window.empty()) return;
     
     // Set sky blue color for keyframe frustums
     glColor3f(0.5f, 0.8f, 1.0f);
     
-    for (const auto& T_wc : m_keyframe_poses) {
+    for (const auto& keyframe : m_keyframe_window) {
+        if (!keyframe) continue;
+        
+        // Get Twc from keyframe
+        Eigen::Matrix4f Twc = keyframe->get_Twc();
+        Eigen::Matrix4f T_wc = Twc;
         
         Eigen::Vector3f position = T_wc.block<3, 1>(0, 3);
         Eigen::Matrix3f rotation = T_wc.block<3, 3>(0, 0);
@@ -619,7 +644,11 @@ void PangolinViewer::update_trajectory(const std::vector<Eigen::Vector3f>& traje
     m_trajectory = trajectory;
 }
 
+// DEPRECATED: Use update_keyframe_window() instead
 void PangolinViewer::update_keyframe_poses(const std::vector<Eigen::Matrix4f>& keyframe_poses) {
+    // This function is deprecated but kept for backward compatibility
+    // Convert to new sliding window format if needed
+    spdlog::warn("update_keyframe_poses() is deprecated. Use update_keyframe_window() instead.");
     m_keyframe_poses = keyframe_poses;
 }
 
@@ -790,6 +819,37 @@ void PangolinViewer::draw_feature_grid(cv::Mat& image) {
         int y = (int)(i * cell_height);
         cv::line(image, cv::Point(0, y), cv::Point(image.cols, y), grid_color, thickness);
     }
+}
+
+// New sliding window keyframe management functions
+void PangolinViewer::add_frame(std::shared_ptr<Frame> frame) {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    m_all_frames.push_back(frame);
+}
+
+void PangolinViewer::update_keyframe_window(const std::vector<std::shared_ptr<Frame>>& keyframes) {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    m_keyframe_window = keyframes;
+}
+
+void PangolinViewer::set_last_keyframe(std::shared_ptr<Frame> last_keyframe) {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    m_last_keyframe = last_keyframe;
+}
+
+void PangolinViewer::update_relative_pose_from_last_keyframe(const Eigen::Matrix4f& relative_pose) {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    m_relative_pose_from_last_keyframe = relative_pose;
+}
+
+void PangolinViewer::update_all_map_points(const std::vector<std::shared_ptr<MapPoint>>& map_points) {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    m_all_map_points_storage = map_points;
+}
+
+void PangolinViewer::update_window_map_points(const std::vector<std::shared_ptr<MapPoint>>& window_map_points) {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    m_window_map_points_storage = window_map_points;
 }
 
 } // namespace lightweight_vio

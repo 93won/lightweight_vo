@@ -159,6 +159,7 @@ namespace lightweight_vio
                 }
 
                 // Update result
+                result.initial_cost = initial_cost;
                 result.final_cost = summary.final_cost;
                 result.num_iterations += summary.iterations.size();
                 result.success = (summary.termination_type == ceres::CONVERGENCE);
@@ -204,6 +205,7 @@ namespace lightweight_vio
             }
 
             result.success = (summary.termination_type == ceres::CONVERGENCE);
+            result.initial_cost = summary.initial_cost;
             result.final_cost = summary.final_cost;
             result.num_iterations = summary.iterations.size();
             

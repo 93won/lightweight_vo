@@ -340,13 +340,6 @@ int main(int argc, char* argv[]) {
         if (viewer) {
             auto current_frame = estimator.get_current_frame();
             if (current_frame) {
-                // Get both accumulated and current frame map points
-                std::vector<Eigen::Vector3f> all_map_points = extract_all_accumulated_map_points(estimator);
-                std::vector<Eigen::Vector3f> current_map_points = extract_current_frame_map_points(estimator);
-                
-                // Update map points with color differentiation
-                viewer->update_map_points(all_map_points, current_map_points);
-                
                 // Update current pose
                 Eigen::Matrix4f current_pose = current_frame->get_Twb();
                 viewer->update_pose(current_pose);
@@ -361,13 +354,59 @@ int main(int argc, char* argv[]) {
                 trajectory_points.push_back(current_position);
                 viewer->update_trajectory(trajectory_points);
                 
-                // Update keyframe frustums (sky blue) - using camera coordinates
+                // Add current frame to viewer for sliding window management
+                viewer->add_frame(current_frame);
+                
+                // Update keyframe window with latest keyframes from estimator
                 const auto& keyframes = estimator.get_keyframes();
-                std::vector<Eigen::Matrix4f> keyframe_poses;
-                for (const auto& kf : keyframes) {
-                    keyframe_poses.push_back(kf->get_Twc());  // World to camera transform
+                viewer->update_keyframe_window(keyframes);
+                
+                // Update last keyframe if we have keyframes
+                if (!keyframes.empty()) {
+                    viewer->set_last_keyframe(keyframes.back());
+                    
+                    // Calculate relative pose from last keyframe to current frame
+                    Eigen::Matrix4f last_keyframe_pose = keyframes.back()->get_Twb();
+                    Eigen::Matrix4f current_pose_matrix = current_frame->get_Twb();
+                    Eigen::Matrix4f relative_pose = last_keyframe_pose.inverse() * current_pose_matrix;
+                    viewer->update_relative_pose_from_last_keyframe(relative_pose);
                 }
-                viewer->update_keyframe_poses(keyframe_poses);
+                
+                // Update map points with sliding window approach
+                // Get all map points from estimator
+                std::vector<std::shared_ptr<MapPoint>> all_map_points_shared;
+                std::vector<std::shared_ptr<MapPoint>> window_map_points_shared;
+                
+                // Collect all unique map points from all frames
+                std::set<std::shared_ptr<MapPoint>> unique_map_points;
+                for (const auto& kf : keyframes) {
+                    const auto& kf_map_points = kf->get_map_points();
+                    for (const auto& mp : kf_map_points) {
+                        if (mp && !mp->is_bad()) {
+                            unique_map_points.insert(mp);
+                        }
+                    }
+                }
+                
+                // Convert to vectors
+                all_map_points_shared.assign(unique_map_points.begin(), unique_map_points.end());
+                
+                // Window map points are from current sliding window keyframes
+                for (const auto& kf : keyframes) {
+                    const auto& kf_map_points = kf->get_map_points();
+                    for (const auto& mp : kf_map_points) {
+                        if (mp && !mp->is_bad()) {
+                            window_map_points_shared.push_back(mp);
+                        }
+                    }
+                }
+                
+                viewer->update_all_map_points(all_map_points_shared);
+                viewer->update_window_map_points(window_map_points_shared);
+                
+                // For legacy support, update current frame tracking points
+                std::vector<Eigen::Vector3f> current_map_points = extract_current_frame_map_points(estimator);
+                viewer->update_map_points({}, current_map_points);  // Empty all_points, only current points
                 
                 // Update tracking image
                 static std::shared_ptr<Frame> previous_frame = nullptr;
@@ -479,7 +518,7 @@ int main(int argc, char* argv[]) {
         ++current_idx;
         
         // Control frame rate
-        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     
     spdlog::info("[VIO] Processing completed! Processed {} frames", processed_frames);

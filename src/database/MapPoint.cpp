@@ -26,14 +26,17 @@ MapPoint::~MapPoint() {
 }
 
 void MapPoint::set_position(const Eigen::Vector3f& position) {
+    std::lock_guard<std::mutex> lock(m_position_mutex);
     m_position = position;
 }
 
 const Eigen::Vector3f& MapPoint::get_position() const {
+    std::lock_guard<std::mutex> lock(m_position_mutex);
     return m_position;
 }
 
 void MapPoint::add_observation(std::shared_ptr<Frame> frame, int feature_index) {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
     if (!frame) return;
     
     // Check if this frame is already observing this map point
@@ -114,10 +117,12 @@ int MapPoint::get_id() const {
 }
 
 void MapPoint::set_bad() {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
     m_is_bad = true;
 }
 
 bool MapPoint::is_bad() const {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
     return m_is_bad;
 }
 

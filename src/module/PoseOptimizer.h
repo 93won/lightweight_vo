@@ -29,11 +29,12 @@ struct OptimizationResult {
     int num_outliers;
     Eigen::Matrix4f optimized_pose;
     std::vector<bool> outlier_flags;
+    double initial_cost;
     double final_cost;
     int num_iterations;
     
     OptimizationResult() : success(false), num_inliers(0), num_outliers(0), 
-                          final_cost(0.0), num_iterations(0) {}
+                          initial_cost(0.0), final_cost(0.0), num_iterations(0) {}
 };
 
 /**

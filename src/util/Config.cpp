@@ -83,12 +83,15 @@ bool Config::load(const std::string& config_file) {
     }
     
     // Keyframe Parameters
-    cv::FileNode keyframe = fs["keyframe"];
-    if (!keyframe.empty()) {
-        m_min_grid_coverage = (double)keyframe["min_grid_coverage"];
-        spdlog::info("Loaded keyframe min grid coverage from config: {}", m_min_grid_coverage);
+    cv::FileNode keyframe_mgmt = fs["keyframe_management"];
+    if (!keyframe_mgmt.empty()) {
+        m_grid_coverage_ratio = (double)keyframe_mgmt["grid_coverage_ratio"];
+        m_keyframe_window_size = (int)keyframe_mgmt["keyframe_window_size"];
+        spdlog::info("Loaded keyframe management from config: grid_coverage_ratio={}, window_size={}", 
+                    m_grid_coverage_ratio, m_keyframe_window_size);
     } else {
-        spdlog::warn("Keyframe section not found in config, using default: {}", m_min_grid_coverage);
+        spdlog::warn("Keyframe management section not found in config, using defaults: grid_coverage_ratio={}, window_size={}", 
+                    m_grid_coverage_ratio, m_keyframe_window_size);
     }
     
     // Pose Optimization Parameters

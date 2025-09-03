@@ -84,7 +84,8 @@ namespace lightweight_vio
         double m_min_parallax = 0.5;
 
         // Keyframe Parameters
-        double m_min_grid_coverage = 0.5;  // Minimum ratio of grid cells with map points for keyframe generation
+        double m_grid_coverage_ratio = 0.7;  // Add keyframe when coverage drops to this ratio of last keyframe's coverage
+        int m_keyframe_window_size = 10;     // Number of keyframes to keep in sliding window
 
         // Pose Optimization Parameters
         int m_pose_max_iterations = 10;

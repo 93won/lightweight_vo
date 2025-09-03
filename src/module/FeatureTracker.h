@@ -57,6 +57,9 @@ private:
     // Feature distribution mask
     cv::Mat m_mask;
     
+    // Keyframe management state
+    double m_last_keyframe_grid_coverage = 0.0;  // Grid coverage of the last keyframe
+    
     // Helper functions
     bool is_in_border(const cv::Point2f& point, const cv::Size& img_size, int border_size = 1) const;
     void update_feature_track_count(std::shared_ptr<Frame> frame);

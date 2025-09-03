@@ -132,6 +132,9 @@ private:
     int m_frame_id_counter;
     int m_frames_since_last_keyframe;
     
+    // Keyframe management state
+    double m_last_keyframe_grid_coverage = 0.0;  // Grid coverage of the last keyframe
+    
     // Current pose
     Eigen::Matrix4f m_current_pose;
     

@@ -16,6 +16,7 @@ namespace lightweight_vio {
 Estimator::Estimator()
     : m_frame_id_counter(0)
     , m_frames_since_last_keyframe(0)
+    , m_last_keyframe_grid_coverage(0.0)
     , m_current_pose(Eigen::Matrix4f::Identity())
     , m_transform_from_last(Eigen::Matrix4f::Identity())
     , m_has_initial_gt_pose(false)
@@ -30,16 +31,26 @@ Estimator::Estimator()
 
 Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp) {
     EstimationResult result;
-    auto start_time = std::chrono::high_resolution_clock::now();
+    auto total_start_time = std::chrono::high_resolution_clock::now();
 
     // Frame processing starts
-    spdlog::info("============================== Frame {} ==============================", m_frame_id_counter);
+    std::cout<<"\n";
+    spdlog::info("============================== Frame {} ==============================\n", m_frame_id_counter);
 
     // Increment frame counter since last keyframe for every new frame
     m_frames_since_last_keyframe++;
 
+    // Initialize timing variables
+    double frame_creation_time = 0.0;
+    double prediction_time = 0.0;
+    double tracking_time = 0.0;
+    double optimization_time = 0.0;
+
     // Create new stereo frame
+    auto frame_creation_start = std::chrono::high_resolution_clock::now();
     m_current_frame = create_frame(left_image, right_image, timestamp);
+    auto frame_creation_end = std::chrono::high_resolution_clock::now();
+    frame_creation_time = std::chrono::duration_cast<std::chrono::microseconds>(frame_creation_end - frame_creation_start).count() / 1000.0;
 
     if (!m_current_frame)
     {
@@ -49,12 +60,17 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
     }
 
     if (m_previous_frame) {
-        // Predict current frame pose using GT pose from EurocUtils
+        auto prediction_start = std::chrono::high_resolution_clock::now();
         predict_state();
+        auto prediction_end = std::chrono::high_resolution_clock::now();
+        prediction_time = std::chrono::duration_cast<std::chrono::microseconds>(prediction_end - prediction_start).count() / 1000.0;
         
         // Track features from previous frame using FeatureTracker
         // FeatureTracker now handles both tracking and map point association/creation
+        auto tracking_start = std::chrono::high_resolution_clock::now();
         m_feature_tracker->track_features(m_current_frame, m_previous_frame);
+        auto tracking_end = std::chrono::high_resolution_clock::now();
+        tracking_time = std::chrono::duration_cast<std::chrono::microseconds>(tracking_end - tracking_start).count() / 1000.0;
         
         result.num_features = m_current_frame->get_feature_count();
         
@@ -71,7 +87,11 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         if (num_tracked_with_map_points > 0) {
             // ✅ ENABLED: Pose optimization re-enabled after fixing coordinate space mismatch!
             if (num_tracked_with_map_points >= 5) {
+                auto optimization_start = std::chrono::high_resolution_clock::now();
                 auto opt_result = optimize_pose(m_current_frame);
+                auto optimization_end = std::chrono::high_resolution_clock::now();
+                optimization_time = std::chrono::duration_cast<std::chrono::microseconds>(optimization_end - optimization_start).count() / 1000.0;
+                
                 result.success = opt_result.success;
                 result.num_inliers = opt_result.num_inliers;
                 result.num_outliers = opt_result.num_outliers;
@@ -83,8 +103,8 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
                     // Update transform from last frame for velocity estimation
                     update_transform_from_last();
                     
-                    spdlog::info("[POSE_OPT] ✅ Optimization successful: {} inliers, {} outliers, final_cost={:.6f}, iterations={}", 
-                                opt_result.num_inliers, opt_result.num_outliers, opt_result.final_cost, opt_result.num_iterations);
+                    spdlog::info("[POSE_OPT] ✅ Optimization successful: {} inliers, {} outliers, initial_cost={:.2f}, final_cost={:.2f}, iterations={}, time={:.2f}ms", 
+                                opt_result.num_inliers, opt_result.num_outliers, opt_result.initial_cost, opt_result.final_cost, opt_result.num_iterations, optimization_time);
                 } else {
                     spdlog::warn("[POSE_OPT] ❌ Optimization failed - keeping previous pose");
                 }
@@ -115,15 +135,28 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         
         
         // Decide whether to create keyframe
+        auto keyframe_decision_start = std::chrono::high_resolution_clock::now();
         bool is_keyframe = should_create_keyframe(m_current_frame);
+        auto keyframe_decision_end = std::chrono::high_resolution_clock::now();
+        auto keyframe_decision_time = std::chrono::duration_cast<std::chrono::microseconds>(keyframe_decision_end - keyframe_decision_start).count() / 1000.0;
         
         // Only create new map points for keyframes to avoid trajectory drift
         if (is_keyframe) {
+            auto map_points_start = std::chrono::high_resolution_clock::now();
             int new_map_points = create_new_map_points(m_current_frame);
+            auto map_points_end = std::chrono::high_resolution_clock::now();
+            auto map_points_time = std::chrono::duration_cast<std::chrono::microseconds>(map_points_end - map_points_start).count() / 1000.0;
+            
             result.num_new_map_points = new_map_points;
-            spdlog::info("[MAP_POINTS] Created {} new map points by new keyframe insertion", new_map_points);
+            // spdlog::info("[MAP_POINTS] Created {} new map points by new keyframe insertion", new_map_points);
+            
+            auto keyframe_creation_start = std::chrono::high_resolution_clock::now();
             create_keyframe(m_current_frame);
+            auto keyframe_creation_end = std::chrono::high_resolution_clock::now();
+            auto keyframe_creation_time = std::chrono::duration_cast<std::chrono::microseconds>(keyframe_creation_end - keyframe_creation_start).count() / 1000.0;
+            
             m_frames_since_last_keyframe = 0;  // Reset to 0 after creating keyframe
+            
         } else {
             result.num_new_map_points = 0;
         }
@@ -145,7 +178,10 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         result.num_features = m_current_frame->get_feature_count();
         
         // Compute stereo depth for all features
+        auto stereo_start = std::chrono::high_resolution_clock::now();
         m_current_frame->compute_stereo_depth();
+        auto stereo_end = std::chrono::high_resolution_clock::now();
+        auto stereo_time = std::chrono::duration_cast<std::chrono::microseconds>(stereo_end - stereo_start).count() / 1000.0;
         
         // First frame - keep identity pose (already set in create_frame)
         m_current_pose = m_current_frame->get_Twb();
@@ -154,11 +190,23 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         m_frames_since_last_keyframe++;
         
         // Create initial map points (first frame is always considered keyframe)
+        auto initial_map_points_start = std::chrono::high_resolution_clock::now();
         int initial_map_points = create_initial_map_points(m_current_frame);
+        auto initial_map_points_end = std::chrono::high_resolution_clock::now();
+        auto initial_map_points_time = std::chrono::duration_cast<std::chrono::microseconds>(initial_map_points_end - initial_map_points_start).count() / 1000.0;
+        
         result.num_new_map_points = initial_map_points;
         spdlog::info("[MAP_POINTS] Created {} initial map points", initial_map_points);
+        
+        auto first_keyframe_start = std::chrono::high_resolution_clock::now();
         create_keyframe(m_current_frame);
+        auto first_keyframe_end = std::chrono::high_resolution_clock::now();
+        auto first_keyframe_time = std::chrono::duration_cast<std::chrono::microseconds>(first_keyframe_end - first_keyframe_start).count() / 1000.0;
+        
         m_frames_since_last_keyframe = 0;  // Reset after creating first keyframe
+        
+        spdlog::info("[TIMING] First frame initialization: stereo={:.2f}ms, initial_map_points={:.2f}ms, keyframe={:.2f}ms", 
+                    stereo_time, initial_map_points_time, first_keyframe_time);
         
         // Count features for first frame
         result.num_tracked_features = m_current_frame->get_feature_count();
@@ -171,8 +219,12 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
     result.pose = m_current_frame->get_Twb();
     
     auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - total_start_time);
     result.optimization_time_ms = duration.count() / 1000.0;
+    
+    // Comprehensive timing log - only show major components
+    spdlog::info("[TIMING] Frame {} processing: total={:.2f}ms, tracking={:.2f}ms, optimization={:.2f}ms", 
+                m_current_frame->get_frame_id(), result.optimization_time_ms, tracking_time, optimization_time);
     
     // Update state
     m_previous_frame = m_current_frame;
@@ -188,6 +240,7 @@ void Estimator::reset() {
     
     m_frame_id_counter = 0;
     m_frames_since_last_keyframe = 0;
+    m_last_keyframe_grid_coverage = 0.0;
     m_current_pose = Eigen::Matrix4f::Identity();
 }
 
@@ -450,14 +503,30 @@ bool lightweight_vio::Estimator::should_create_keyframe(std::shared_ptr<Frame> f
     }
     
     // Grid-based keyframe creation policy
-    // Create keyframe when less than min_grid_coverage of grid cells have features with map points
-    double grid_coverage = calculate_grid_coverage_with_map_points(frame);
+    // Create keyframe when grid coverage drops to configured ratio of last keyframe's coverage
+    double current_grid_coverage = calculate_grid_coverage_with_map_points(frame);
     
-    if (grid_coverage < Config::getInstance().m_min_grid_coverage) {
-        if (Config::getInstance().m_enable_debug_output) {
-            spdlog::info("[KEYFRAME] Creating keyframe due to low grid coverage: {:.2f} < {:.2f}", grid_coverage, Config::getInstance().m_min_grid_coverage);
+    // For the first few keyframes, use absolute threshold of 50% to establish baseline
+    if (m_keyframes.size() <= 2 || m_last_keyframe_grid_coverage <= 0.0) {
+        double absolute_threshold = 0.5;
+        if (current_grid_coverage < absolute_threshold) {
+            if (Config::getInstance().m_enable_debug_output) {
+                spdlog::info("[KEYFRAME] Creating keyframe due to low grid coverage (initial): {:.2f} < {:.2f}", 
+                            current_grid_coverage, absolute_threshold);
+            }
+            return true;
         }
-        return true;
+    } else {
+        // Use relative threshold based on last keyframe's coverage
+        double relative_threshold = m_last_keyframe_grid_coverage * Config::getInstance().m_grid_coverage_ratio;
+        if (current_grid_coverage < relative_threshold) {
+            if (Config::getInstance().m_enable_debug_output) {
+                spdlog::info("[KEYFRAME] Creating keyframe due to grid coverage drop: {:.2f} < {:.2f} (ratio={:.1f}% of last keyframe {:.2f})", 
+                            current_grid_coverage, relative_threshold, 
+                            Config::getInstance().m_grid_coverage_ratio * 100.0, m_last_keyframe_grid_coverage);
+            }
+            return true;
+        }
     }
     
     return false;
@@ -471,7 +540,27 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
     frame->set_keyframe(true);
     m_keyframes.push_back(frame);
     
-    // spdlog::info("[KEYFRAME] Created keyframe {} with {} features", frame->get_frame_id(), frame->get_feature_count());
+    // Apply sliding window - remove old keyframes if window size exceeded
+    const int max_keyframes = Config::getInstance().m_keyframe_window_size;
+    if (m_keyframes.size() > static_cast<size_t>(max_keyframes)) {
+        // Remove oldest keyframe
+        auto oldest_keyframe = m_keyframes.front();
+        m_keyframes.erase(m_keyframes.begin());
+        
+        if (Config::getInstance().m_enable_debug_output) {
+            spdlog::info("[KEYFRAME] Removed oldest keyframe {} (sliding window limit: {})", 
+                        oldest_keyframe->get_frame_id(), max_keyframes);
+        }
+    }
+    
+    // Store grid coverage of this keyframe for future relative comparisons
+    m_last_keyframe_grid_coverage = calculate_grid_coverage_with_map_points(frame);
+    
+    if (Config::getInstance().m_enable_debug_output) {
+        spdlog::info("[KEYFRAME] Created keyframe {} with {} features, grid coverage: {:.2f} (window: {}/{})", 
+                    frame->get_frame_id(), frame->get_feature_count(), m_last_keyframe_grid_coverage,
+                    m_keyframes.size(), max_keyframes);
+    }
 }
 
 OptimizationResult lightweight_vio::Estimator::optimize_pose(std::shared_ptr<Frame> frame) {

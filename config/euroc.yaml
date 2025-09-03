@@ -4,6 +4,12 @@
 # This configuration file contains all tunable parameters for the VIO system
 # Adjust these values based on your dataset characteristics and performance requirements
 
+# Keyframe and Windowing Parameters
+# Controls keyframe selection and sliding window management
+keyframe_management:
+  keyframe_window_size: 10
+  grid_coverage_ratio: 0.7  # Add keyframe when coverage drops to 70% of last keyframe's coverage
+
 # Feature Detection Parameters
 # Controls how corner features are detected using goodFeaturesToTrack
 feature_detection:
@@ -85,13 +91,6 @@ camera:
                0.999598781151, 0.0130119051815, 0.0251588363115, 0.0453689425024,
                -0.0253898008918, 0.0179005838253, 0.999517347078, 0.00786212447038,
                0.0, 0.0, 0.0, 1.0]
-
-# Keyframe Parameters
-# Controls when new keyframes are created based on grid-based feature distribution
-keyframe:
-  # Grid-based keyframe generation (instead of simple interval)
-  min_grid_coverage: 0.5      # Minimum ratio of grid cells with map points (0.5 = 50%)
-  # When less than 50% of grid cells have features with map points, create keyframe
 
 # Pose Optimization Parameters
 # Controls Ceres-based pose optimization behavior

@@ -14,6 +14,7 @@
 namespace lightweight_vio {
 class Feature;
 class MapPoint;
+class Frame;
 }
 
 namespace lightweight_vio {
@@ -54,6 +55,16 @@ public:
                                               const std::vector<std::shared_ptr<MapPoint>>& map_points);
     void update_stereo_image(const cv::Mat& image);
     
+    // Frame and keyframe management (new sliding window approach)
+    void add_frame(std::shared_ptr<Frame> frame);
+    void update_keyframe_window(const std::vector<std::shared_ptr<Frame>>& keyframes);
+    void set_last_keyframe(std::shared_ptr<Frame> last_keyframe);
+        void update_relative_pose_from_last_keyframe(const Eigen::Matrix4f& relative_pose);
+    
+    // Map point management
+    void update_all_map_points(const std::vector<std::shared_ptr<MapPoint>>& all_map_points);
+    void update_window_map_points(const std::vector<std::shared_ptr<MapPoint>>& window_map_points);
+    
     // Input processing
     void process_keyboard_input(bool& auto_play, bool& step_mode, bool& advance_frame);
     void sync_ui_state(bool& auto_play, bool& step_mode);  // Sync UI checkbox with mode state
@@ -83,9 +94,22 @@ private:
     Eigen::Matrix4f m_current_pose;
     Eigen::Matrix4f m_current_camera_pose;  // Store current frame camera pose (T_wc)
     
-    // Map point storage for color differentiation
-    std::vector<Eigen::Vector3f> m_all_map_points;      // White - accumulated map points
-    std::vector<Eigen::Vector3f> m_current_map_points;  // Red - current frame tracking points
+    // New sliding window data storage
+    std::vector<std::shared_ptr<Frame>> m_all_frames;           // All frames for trajectory
+    std::vector<std::shared_ptr<Frame>> m_keyframe_window;      // Sliding window of keyframes
+    std::shared_ptr<Frame> m_last_keyframe;                     // Last keyframe for relative pose calculation
+    Eigen::Matrix4f m_relative_pose_from_last_keyframe;         // Current relative pose from last keyframe
+    
+    // Map point storage
+    std::vector<std::shared_ptr<MapPoint>> m_all_map_points_storage;     // All map points (new sliding window style)
+    std::vector<std::shared_ptr<MapPoint>> m_window_map_points_storage;  // Window map points (new sliding window style)
+    
+    // Legacy map point vectors for drawing (derived from storage)
+    std::vector<Eigen::Vector3f> m_all_map_points;      // White - accumulated map points (legacy style)
+    std::vector<Eigen::Vector3f> m_current_map_points;  // Red - current frame tracking points (legacy style)
+    
+    // Thread safety
+    std::mutex m_data_mutex;
     
     // Image data
     pangolin::GlTexture m_tracking_image;
