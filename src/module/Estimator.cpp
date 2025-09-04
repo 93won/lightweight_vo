@@ -28,6 +28,10 @@ Estimator::Estimator()
     
     // Initialize pose optimizer - now uses global Config internally
     m_pose_optimizer = std::make_unique<PnPOptimizer>();
+    
+    // Initialize sliding window optimizer
+    m_sliding_window_optimizer = std::make_unique<SlidingWindowOptimizer>(
+        Config::getInstance().m_keyframe_window_size, 100);  // window size, max iterations
 }
 
 Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp) {
@@ -571,6 +575,29 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
             spdlog::info("[KEYFRAME] Removed oldest keyframe {} (sliding window limit: {})", 
                         oldest_keyframe->get_frame_id(), max_keyframes);
         }
+    }
+    
+    // 🎯 Run sliding window bundle adjustment when we have enough keyframes
+    if (m_keyframes.size() >= 2) {
+        auto sw_opt_start = std::chrono::high_resolution_clock::now();
+        
+        spdlog::info("[SLIDING_WINDOW] Starting optimization with {} keyframes", m_keyframes.size());
+        
+        auto sw_result = m_sliding_window_optimizer->optimize(m_keyframes);
+        
+        auto sw_opt_end = std::chrono::high_resolution_clock::now();
+        auto sw_opt_time = std::chrono::duration_cast<std::chrono::microseconds>(sw_opt_end - sw_opt_start).count() / 1000.0;
+        
+        if (sw_result.success) {
+            spdlog::info("[SLIDING_WINDOW] ✅ Optimization successful: {} poses, {} points, {} inliers, {} outliers, cost: {:.2e} -> {:.2e}, time: {:.2f}ms",
+                        sw_result.num_poses_optimized, sw_result.num_points_optimized,
+                        sw_result.num_inliers, sw_result.num_outliers,
+                        sw_result.initial_cost, sw_result.final_cost, sw_opt_time);
+        } else {
+            spdlog::warn("[SLIDING_WINDOW] ❌ Optimization failed after {:.2f}ms", sw_opt_time);
+        }
+    } else {
+        spdlog::debug("[SLIDING_WINDOW] Skipping optimization: only {} keyframes (need ≥2)", m_keyframes.size());
     }
     
     // Store grid coverage of this keyframe for future relative comparisons

@@ -24,8 +24,20 @@ namespace factor {
  */
 class SE3GlobalParameterization : public ceres::LocalParameterization {
 public:
-    SE3GlobalParameterization() = default;
+    SE3GlobalParameterization() : m_is_fixed(false) {}
     virtual ~SE3GlobalParameterization() = default;
+
+    /**
+     * @brief Set parameter as fixed (prevents updates during optimization)
+     * @param is_fixed If true, parameters will not be updated
+     */
+    void set_fixed(bool is_fixed) { m_is_fixed = is_fixed; }
+    
+    /**
+     * @brief Check if parameter is fixed
+     * @return true if parameter is fixed
+     */
+    bool is_fixed() const { return m_is_fixed; }
 
     /**
      * @brief Plus operation: x_plus_delta = SE3(x) * exp(delta)
@@ -71,6 +83,8 @@ private:
      * @return SE3 tangent space vector [translation, so3] (Ceres order)
      */
     static Eigen::Vector6d SE3ToTangent(const Sophus::SE3d& se3);
+
+    bool m_is_fixed;  // Flag to prevent parameter updates when true
 };
 
 /**
@@ -83,8 +97,20 @@ private:
  */
 class MapPointParameterization : public ceres::LocalParameterization {
 public:
-    MapPointParameterization() = default;
+    MapPointParameterization() : m_is_fixed(false) {}
     virtual ~MapPointParameterization() = default;
+
+    /**
+     * @brief Set parameter as fixed (prevents updates during optimization)
+     * @param is_fixed If true, parameters will not be updated
+     */
+    void set_fixed(bool is_fixed) { m_is_fixed = is_fixed; }
+    
+    /**
+     * @brief Check if parameter is fixed
+     * @return true if parameter is fixed
+     */
+    bool is_fixed() const { return m_is_fixed; }
 
     /**
      * @brief Plus operation: x_plus_delta = x + delta
@@ -115,6 +141,9 @@ public:
      * @brief Local size of the perturbation (3D point dimension)
      */
     virtual int LocalSize() const override { return 3; }
+
+private:
+    bool m_is_fixed;  // Flag to prevent parameter updates when true
 };
 
 } // namespace factor

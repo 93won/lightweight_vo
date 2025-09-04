@@ -7,6 +7,15 @@ bool SE3GlobalParameterization::Plus(const double* x,
                                    const double* delta,
                                    double* x_plus_delta) const {
     try {
+        // If parameter is fixed, don't apply any updates
+        if (m_is_fixed) {
+            // Copy original parameters without applying delta
+            for (int i = 0; i < 6; ++i) {
+                x_plus_delta[i] = x[i];
+            }
+            return true;
+        }
+        
         // Convert arrays to Eigen vectors
         Eigen::Map<const Eigen::Vector6d> current_tangent(x);
         Eigen::Map<const Eigen::Vector6d> delta_tangent(delta);
@@ -54,6 +63,15 @@ bool MapPointParameterization::Plus(const double* x,
                                   const double* delta,
                                   double* x_plus_delta) const {
     try {
+        // If parameter is fixed, don't apply any updates
+        if (m_is_fixed) {
+            // Copy original parameters without applying delta
+            x_plus_delta[0] = x[0];  // x coordinate
+            x_plus_delta[1] = x[1];  // y coordinate
+            x_plus_delta[2] = x[2];  // z coordinate
+            return true;
+        }
+        
         // Simple Euclidean addition for 3D points
         // x_plus_delta = x + delta
         x_plus_delta[0] = x[0] + delta[0];  // x coordinate

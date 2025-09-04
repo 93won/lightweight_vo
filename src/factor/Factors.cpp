@@ -170,5 +170,163 @@ double PnPFactor::compute_chi_square(double const* const* parameters) const {
     return chi2_error;
 }
 
+// BAFactor implementation
+BAFactor::BAFactor(const Eigen::Vector2d& observation,
+                   const CameraParameters& camera_params,
+                   const Eigen::Matrix4d& Tcb,
+                   const Eigen::Matrix2d& information)
+    : m_observation(observation)
+    , m_camera_params(camera_params)
+    , m_Tcb(Tcb)
+    , m_information(information)
+    , m_is_outlier(false) {
+}
+
+bool BAFactor::Evaluate(double const* const* parameters,
+                        double* residuals,
+                        double** jacobians) const {
+    
+    if (m_is_outlier) {
+        // If marked as outlier, set zero residual and jacobians
+        residuals[0] = 0.0;
+        residuals[1] = 0.0;
+        
+        if (jacobians) {
+            if (jacobians[0]) {
+                Eigen::Map<Eigen::Matrix<double, 2, 6, Eigen::RowMajor>> jac_pose(jacobians[0]);
+                jac_pose.setZero();
+            }
+            if (jacobians[1]) {
+                Eigen::Map<Eigen::Matrix<double, 2, 3, Eigen::RowMajor>> jac_point(jacobians[1]);
+                jac_point.setZero();
+            }
+        }
+        return true;
+    }
+    
+    try {
+        // Extract pose parameters (SE3 tangent space)
+        Eigen::Map<const Eigen::Vector6d> pose_tangent(parameters[0]);
+        
+        // Extract 3D point in world coordinates
+        Eigen::Map<const Eigen::Vector3d> world_point(parameters[1]);
+        
+        // Convert tangent space to SE3 (Twb: body to world)
+        Sophus::SE3d Twb = Sophus::SE3d::exp(pose_tangent);
+        
+        // Get rotation and translation matrices
+        Eigen::Matrix3d Rwb = Twb.rotationMatrix();
+        Eigen::Vector3d twb = Twb.translation();
+        Eigen::Matrix3d Rbw = Rwb.transpose();
+        Eigen::Vector3d tbw = -Rbw * twb;
+        
+        // Compute Tcw (camera to world transformation)
+        // Tcw = Tcb * Tbw = Tcb * Twb^(-1)
+        Eigen::Matrix3d Rcw = m_Tcb.block<3, 3>(0, 0) * Rbw;
+        Eigen::Vector3d tcw = m_Tcb.block<3, 3>(0, 0) * tbw + m_Tcb.block<3, 1>(0, 3);
+        
+        // Transform world point to camera coordinates
+        Eigen::Vector3d camera_point = Rcw * world_point + tcw;
+        
+        double x = camera_point[0];
+        double y = camera_point[1];
+        double z = camera_point[2];
+        double invz = 1.0 / (z + 1e-9);
+        
+        // Check for valid depth
+        if (invz < 1e-3 || invz > 1e2) {
+            // Behind camera or too far - return large residual
+            residuals[0] = 640.0;
+            residuals[1] = 360.0;
+            return true;
+        }
+        
+        // Project to pixel coordinates
+        double u = m_camera_params.fx * x * invz + m_camera_params.cx;
+        double v = m_camera_params.fy * y * invz + m_camera_params.cy;
+        
+        // Compute residual: observed - projected
+        Eigen::Vector2d projected(u, v);
+        Eigen::Vector2d error = m_observation - projected;
+        
+        // Apply information matrix (precision matrix)
+        Eigen::Vector2d weighted_error = m_information * error;
+        
+        residuals[0] = weighted_error[0];
+        residuals[1] = weighted_error[1];
+        
+        // Compute Jacobians if requested
+        if (jacobians) {
+            // Camera projection Jacobian w.r.t camera point
+            Eigen::Matrix<double, 2, 3> J_proj_camera;
+            J_proj_camera(0, 0) = -m_camera_params.fx * invz;
+            J_proj_camera(0, 1) = 0.0;
+            J_proj_camera(0, 2) = x * m_camera_params.fx * invz * invz;
+            J_proj_camera(1, 0) = 0.0;
+            J_proj_camera(1, 1) = -m_camera_params.fy * invz;
+            J_proj_camera(1, 2) = y * m_camera_params.fy * invz * invz;
+            
+            // Apply information matrix to projection jacobian
+            Eigen::Matrix<double, 2, 3> weighted_J_proj = m_information * J_proj_camera;
+            
+            // Jacobian w.r.t pose (SE3 tangent space)
+            if (jacobians[0]) {
+                // Body point in body frame: Pb = Rbw * (Pw - twb)
+                Eigen::Vector3d body_point = Rbw * (world_point - twb);
+                
+                // Jacobian of camera point w.r.t body translation
+                Eigen::Matrix<double, 3, 3> J_camera_trans = -m_Tcb.block<3, 3>(0, 0);
+                
+                // Jacobian of camera point w.r.t body rotation  
+                Eigen::Matrix<double, 3, 3> J_camera_rot = m_Tcb.block<3, 3>(0, 0) * Sophus::SO3d::hat(body_point);
+                
+                // Combine rotation and translation jacobians [3x6]
+                Eigen::Matrix<double, 3, 6> J_camera_pose;
+                J_camera_pose.block<3, 3>(0, 0) = J_camera_rot;  // w.r.t rotation
+                J_camera_pose.block<3, 3>(0, 3) = J_camera_trans; // w.r.t translation
+                
+                // Chain rule: J_residual_pose = J_proj_camera * J_camera_pose
+                Eigen::Matrix<double, 2, 6> J_pose = weighted_J_proj * J_camera_pose;
+                
+                Eigen::Map<Eigen::Matrix<double, 2, 6, Eigen::RowMajor>> jac_pose(jacobians[0]);
+                jac_pose = J_pose;
+            }
+            
+            // Jacobian w.r.t 3D point
+            if (jacobians[1]) {
+                // Jacobian of camera point w.r.t world point
+                Eigen::Matrix<double, 3, 3> J_camera_point = m_Tcb.block<3, 3>(0, 0) * Rbw;
+                
+                // Chain rule: J_residual_point = J_proj_camera * J_camera_point  
+                Eigen::Matrix<double, 2, 3> J_point = weighted_J_proj * J_camera_point;
+                
+                Eigen::Map<Eigen::Matrix<double, 2, 3, Eigen::RowMajor>> jac_point(jacobians[1]);
+                jac_point = J_point;
+            }
+        }
+        
+        return true;
+        
+    } catch (const std::exception& e) {
+        return false;
+    }
+}
+
+double BAFactor::compute_chi_square(double const* const* parameters) const {
+    if (m_is_outlier) {
+        return 0.0;
+    }
+    
+    // Compute residual
+    double residuals[2];
+    Evaluate(parameters, residuals, nullptr);
+    
+    // Chi-square error: residual^T * Information * residual
+    Eigen::Vector2d res(residuals[0], residuals[1]);
+    double chi_square = res.transpose() * res; // Already weighted by information matrix
+    
+    return chi_square;
+}
+
 } // namespace factor
 } // namespace lightweight_vio

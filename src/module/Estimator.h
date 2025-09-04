@@ -121,6 +121,7 @@ private:
     // System components
     std::unique_ptr<FeatureTracker> m_feature_tracker;
     std::unique_ptr<PnPOptimizer> m_pose_optimizer;
+    std::unique_ptr<SlidingWindowOptimizer> m_sliding_window_optimizer;
     
     // State
     std::shared_ptr<Frame> m_current_frame;

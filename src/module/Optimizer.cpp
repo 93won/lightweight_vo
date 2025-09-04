@@ -7,6 +7,9 @@
 #include <sstream>
 #include <algorithm>
 #include <numeric>
+#include <set>
+#include <unordered_map>
+#include <thread>
 
 namespace lightweight_vio
 {
@@ -113,7 +116,7 @@ namespace lightweight_vio
 
         // Setup solver options
         ceres::Solver::Options options = setup_solver_options();
-
+        
         // Get global config
         const auto& config = Config::getInstance();
 
@@ -523,5 +526,446 @@ namespace lightweight_vio
         double precision = 1.0 / (pixel_noise * pixel_noise);
         return precision * Eigen::Matrix2d::Identity();
     }
+
+}
+
+// SlidingWindowOptimizer implementation
+namespace lightweight_vio {
+
+SlidingWindowOptimizer::SlidingWindowOptimizer(size_t window_size, int max_iterations)
+    : m_window_size(window_size)
+    , m_max_iterations(max_iterations)
+    , m_huber_delta(1.0)  // Default Huber loss delta
+    , m_pixel_noise_std(1.0)  // Default pixel noise
+    , m_outlier_threshold(5.991)  // Chi-square threshold for 2 DoF at 95% confidence
+{
+}
+
+SlidingWindowResult SlidingWindowOptimizer::optimize(
+    const std::vector<std::shared_ptr<Frame>>& keyframes,
+    bool* force_stop_flag) {
+    
+    SlidingWindowResult result;
+    
+    if (keyframes.empty()) {
+        spdlog::warn("[SlidingWindowOptimizer] No keyframes provided");
+        return result;
+    }
+    
+    if (keyframes.size() < 2) {
+        spdlog::warn("[SlidingWindowOptimizer] Need at least 2 keyframes for bundle adjustment");
+        return result;
+    }
+    
+    // Collect map points observed by keyframes in sliding window
+    auto map_points = collect_window_map_points(keyframes);
+    
+    if (map_points.empty()) {
+        spdlog::warn("[SlidingWindowOptimizer] No map points found in sliding window");
+        return result;
+    }
+    
+    // Setup Ceres problem
+    ceres::Problem problem;
+    
+    // Parameter storage
+    std::vector<std::vector<double>> pose_params_vec(keyframes.size(), std::vector<double>(6));
+    std::vector<std::vector<double>> point_params_vec(map_points.size(), std::vector<double>(3));
+    
+    // Setup optimization problem
+    auto observations = setup_optimization_problem(
+        problem, keyframes, map_points, pose_params_vec, point_params_vec);
+    
+    if (observations.empty()) {
+        spdlog::warn("[SlidingWindowOptimizer] No valid observations found");
+        return result;
+    }
+    
+    // Apply marginalization strategy (fix oldest keyframe, etc.)
+    apply_marginalization_strategy(
+        problem, keyframes, map_points, pose_params_vec, point_params_vec);
+    
+    // Configure solver
+    ceres::Solver::Options options = setup_solver_options();
+    
+    if (force_stop_flag) {
+        // TODO: Add custom callback for early termination if needed
+    }
+    
+    ceres::Solver::Summary summary;
+    
+    // Initial cost evaluation
+    double initial_cost = 0.0;
+    problem.Evaluate(ceres::Problem::EvaluateOptions(), &initial_cost, nullptr, nullptr, nullptr);
+    result.initial_cost = initial_cost;
+    
+    // Solve optimization problem
+    ceres::Solve(options, &problem, &summary);
+    
+    // Final cost evaluation
+    double final_cost = 0.0;
+    problem.Evaluate(ceres::Problem::EvaluateOptions(), &final_cost, nullptr, nullptr, nullptr);
+    result.final_cost = final_cost;
+    result.num_iterations = summary.iterations.size();
+    
+    // Detect outliers and count inliers
+    int num_inliers = detect_ba_outliers(
+        pose_params_vec, point_params_vec, observations, keyframes);
+    
+    result.num_inliers = num_inliers;
+    result.num_outliers = static_cast<int>(observations.size()) - num_inliers;
+    result.num_poses_optimized = static_cast<int>(keyframes.size());
+    result.num_points_optimized = static_cast<int>(map_points.size());
+    
+    // Check if optimization was successful
+    result.success = (summary.termination_type == ceres::CONVERGENCE) ||
+                    (summary.termination_type == ceres::USER_SUCCESS);
+    
+    if (result.success) {
+        // Update keyframes and map points with optimized values
+        update_optimized_values(keyframes, map_points, pose_params_vec, point_params_vec);
+        
+        spdlog::info("[SlidingWindowOptimizer] Optimization successful: {} poses, {} points, {} inliers, {} outliers",
+                    result.num_poses_optimized, result.num_points_optimized, 
+                    result.num_inliers, result.num_outliers);
+    } else {
+        spdlog::warn("[SlidingWindowOptimizer] Optimization failed: {}", 
+                    summary.BriefReport());
+    }
+    
+    return result;
+}
+
+std::vector<std::shared_ptr<MapPoint>> SlidingWindowOptimizer::collect_window_map_points(
+    const std::vector<std::shared_ptr<Frame>>& keyframes) const {
+    
+    std::set<std::shared_ptr<MapPoint>> unique_map_points;
+    
+    // Collect all unique map points from keyframes
+    for (const auto& keyframe : keyframes) {
+        if (!keyframe) continue;
+        
+        const auto& map_points = keyframe->get_map_points();
+        for (const auto& mp : map_points) {
+            if (mp && !mp->is_bad()) {
+                unique_map_points.insert(mp);
+            }
+        }
+    }
+    
+    // Convert set to vector
+    std::vector<std::shared_ptr<MapPoint>> result(unique_map_points.begin(), unique_map_points.end());
+    
+    spdlog::info("[SlidingWindowOptimizer] Collected {} unique map points from {} keyframes",
+                result.size(), keyframes.size());
+    
+    return result;
+}
+
+BAObservationInfo SlidingWindowOptimizer::add_ba_observation(
+    ceres::Problem& problem,
+    double* pose_params,
+    double* point_params,
+    const Eigen::Vector2d& observation,
+    const factor::CameraParameters& camera_params,
+    std::shared_ptr<Frame> frame,
+    int kf_index,
+    int mp_index,
+    double pixel_noise_std) {
+    
+    // Get T_CB transformation from frame
+    Eigen::Matrix4d T_CB = frame->get_T_CB();
+    
+    // Create information matrix
+    Eigen::Matrix2d information = create_information_matrix(pixel_noise_std);
+    
+    // Create BA factor
+    auto* cost_function = new factor::BAFactor(
+        observation, camera_params, T_CB, information);
+    
+    // Create robust loss function
+    ceres::LossFunction* loss_function = create_robust_loss(m_huber_delta);
+    
+    // Add residual block to problem
+    ceres::ResidualBlockId residual_id = problem.AddResidualBlock(
+        cost_function, loss_function, pose_params, point_params);
+    
+    return BAObservationInfo(residual_id, cost_function, kf_index, mp_index);
+}
+
+std::vector<BAObservationInfo> SlidingWindowOptimizer::setup_optimization_problem(
+    ceres::Problem& problem,
+    const std::vector<std::shared_ptr<Frame>>& keyframes,
+    const std::vector<std::shared_ptr<MapPoint>>& map_points,
+    std::vector<std::vector<double>>& pose_params_vec,
+    std::vector<std::vector<double>>& point_params_vec) {
+    
+    std::vector<BAObservationInfo> observations;
+    
+    // Create map from MapPoint pointer to index for fast lookup
+    std::unordered_map<std::shared_ptr<MapPoint>, int> mappoint_to_index;
+    for (size_t i = 0; i < map_points.size(); ++i) {
+        mappoint_to_index[map_points[i]] = static_cast<int>(i);
+    }
+    
+    // Initialize pose parameters from keyframes
+    for (size_t kf_idx = 0; kf_idx < keyframes.size(); ++kf_idx) {
+        const auto& keyframe = keyframes[kf_idx];
+        Eigen::Matrix4f T_wb = keyframe->get_Twb();
+        
+        // Convert to double precision
+        Eigen::Matrix4d T_wb_d = T_wb.cast<double>();
+        
+        // Extract rotation and translation
+        Eigen::Matrix3d R_wb = T_wb_d.block<3, 3>(0, 0);
+        Eigen::Vector3d t_wb = T_wb_d.block<3, 1>(0, 3);
+        
+        // Ensure rotation matrix is perfectly orthogonal using SVD
+        Eigen::JacobiSVD<Eigen::Matrix3d> svd(R_wb, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        R_wb = svd.matrixU() * svd.matrixV().transpose();
+        
+        // Ensure proper rotation (det = 1, not -1)
+        if (R_wb.determinant() < 0) {
+            Eigen::Matrix3d V_corrected = svd.matrixV();
+            V_corrected.col(2) *= -1;  // Flip last column
+            R_wb = svd.matrixU() * V_corrected.transpose();
+        }
+        
+        // Reconstruct clean transformation matrix
+        Eigen::Matrix4d T_wb_clean = Eigen::Matrix4d::Identity();
+        T_wb_clean.block<3, 3>(0, 0) = R_wb;
+        T_wb_clean.block<3, 1>(0, 3) = t_wb;
+        
+        // Convert to SE3 tangent space
+        Sophus::SE3d se3_pose(T_wb_clean);
+        Eigen::Vector6d tangent = se3_pose.log();
+        
+        std::copy(tangent.data(), tangent.data() + 6, pose_params_vec[kf_idx].data());
+        
+        // Add parameter block to problem FIRST
+        problem.AddParameterBlock(pose_params_vec[kf_idx].data(), 6);
+        
+        // Then set pose parameterization
+        auto* pose_parameterization = new factor::SE3GlobalParameterization();
+        problem.SetParameterization(pose_params_vec[kf_idx].data(), pose_parameterization);
+    }
+    
+    // Initialize map point parameters
+    for (size_t mp_idx = 0; mp_idx < map_points.size(); ++mp_idx) {
+        const auto& map_point = map_points[mp_idx];
+        Eigen::Vector3f position = map_point->get_position();
+        
+        point_params_vec[mp_idx][0] = position.x();
+        point_params_vec[mp_idx][1] = position.y();
+        point_params_vec[mp_idx][2] = position.z();
+        
+        // Add parameter block to problem FIRST
+        problem.AddParameterBlock(point_params_vec[mp_idx].data(), 3);
+        
+        // Then set point parameterization
+        auto* point_parameterization = new factor::MapPointParameterization();
+        problem.SetParameterization(point_params_vec[mp_idx].data(), point_parameterization);
+    }
+    
+    // Get camera parameters
+    const Config& config = Config::getInstance();
+    cv::Mat K = config.left_camera_matrix();
+    factor::CameraParameters camera_params(
+        K.at<double>(0, 0),  // fx
+        K.at<double>(1, 1),  // fy
+        K.at<double>(0, 2),  // cx
+        K.at<double>(1, 2)   // cy
+    );
+    
+    // Add observations for each keyframe
+    for (size_t kf_idx = 0; kf_idx < keyframes.size(); ++kf_idx) {
+        const auto& keyframe = keyframes[kf_idx];
+        const auto& features = keyframe->get_features();
+        const auto& frame_map_points = keyframe->get_map_points();
+        
+        for (size_t feat_idx = 0; feat_idx < features.size(); ++feat_idx) {
+            const auto& feature = features[feat_idx];
+            const auto& map_point = frame_map_points[feat_idx];
+            
+            // Skip invalid features or map points
+            if (!feature || !feature->is_valid() || !map_point || map_point->is_bad()) {
+                continue;
+            }
+            
+            // Skip outlier features
+            if (keyframe->get_outlier_flag(feat_idx)) {
+                continue;
+            }
+            
+            // Find map point index
+            auto it = mappoint_to_index.find(map_point);
+            if (it == mappoint_to_index.end()) {
+                continue; // Map point not in our optimization set
+            }
+            
+            int mp_idx = it->second;
+            
+            // Get 2D observation
+            cv::Point2f pixel_coord = feature->get_pixel_coord();
+            Eigen::Vector2d observation(pixel_coord.x, pixel_coord.y);
+            
+            // Add BA observation
+            auto obs_info = add_ba_observation(
+                problem,
+                pose_params_vec[kf_idx].data(),
+                point_params_vec[mp_idx].data(),
+                observation,
+                camera_params,
+                keyframe,
+                static_cast<int>(kf_idx),
+                mp_idx,
+                m_pixel_noise_std);
+            
+            observations.push_back(obs_info);
+        }
+    }
+    
+    spdlog::info("[SlidingWindowOptimizer] Setup problem: {} keyframes, {} map points, {} observations",
+                keyframes.size(), map_points.size(), observations.size());
+    
+    return observations;
+}
+
+void SlidingWindowOptimizer::apply_marginalization_strategy(
+    ceres::Problem& problem,
+    const std::vector<std::shared_ptr<Frame>>& keyframes,
+    const std::vector<std::shared_ptr<MapPoint>>& map_points,
+    const std::vector<std::vector<double>>& pose_params_vec,
+    const std::vector<std::vector<double>>& point_params_vec) {
+    
+    if (keyframes.empty()) return;
+    
+    // Fix the oldest keyframe (first in vector) as reference to prevent gauge freedom
+    if (!pose_params_vec.empty()) {
+        problem.SetParameterBlockConstant(const_cast<double*>(pose_params_vec[0].data()));
+        spdlog::debug("[SlidingWindowOptimizer] Fixed oldest keyframe {} as reference",
+                     keyframes[0]->get_frame_id());
+    }
+    
+    // Optional: Fix map points with insufficient observations
+    int fixed_points = 0;
+    for (size_t mp_idx = 0; mp_idx < map_points.size(); ++mp_idx) {
+        const auto& map_point = map_points[mp_idx];
+        int obs_count = map_point->get_observation_count();
+        
+        // Fix map points with too few observations
+        if (obs_count < 2) {
+            problem.SetParameterBlockConstant(const_cast<double*>(point_params_vec[mp_idx].data()));
+            fixed_points++;
+        }
+    }
+    
+    if (fixed_points > 0) {
+        spdlog::debug("[SlidingWindowOptimizer] Fixed {} / {} map points with insufficient observations",
+                     fixed_points, map_points.size());
+    }
+}
+
+int SlidingWindowOptimizer::detect_ba_outliers(
+    const std::vector<std::vector<double>>& pose_params_vec,
+    const std::vector<std::vector<double>>& point_params_vec,
+    const std::vector<BAObservationInfo>& observations,
+    const std::vector<std::shared_ptr<Frame>>& keyframes) {
+    
+    int num_inliers = 0;
+    
+    for (const auto& obs_info : observations) {
+        // Get parameter pointers
+        const double* pose_params = pose_params_vec[obs_info.keyframe_index].data();
+        const double* point_params = point_params_vec[obs_info.mappoint_index].data();
+        
+        const double* params[2] = {pose_params, point_params};
+        
+        // Compute chi-square error
+        double chi_square = obs_info.cost_function->compute_chi_square(params);
+        
+        // Check against threshold
+        bool is_inlier = (chi_square <= m_outlier_threshold);
+        if (is_inlier) {
+            num_inliers++;
+        }
+        
+        // Mark outlier in cost function (will return zero residuals)
+        obs_info.cost_function->set_outlier(!is_inlier);
+    }
+    
+    spdlog::debug("[SlidingWindowOptimizer] Outlier detection: {}/{} inliers",
+                 num_inliers, observations.size());
+    
+    return num_inliers;
+}
+
+void SlidingWindowOptimizer::update_optimized_values(
+    const std::vector<std::shared_ptr<Frame>>& keyframes,
+    const std::vector<std::shared_ptr<MapPoint>>& map_points,
+    const std::vector<std::vector<double>>& pose_params_vec,
+    const std::vector<std::vector<double>>& point_params_vec) {
+    
+    // Update keyframe poses
+    for (size_t kf_idx = 0; kf_idx < keyframes.size(); ++kf_idx) {
+        const auto& keyframe = keyframes[kf_idx];
+        const auto& pose_params = pose_params_vec[kf_idx];
+        
+        // Convert SE3 tangent space back to matrix
+        Eigen::Map<const Eigen::Vector6d> tangent(pose_params.data());
+        Sophus::SE3d se3_pose = Sophus::SE3d::exp(tangent);
+        Eigen::Matrix4f T_wb = se3_pose.matrix().cast<float>();
+        
+        keyframe->set_Twb(T_wb);
+    }
+    
+    // Update map point positions
+    for (size_t mp_idx = 0; mp_idx < map_points.size(); ++mp_idx) {
+        const auto& map_point = map_points[mp_idx];
+        const auto& point_params = point_params_vec[mp_idx];
+        
+        Eigen::Vector3f position(
+            static_cast<float>(point_params[0]),
+            static_cast<float>(point_params[1]),
+            static_cast<float>(point_params[2]));
+        
+        map_point->set_position(position);
+    }
+}
+
+ceres::Solver::Options SlidingWindowOptimizer::setup_solver_options() const {
+    ceres::Solver::Options options;
+    
+    // Use sparse solver for bundle adjustment
+    options.linear_solver_type = ceres::SPARSE_SCHUR;
+    options.preconditioner_type = ceres::SCHUR_JACOBI;
+    
+    // Solver parameters
+    options.max_num_iterations = m_max_iterations;
+    options.function_tolerance = 1e-6;
+    options.gradient_tolerance = 1e-10;
+    options.parameter_tolerance = 1e-8;
+    
+    // Enable detailed logging if needed
+    options.minimizer_progress_to_stdout = false;
+    options.logging_type = ceres::SILENT;
+    
+    // Use multiple threads if available
+    options.num_threads = std::min(4, static_cast<int>(std::thread::hardware_concurrency()));
+    
+    return options;
+}
+
+ceres::LossFunction* SlidingWindowOptimizer::create_robust_loss(double delta) const {
+    return new ceres::HuberLoss(delta);
+}
+
+Eigen::Matrix2d SlidingWindowOptimizer::create_information_matrix(double pixel_noise) const {
+    Eigen::Matrix2d information_matrix;
+    double variance = pixel_noise * pixel_noise;
+    information_matrix << 1.0 / variance, 0.0,
+                         0.0, 1.0 / variance;
+    return information_matrix;
+}
 
 } // namespace lightweight_vio
