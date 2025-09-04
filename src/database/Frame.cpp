@@ -263,9 +263,9 @@ cv::Mat Frame::draw_features() const {
             cv::Scalar point_color;
             
             if (map_point && !map_point->is_bad()) {
-                // Feature with MapPoint: Blue to red gradient based on track count
-                int track_count = feature->get_track_count();
-                float ratio = std::min(1.0f, static_cast<float>(track_count) / 30.0f);
+                // Feature with MapPoint: Blue to red gradient based on number of observations
+                int num_observations = map_point->get_observation_count();
+                float ratio = std::min(1.0f, static_cast<float>(num_observations) / 5.0f);
                 
                 // BGR color: Blue (255,0,0) -> Red (0,0,255)
                 int blue = static_cast<int>(255 * (1.0f - ratio));   // 255 -> 0

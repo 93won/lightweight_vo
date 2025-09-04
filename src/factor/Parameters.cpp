@@ -50,5 +50,30 @@ Eigen::Vector6d SE3GlobalParameterization::SE3ToTangent(const Sophus::SE3d& se3)
     return se3.log();
 }
 
+bool MapPointParameterization::Plus(const double* x,
+                                  const double* delta,
+                                  double* x_plus_delta) const {
+    try {
+        // Simple Euclidean addition for 3D points
+        // x_plus_delta = x + delta
+        x_plus_delta[0] = x[0] + delta[0];  // x coordinate
+        x_plus_delta[1] = x[1] + delta[1];  // y coordinate
+        x_plus_delta[2] = x[2] + delta[2];  // z coordinate
+        
+        return true;
+    } catch (const std::exception& e) {
+        return false;
+    }
+}
+
+bool MapPointParameterization::ComputeJacobian(const double* x,
+                                             double* jacobian) const {
+    // For Euclidean 3D points, the Jacobian of Plus operation w.r.t delta is Identity
+    // d(x + delta)/d(delta) = I (3x3 identity matrix)
+    Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>> jac(jacobian);
+    jac.setIdentity();
+    return true;
+}
+
 } // namespace factor
 } // namespace lightweight_vio

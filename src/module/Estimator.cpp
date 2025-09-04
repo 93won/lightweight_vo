@@ -541,6 +541,25 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
     frame->set_keyframe(true);
     m_keyframes.push_back(frame);
     
+    // Add observations to map points for this keyframe
+    int observations_added = 0;
+    const auto& features = frame->get_features();
+    for (size_t i = 0; i < features.size(); ++i) {
+        auto feature = features[i];
+        auto map_point = frame->get_map_point(i);
+        
+        if (feature && feature->is_valid() && map_point && !map_point->is_bad()) {
+            // Add this keyframe as an observation to the map point
+            map_point->add_observation(frame, i);
+            observations_added++;
+        }
+    }
+    
+    if (Config::getInstance().m_enable_debug_output) {
+        spdlog::info("[KEYFRAME] Added {} observations to map points for keyframe {}", 
+                    observations_added, frame->get_frame_id());
+    }
+    
     // Apply sliding window - remove old keyframes if window size exceeded
     const int max_keyframes = Config::getInstance().m_keyframe_window_size;
     if (m_keyframes.size() > static_cast<size_t>(max_keyframes)) {

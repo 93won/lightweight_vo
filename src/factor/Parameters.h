@@ -73,5 +73,49 @@ private:
     static Eigen::Vector6d SE3ToTangent(const Sophus::SE3d& se3);
 };
 
+/**
+ * @brief MapPoint (3D Point) Parameterization for Ceres optimization
+ * Parameterizes 3D points in world coordinates using standard Euclidean parameterization
+ * Parameters: [x, y, z] (world coordinates)
+ * 
+ * This is a simple identity parameterization for 3D points, but provides
+ * a consistent interface for future extensions (e.g., inverse depth parameterization)
+ */
+class MapPointParameterization : public ceres::LocalParameterization {
+public:
+    MapPointParameterization() = default;
+    virtual ~MapPointParameterization() = default;
+
+    /**
+     * @brief Plus operation: x_plus_delta = x + delta
+     * @param x Current 3D point coordinates [3]
+     * @param delta Update vector [3] 
+     * @param x_plus_delta Updated 3D point coordinates [3]
+     * @return true if successful
+     */
+    virtual bool Plus(const double* x,
+                     const double* delta,
+                     double* x_plus_delta) const override;
+    
+    /**
+     * @brief Compute Jacobian of Plus operation w.r.t delta
+     * @param x Current parameters [3]
+     * @param jacobian Output jacobian matrix [3x3] in row-major order
+     * @return true if successful
+     */
+    virtual bool ComputeJacobian(const double* x,
+                                double* jacobian) const override;
+    
+    /**
+     * @brief Global size of the parameter (3D point dimension)
+     */
+    virtual int GlobalSize() const override { return 3; }
+    
+    /**
+     * @brief Local size of the perturbation (3D point dimension)
+     */
+    virtual int LocalSize() const override { return 3; }
+};
+
 } // namespace factor
 } // namespace lightweight_vio

@@ -276,9 +276,10 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
             cv::Point2f prev_pt = prev_pts[i];    // Use prev_pts[i] instead of previous_features
             float tracking_distance = cv::norm(current_pt - prev_pt);
             
-            // Associate with existing map point
+            // Associate with existing map point (for pose estimation)
             current_frame->set_map_point(current_frame->get_feature_count() - 1, prev_map_point);
-            prev_map_point->add_observation(current_frame, current_frame->get_feature_count() - 1);
+            // NOTE: Do NOT add observation here - observations should only be added when frame becomes keyframe
+            // prev_map_point->add_observation(current_frame, current_frame->get_feature_count() - 1);  // REMOVED
             associated_map_points++;
             
             // Map point creation is now handled only by Estimator during keyframe creation
