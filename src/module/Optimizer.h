@@ -5,7 +5,7 @@
 #include <ceres/ceres.h>
 #include <Eigen/Dense>
 #include <factor/Parameters.h>
-#include <factor/PnPFactors.h>
+#include <factor/Factors.h>
 
 // Forward declarations
 namespace lightweight_vio {
@@ -13,7 +13,7 @@ namespace lightweight_vio {
     class MapPoint;
     
     namespace factor {
-        class MonoPnPFactor;
+        class PnPFactor;
         struct CameraParameters;
     }
 }
@@ -42,26 +42,26 @@ struct OptimizationResult {
  */
 struct ObservationInfo {
     ceres::ResidualBlockId residual_id;
-    factor::MonoPnPFactor* cost_function;
+    factor::PnPFactor* cost_function;
     
-    ObservationInfo(ceres::ResidualBlockId id, factor::MonoPnPFactor* func)
+    ObservationInfo(ceres::ResidualBlockId id, factor::PnPFactor* func)
         : residual_id(id), cost_function(func) {}
 };
 
 /**
  * @brief Pose optimizer for VIO system using Ceres
  */
-class PoseOptimizer {
+class PnPOptimizer {
 public:
     /**
      * @brief Constructor
      */
-    PoseOptimizer();
+    PnPOptimizer();
     
     /**
      * @brief Destructor
      */
-    ~PoseOptimizer() = default;
+    ~PnPOptimizer() = default;
     
     /**
      * @brief Optimize pose using PnP with map points

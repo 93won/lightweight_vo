@@ -279,7 +279,7 @@ cv::Mat Frame::draw_features() const {
             }
             
             // Increase circle size to match PangolinViewer (radius 3, thickness 2)
-            cv::circle(display_image, pt, 3, point_color, 2);
+            cv::circle(display_image, pt, 4, point_color, 2);
             
             // Display MapPoint ID if feature has associated map point
             // if (map_point && !map_point->is_bad()) {

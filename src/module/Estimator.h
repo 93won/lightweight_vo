@@ -5,7 +5,7 @@
 #include <optional>
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
-#include <module/PoseOptimizer.h>
+#include "Optimizer.h"
 
 // Forward declarations
 namespace lightweight_vio {
@@ -29,7 +29,7 @@ struct EstimationResult {
     double optimization_time_ms = 0.0;
     
     // Optional: Additional information
-    OptimizationResult pose_optimization_result;
+    // OptimizationResult pose_optimization_result; // Commented out - not used in current implementation
 };
 
 /**
@@ -120,7 +120,7 @@ public:
 private:
     // System components
     std::unique_ptr<FeatureTracker> m_feature_tracker;
-    std::unique_ptr<PoseOptimizer> m_pose_optimizer;
+    std::unique_ptr<PnPOptimizer> m_pose_optimizer;
     
     // State
     std::shared_ptr<Frame> m_current_frame;

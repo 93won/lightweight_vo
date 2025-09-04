@@ -1,4 +1,4 @@
-#include <module/PoseOptimizer.h>
+#include <module/Optimizer.h>
 #include <database/Frame.h>
 #include <database/MapPoint.h>
 #include <factor/Parameters.h>
@@ -11,11 +11,11 @@
 namespace lightweight_vio
 {
 
-    PoseOptimizer::PoseOptimizer()
+    PnPOptimizer::PnPOptimizer()
     {
     }
 
-    OptimizationResult PoseOptimizer::optimize_pose(std::shared_ptr<Frame> frame)
+    OptimizationResult PnPOptimizer::optimize_pose(std::shared_ptr<Frame> frame)
     {
         OptimizationResult result;
 
@@ -277,7 +277,7 @@ namespace lightweight_vio
     }
 
     // Helper function implementations moved outside optimize_pose
-    ObservationInfo PoseOptimizer::add_mono_observation(
+    ObservationInfo PnPOptimizer::add_mono_observation(
         ceres::Problem &problem,
         double *pose_params,
         const Eigen::Vector3d &world_point,
@@ -294,7 +294,7 @@ namespace lightweight_vio
         const Eigen::Matrix4d& T_cb = frame->get_T_CB();
         
         // Create mono PnP cost function with information matrix and T_cb
-        auto cost_function = new factor::MonoPnPFactor(observation, world_point, camera_params, T_cb, information);
+        auto cost_function = new factor::PnPFactor(observation, world_point, camera_params, T_cb, information);
 
         // Create robust loss function if enabled
         const Config& config = Config::getInstance();
@@ -311,7 +311,7 @@ namespace lightweight_vio
         return ObservationInfo(residual_id, cost_function);
     }
 
-    int PoseOptimizer::detect_outliers(double const *const *pose_params,
+    int PnPOptimizer::detect_outliers(double const *const *pose_params,
                                        const std::vector<ObservationInfo> &observations,
                                        const std::vector<int> &feature_indices,
                                        std::shared_ptr<Frame> frame)
@@ -453,7 +453,7 @@ namespace lightweight_vio
         return num_inliers;
     }
 
-    ceres::Solver::Options PoseOptimizer::setup_solver_options() const
+    ceres::Solver::Options PnPOptimizer::setup_solver_options() const
     {
         ceres::Solver::Options options;
         const auto& config = Config::getInstance();
@@ -474,7 +474,7 @@ namespace lightweight_vio
         return options;
     }
 
-    Eigen::Vector6d PoseOptimizer::frame_to_se3_tangent(std::shared_ptr<Frame> frame) const
+    Eigen::Vector6d PnPOptimizer::frame_to_se3_tangent(std::shared_ptr<Frame> frame) const
     {
         // Get frame pose (T_wb)
         Eigen::Matrix4f T_wb = frame->get_Twb();
@@ -500,7 +500,7 @@ namespace lightweight_vio
         return se3.log();
     }
 
-    Eigen::Matrix4f PoseOptimizer::se3_tangent_to_matrix(const Eigen::Vector6d &se3_tangent) const
+    Eigen::Matrix4f PnPOptimizer::se3_tangent_to_matrix(const Eigen::Vector6d &se3_tangent) const
     {
         // Convert tangent space to SE3 using Sophus (already guarantees proper SE3)
         Sophus::SE3d se3 = Sophus::SE3d::exp(se3_tangent);
@@ -510,12 +510,12 @@ namespace lightweight_vio
         return se3.matrix().cast<float>();
     }
 
-    ceres::LossFunction *PoseOptimizer::create_robust_loss(double delta) const
+    ceres::LossFunction *PnPOptimizer::create_robust_loss(double delta) const
     {
         return new ceres::HuberLoss(delta);
     }
 
-    Eigen::Matrix2d PoseOptimizer::create_information_matrix(double pixel_noise) const
+    Eigen::Matrix2d PnPOptimizer::create_information_matrix(double pixel_noise) const
     {
         // Information matrix is inverse of covariance matrix
         // For isotropic pixel noise: Covariance = sigma^2 * I

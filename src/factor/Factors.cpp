@@ -1,11 +1,11 @@
-#include "PnPFactors.h"
+#include "Factors.h"
 #include <limits>
 
 namespace lightweight_vio {
 namespace factor {
 
-// MonoPnPFactor implementation
-MonoPnPFactor::MonoPnPFactor(const Eigen::Vector2d& observation,
+// PnPFactor implementation
+PnPFactor::PnPFactor(const Eigen::Vector2d& observation,
                             const Eigen::Vector3d& world_point,
                             const CameraParameters& camera_params,
                             const Eigen::Matrix4d& Tcb,
@@ -13,7 +13,7 @@ MonoPnPFactor::MonoPnPFactor(const Eigen::Vector2d& observation,
     : m_observation(observation), m_world_point(world_point), 
       m_camera_params(camera_params), m_Tcb(Tcb), m_information(information), m_is_outlier(false) {}
 
-bool MonoPnPFactor::Evaluate(double const* const* parameters, double* residuals, double** jacobians) const {
+bool PnPFactor::Evaluate(double const* const* parameters, double* residuals, double** jacobians) const {
     // If marked as outlier, set residuals to zero and jacobians to zero
     if (m_is_outlier) {
         residuals[0] = 0.0;
@@ -125,7 +125,7 @@ bool MonoPnPFactor::Evaluate(double const* const* parameters, double* residuals,
     return true;
 }
 
-double MonoPnPFactor::compute_chi_square(double const* const* parameters) const {
+double PnPFactor::compute_chi_square(double const* const* parameters) const {
     // Extract SE3 parameters from tangent space (Ceres order: tx,ty,tz,rx,ry,rz)
     Eigen::Map<const Eigen::Vector6d> se3_tangent(parameters[0]);
     

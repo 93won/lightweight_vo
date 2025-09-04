@@ -206,7 +206,7 @@ int main(int argc, char* argv[]) {
     // Initialize 3D viewer (optional)
     PangolinViewer* viewer = nullptr;
     std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
-    if (viewer_ptr->initialize(3200, 2400)) {  // Pangolin 뷰어 초기화
+    if (viewer_ptr->initialize(1920, 1080)) {  // Pangolin 뷰어 초기화
         viewer = viewer_ptr.get();
         spdlog::info("[Viewer] Pangolin viewer initialized successfully");
         

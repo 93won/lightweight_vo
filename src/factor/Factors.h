@@ -30,7 +30,7 @@ struct CameraParameters {
  * Parameters: SE3 pose in tangent space [6] (Twb)
  * Residual dimension: [2]
  */
-class MonoPnPFactor : public ceres::SizedCostFunction<2, 6> {
+class PnPFactor : public ceres::SizedCostFunction<2, 6> {
 public:
     /**
      * @brief Constructor
@@ -40,7 +40,7 @@ public:
      * @param Tcb Body-to-camera transformation matrix [4x4] (T_CB)
      * @param information Information matrix (precision matrix) [2x2]
      */
-    MonoPnPFactor(const Eigen::Vector2d& observation,
+    PnPFactor(const Eigen::Vector2d& observation,
                   const Eigen::Vector3d& world_point,
                   const CameraParameters& camera_params,
                   const Eigen::Matrix4d& Tcb,

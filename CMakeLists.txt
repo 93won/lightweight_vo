@@ -83,10 +83,9 @@ add_executable(test_vio_viewer test_vio_viewer.cpp
     src/database/Feature.cpp
     src/database/MapPoint.cpp  
     src/module/FeatureTracker.cpp
-    src/module/PoseOptimizer.cpp
+    src/module/Optimizer.cpp
     src/module/Estimator.cpp
-    # src/factor/SE3Manifolds.cpp
-    src/factor/PnPFactors.cpp
+    src/factor/Factors.cpp
     src/factor/Parameters.cpp
     src/util/Config.cpp
     src/util/EurocUtils.cpp

@@ -1,8 +1,9 @@
 #include <module/Estimator.h>
-#include <module/PoseOptimizer.h>
 #include <module/FeatureTracker.h>
 #include <database/Frame.h>
 #include <database/MapPoint.h>
+#include <module/Optimizer.h>
+
 #include <util/Config.h>
 #include <util/EurocUtils.h>
 #include <spdlog/spdlog.h>
@@ -26,7 +27,7 @@ Estimator::Estimator()
     m_feature_tracker = std::make_unique<FeatureTracker>();
     
     // Initialize pose optimizer - now uses global Config internally
-    m_pose_optimizer = std::make_unique<PoseOptimizer>();
+    m_pose_optimizer = std::make_unique<PnPOptimizer>();
 }
 
 Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp) {
@@ -565,7 +566,7 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
 
 OptimizationResult lightweight_vio::Estimator::optimize_pose(std::shared_ptr<Frame> frame) {
     // Create pose optimizer - uses global Config internally
-    PoseOptimizer optimizer;
+    PnPOptimizer optimizer;
     return optimizer.optimize_pose(frame);
 }
 

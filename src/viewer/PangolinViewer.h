@@ -132,7 +132,6 @@ private:
     // Tracking debug information
     pangolin::Var<int> m_frame_id;
     pangolin::Var<int> m_successful_matches;
-    pangolin::Var<std::string> m_separator;
     
     // Control buttons
     pangolin::Var<bool> m_auto_mode_checkbox;
