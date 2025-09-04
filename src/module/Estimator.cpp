@@ -31,7 +31,7 @@ Estimator::Estimator()
     
     // Initialize sliding window optimizer
     m_sliding_window_optimizer = std::make_unique<SlidingWindowOptimizer>(
-        Config::getInstance().m_keyframe_window_size, 100);  // window size, max iterations
+        Config::getInstance().m_keyframe_window_size, 10);  // window size, max iterations
 }
 
 Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp) {
@@ -223,6 +223,9 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
     // Update result
     result.pose = m_current_frame->get_Twb();
     
+    // Add processed frame to all frames vector for trajectory export
+    m_all_frames.push_back(m_current_frame);
+    
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - total_start_time);
     result.optimization_time_ms = duration.count() / 1000.0;
@@ -241,6 +244,7 @@ void Estimator::reset() {
     m_current_frame.reset();
     m_previous_frame.reset();
     m_keyframes.clear();
+    m_all_frames.clear();
     m_map_points.clear();
     
     m_frame_id_counter = 0;

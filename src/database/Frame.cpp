@@ -8,12 +8,16 @@
 
 namespace lightweight_vio {
 
+// Static member definition
+std::shared_ptr<Frame> Frame::m_last_keyframe = nullptr;
+
 Frame::Frame(long long timestamp, int frame_id)
     : m_timestamp(timestamp)
     , m_frame_id(frame_id)
     , m_rotation(Eigen::Matrix3f::Identity())
     , m_translation(Eigen::Vector3f::Zero())
     , m_is_keyframe(false)
+    , m_T_relative_from_ref(Eigen::Matrix4f::Identity())
     , m_fx(500.0), m_fy(500.0)  // Default focal lengths
     , m_cx(320.0), m_cy(240.0)  // Default principal point
 {
@@ -30,6 +34,13 @@ Frame::Frame(long long timestamp, int frame_id)
         }
     }
     m_T_CB = T_bc.inverse();  // Convert T_BC to T_CB (body to camera)
+    
+    // Set reference keyframe to last keyframe if available
+    if (m_last_keyframe) {
+        m_reference_keyframe = m_last_keyframe;
+        // Initialize with identity transform (will be updated by tracking)
+        m_T_relative_from_ref = Eigen::Matrix4f::Identity();
+    }
 }
 
 Frame::Frame(long long timestamp, int frame_id, 
@@ -40,6 +51,7 @@ Frame::Frame(long long timestamp, int frame_id,
     , m_rotation(Eigen::Matrix3f::Identity())
     , m_translation(Eigen::Vector3f::Zero())
     , m_is_keyframe(false)
+    , m_T_relative_from_ref(Eigen::Matrix4f::Identity())
     , m_fx(fx), m_fy(fy)
     , m_cx(cx), m_cy(cy)
     , m_baseline(baseline)
@@ -55,6 +67,12 @@ Frame::Frame(long long timestamp, int frame_id,
         }
     }
     m_T_CB = T_BC.inverse();  // Convert T_BC to T_CB (body to camera)
+    
+    // Set reference keyframe to last keyframe if available
+    if (m_last_keyframe) {
+        m_reference_keyframe = m_last_keyframe;
+        m_T_relative_from_ref = Eigen::Matrix4f::Identity();
+    }
 }
 
 Frame::Frame(long long timestamp, int frame_id,
@@ -69,6 +87,7 @@ Frame::Frame(long long timestamp, int frame_id,
     , m_rotation(Eigen::Matrix3f::Identity())
     , m_translation(Eigen::Vector3f::Zero())
     , m_is_keyframe(false)
+    , m_T_relative_from_ref(Eigen::Matrix4f::Identity())
     , m_fx(fx), m_fy(fy)
     , m_cx(cx), m_cy(cy)
     , m_baseline(baseline)
@@ -84,6 +103,12 @@ Frame::Frame(long long timestamp, int frame_id,
         }
     }
     m_T_CB = T_bc.inverse();  // Convert T_BC to T_CB (body to camera)
+    
+    // Set reference keyframe to last keyframe if available
+    if (m_last_keyframe) {
+        m_reference_keyframe = m_last_keyframe;
+        m_T_relative_from_ref = Eigen::Matrix4f::Identity();
+    }
 }
 
 Frame::Frame(long long timestamp, int frame_id,
@@ -95,6 +120,7 @@ Frame::Frame(long long timestamp, int frame_id,
     , m_rotation(Eigen::Matrix3f::Identity())
     , m_translation(Eigen::Vector3f::Zero())
     , m_is_keyframe(false)
+    , m_T_relative_from_ref(Eigen::Matrix4f::Identity())
 {
     // Get camera parameters from Config
     const Config& config = Config::getInstance();
@@ -141,6 +167,12 @@ Frame::Frame(long long timestamp, int frame_id,
     
     // Baseline will be calculated automatically in triangulation from transform
     m_baseline = 0.11; // Default fallback, will be overridden by actual calculation
+    
+    // Set reference keyframe to last keyframe if available
+    if (m_last_keyframe) {
+        m_reference_keyframe = m_last_keyframe;
+        m_T_relative_from_ref = Eigen::Matrix4f::Identity();
+    }
 }
 
 void Frame::set_pose(const Eigen::Matrix3f& rotation, const Eigen::Vector3f& translation) {
@@ -157,10 +189,34 @@ void Frame::set_Twb(const Eigen::Matrix4f& T_wb) {
 
 Eigen::Matrix4f Frame::get_Twb() const {
     std::lock_guard<std::mutex> lock(m_pose_mutex);
-    Eigen::Matrix4f T_wb = Eigen::Matrix4f::Identity();
-    T_wb.block<3, 3>(0, 0) = m_rotation;
-    T_wb.block<3, 1>(0, 3) = m_translation;
-    return T_wb;
+    
+    // If this frame is a keyframe, return its direct pose
+    if (m_is_keyframe) {
+        Eigen::Matrix4f T_wb = Eigen::Matrix4f::Identity();
+        T_wb.block<3, 3>(0, 0) = m_rotation;
+        T_wb.block<3, 1>(0, 3) = m_translation;
+        return T_wb;
+    }
+    
+    // For non-keyframes, try to get pose from reference keyframe
+    auto ref_kf = m_reference_keyframe.lock();
+    if (ref_kf) {
+        // Calculate pose from reference keyframe: T_wb = T_wb_ref * T_relative_from_ref
+        Eigen::Matrix4f T_wb_ref = ref_kf->get_Twb(); // Recursive call, but ref_kf should be a keyframe
+        Eigen::Matrix4f T_wb = T_wb_ref * m_T_relative_from_ref;
+        
+        // Update internal pose storage for compatibility (but don't rely on it)
+        const_cast<Frame*>(this)->m_rotation = T_wb.block<3, 3>(0, 0);
+        const_cast<Frame*>(this)->m_translation = T_wb.block<3, 1>(0, 3);
+        
+        return T_wb;
+    } else {
+        // Fallback to direct pose if no reference keyframe is available
+        Eigen::Matrix4f T_wb = Eigen::Matrix4f::Identity();
+        T_wb.block<3, 3>(0, 0) = m_rotation;
+        T_wb.block<3, 1>(0, 3) = m_translation;
+        return T_wb;
+    }
 }
 
 Eigen::Matrix4f Frame::get_Twc() const {
@@ -175,6 +231,16 @@ Eigen::Matrix4f Frame::get_Twc() const {
     Eigen::Matrix4f T_wc = T_wb * T_bc;
     
     return T_wc;
+}
+
+void Frame::set_reference_keyframe(std::shared_ptr<Frame> reference_kf, const Eigen::Matrix4f& T_relative) {
+    std::lock_guard<std::mutex> lock(m_pose_mutex);
+    m_reference_keyframe = reference_kf;
+    m_T_relative_from_ref = T_relative;
+}
+
+std::shared_ptr<Frame> Frame::get_reference_keyframe() const {
+    return m_reference_keyframe.lock();
 }
 
 void Frame::add_feature(std::shared_ptr<Feature> feature) {

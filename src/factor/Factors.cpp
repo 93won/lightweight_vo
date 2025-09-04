@@ -249,11 +249,19 @@ bool BAFactor::Evaluate(double const* const* parameters,
         Eigen::Vector2d projected(u, v);
         Eigen::Vector2d error = m_observation - projected;
         
-        // Apply information matrix (precision matrix)
-        Eigen::Vector2d weighted_error = m_information * error;
-        
-        residuals[0] = weighted_error[0];
-        residuals[1] = weighted_error[1];
+        // Apply information matrix weighting using Cholesky decomposition: r_weighted = sqrt(Info) * r
+        Eigen::LLT<Eigen::Matrix2d> llt(m_information);
+        if (llt.info() == Eigen::Success) {
+            // Use Cholesky decomposition: Information = L * L^T
+            // Weighted residual = L * residual
+            Eigen::Vector2d weighted_error = llt.matrixL() * error;
+            residuals[0] = weighted_error[0];
+            residuals[1] = weighted_error[1];
+        } else {
+            // Fallback to unweighted if Cholesky fails
+            residuals[0] = error[0];
+            residuals[1] = error[1];
+        }
         
         // Compute Jacobians if requested
         if (jacobians) {
@@ -266,8 +274,14 @@ bool BAFactor::Evaluate(double const* const* parameters,
             J_proj_camera(1, 1) = -m_camera_params.fy * invz;
             J_proj_camera(1, 2) = y * m_camera_params.fy * invz * invz;
             
-            // Apply information matrix to projection jacobian
-            Eigen::Matrix<double, 2, 3> weighted_J_proj = m_information * J_proj_camera;
+            // Apply information matrix weighting to projection jacobian using Cholesky
+            Eigen::LLT<Eigen::Matrix2d> llt(m_information);
+            Eigen::Matrix<double, 2, 3> weighted_J_proj;
+            if (llt.info() == Eigen::Success) {
+                weighted_J_proj = llt.matrixL() * J_proj_camera;
+            } else {
+                weighted_J_proj = J_proj_camera;
+            }
             
             // Jacobian w.r.t pose (SE3 tangent space)
             if (jacobians[0]) {
@@ -317,13 +331,54 @@ double BAFactor::compute_chi_square(double const* const* parameters) const {
         return 0.0;
     }
     
-    // Compute residual
+    // Compute residual (which is already weighted by information matrix in Evaluate())
     double residuals[2];
     Evaluate(parameters, residuals, nullptr);
     
-    // Chi-square error: residual^T * Information * residual
-    Eigen::Vector2d res(residuals[0], residuals[1]);
-    double chi_square = res.transpose() * res; // Already weighted by information matrix
+    // Chi-square error: weighted_residual^T * weighted_residual
+    // Since Evaluate() returns Information * error, this gives us error^T * Information^T * Information * error
+    // For symmetric positive definite Information matrix: Information^T = Information
+    // So this becomes: error^T * Information^2 * error, which is incorrect for chi-square test
+    
+    // We need to compute the unweighted error and then apply information matrix properly
+    // Let's recompute the unweighted error for proper chi-square calculation
+    
+    // Extract SE3 pose from parameters
+    Eigen::Map<const Eigen::Vector6d> se3_tangent(parameters[0]);
+    Sophus::SE3d Twb = Sophus::SE3d::exp(se3_tangent);
+    
+    // Extract 3D point
+    Eigen::Map<const Eigen::Vector3d> world_point(parameters[1]);
+    
+    // Transform world point to camera coordinates
+    Eigen::Matrix3d Rwb = Twb.rotationMatrix();
+    Eigen::Vector3d twb = Twb.translation();
+    Eigen::Matrix3d Rbw = Rwb.transpose();
+    
+    // Body coordinates: Pb = Rbw * (Pw - twb)
+    Eigen::Vector3d body_point = Rbw * (world_point - twb);
+    
+    // Camera coordinates: Pc = Tcb * [Pb; 1]
+    Eigen::Vector4d body_point_h(body_point.x(), body_point.y(), body_point.z(), 1.0);
+    Eigen::Vector4d camera_point_h = m_Tcb * body_point_h;
+    Eigen::Vector3d camera_point = camera_point_h.head<3>();
+    
+    // Check if point is in front of camera
+    if (camera_point.z() <= 0.0) {
+        return 1000.0; // Large chi-square for points behind camera
+    }
+    
+    // Project to pixel coordinates
+    double invz = 1.0 / camera_point.z();
+    double u = m_camera_params.fx * camera_point.x() * invz + m_camera_params.cx;
+    double v = m_camera_params.fy * camera_point.y() * invz + m_camera_params.cy;
+    
+    // Compute unweighted error
+    Eigen::Vector2d projected(u, v);
+    Eigen::Vector2d error = m_observation - projected;
+    
+    // Proper chi-square: error^T * Information * error
+    double chi_square = error.transpose() * m_information * error;
     
     return chi_square;
 }

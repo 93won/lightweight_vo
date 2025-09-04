@@ -3,6 +3,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <iostream>
 #include <fstream>
+#include <iomanip>
 #include <string>
 #include <vector>
 #include <sstream>
@@ -238,6 +239,9 @@ int main(int argc, char* argv[]) {
     bool step_mode = false;
     bool advance_frame = false;
     
+    // Vector to store ground truth poses for trajectory export
+    std::vector<Eigen::Matrix4f> gt_poses;
+    
     // Process all frames
     size_t current_idx = 0;
     size_t processed_frames = 0;
@@ -305,6 +309,9 @@ int main(int argc, char* argv[]) {
             auto gt_pose_opt = lightweight_vio::EurocUtils::get_matched_pose(processed_frames);
             if (gt_pose_opt.has_value()) {
                 Eigen::Matrix4f gt_pose = gt_pose_opt.value();
+                
+                // Store ground truth pose for trajectory export
+                gt_poses.push_back(gt_pose);
                 
                 // For the first frame only: apply GT pose to initialize VIO with same starting point
                 // TEMPORARILY DISABLED: Let VIO start from identity to avoid coordinate conflicts
@@ -522,6 +529,80 @@ int main(int argc, char* argv[]) {
     }
     
     spdlog::info("[VIO] Processing completed! Processed {} frames", processed_frames);
+    
+    // Save trajectories in TUM format for evaluation
+    spdlog::info("[TRAJECTORY] Saving trajectories to TUM format...");
+    
+    // 1. Save estimated trajectory
+    std::string estimated_traj_file = dataset_path + "/estimated_trajectory.txt";
+    std::ofstream est_file(estimated_traj_file);
+    if (est_file.is_open()) {
+        const auto& all_frames = estimator.get_all_frames();
+        spdlog::info("[TRAJECTORY] Saving {} frames to estimated trajectory", all_frames.size());
+        
+        for (const auto& frame : all_frames) {
+            if (!frame) continue;
+            
+            // Get pose from frame
+            Eigen::Matrix4f T_wb = frame->get_Twb();
+            
+            // Extract translation and rotation
+            Eigen::Vector3f translation = T_wb.block<3, 1>(0, 3);
+            Eigen::Matrix3f rotation = T_wb.block<3, 3>(0, 0);
+            
+            // Convert rotation matrix to quaternion (w, x, y, z)
+            Eigen::Quaternionf quat(rotation);
+            
+            // Convert timestamp from nanoseconds to seconds
+            double timestamp_sec = static_cast<double>(frame->get_timestamp()) / 1e9;
+            
+            // TUM format: timestamp tx ty tz qx qy qz qw
+            est_file << std::fixed << std::setprecision(6) << timestamp_sec << " "
+                     << std::setprecision(8)
+                     << translation.x() << " " << translation.y() << " " << translation.z() << " "
+                     << quat.x() << " " << quat.y() << " " << quat.z() << " " << quat.w() << std::endl;
+        }
+        est_file.close();
+        spdlog::info("[TRAJECTORY] Saved estimated trajectory to: {}", estimated_traj_file);
+    } else {
+        spdlog::error("[TRAJECTORY] Failed to open estimated trajectory file: {}", estimated_traj_file);
+    }
+    
+    // 2. Save ground truth trajectory
+    std::string gt_traj_file = dataset_path + "/ground_truth.txt";
+    std::ofstream gt_file(gt_traj_file);
+    if (gt_file.is_open()) {
+        spdlog::info("[TRAJECTORY] Saving {} ground truth poses", gt_poses.size());
+        
+        for (size_t i = 0; i < gt_poses.size() && i < image_data.size(); ++i) {
+            const auto& gt_pose = gt_poses[i];
+            
+            // Extract translation and rotation from ground truth
+            Eigen::Vector3f translation = gt_pose.block<3, 1>(0, 3);
+            Eigen::Matrix3f rotation = gt_pose.block<3, 3>(0, 0);
+            
+            // Convert rotation matrix to quaternion (w, x, y, z)
+            Eigen::Quaternionf quat(rotation);
+            
+            // Convert timestamp from nanoseconds to seconds
+            double timestamp_sec = static_cast<double>(image_data[i].timestamp) / 1e9;
+            
+            // TUM format: timestamp tx ty tz qx qy qz qw
+            gt_file << std::fixed << std::setprecision(6) << timestamp_sec << " "
+                    << std::setprecision(8)
+                    << translation.x() << " " << translation.y() << " " << translation.z() << " "
+                    << quat.x() << " " << quat.y() << " " << quat.z() << " " << quat.w() << std::endl;
+        }
+        gt_file.close();
+        spdlog::info("[TRAJECTORY] Saved ground truth trajectory to: {}", gt_traj_file);
+    } else {
+        spdlog::error("[TRAJECTORY] Failed to open ground truth trajectory file: {}", gt_traj_file);
+    }
+    
+    spdlog::info("[TRAJECTORY] Trajectory files saved successfully!");
+    spdlog::info("[TRAJECTORY] Use evo for evaluation:");
+    spdlog::info("[TRAJECTORY]   evo_ape tum {} {} --plot --verbose", gt_traj_file, estimated_traj_file);
+    spdlog::info("[TRAJECTORY]   evo_rpe tum {} {} --plot --verbose", gt_traj_file, estimated_traj_file);
     
     return 0;
 }

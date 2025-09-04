@@ -106,6 +106,12 @@ public:
     const std::vector<std::shared_ptr<Frame>>& get_keyframes() const { return m_keyframes; }
 
     /**
+     * @brief Get all processed frames (for trajectory export)
+     * @return Vector of all processed frames
+     */
+    const std::vector<std::shared_ptr<Frame>>& get_all_frames() const { return m_all_frames; }
+
+    /**
      * @brief Get all map points
      * @return Vector of map points
      */
@@ -127,6 +133,7 @@ private:
     std::shared_ptr<Frame> m_current_frame;
     std::shared_ptr<Frame> m_previous_frame;
     std::vector<std::shared_ptr<Frame>> m_keyframes;
+    std::vector<std::shared_ptr<Frame>> m_all_frames;  // All processed frames for trajectory export
     std::vector<std::shared_ptr<MapPoint>> m_map_points;
     
     // Frame management

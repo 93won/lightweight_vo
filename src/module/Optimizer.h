@@ -272,7 +272,8 @@ private:
         const std::vector<std::vector<double>>& pose_params_vec,
         const std::vector<std::vector<double>>& point_params_vec,
         const std::vector<BAObservationInfo>& observations,
-        const std::vector<std::shared_ptr<Frame>>& keyframes);
+        const std::vector<std::shared_ptr<Frame>>& keyframes,
+        const std::vector<std::shared_ptr<MapPoint>>& map_points);
     
     /**
      * @brief Update keyframes and map points with optimized values

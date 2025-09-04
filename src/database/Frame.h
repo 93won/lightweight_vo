@@ -56,6 +56,16 @@ public:
     Eigen::Matrix4f get_Twb() const;
     Eigen::Matrix4f get_Twc() const;  // World to camera transform
     void set_keyframe(bool is_keyframe) { m_is_keyframe = is_keyframe; }
+    
+    // Reference keyframe management
+    void set_reference_keyframe(std::shared_ptr<Frame> reference_kf, const Eigen::Matrix4f& T_relative);
+    std::shared_ptr<Frame> get_reference_keyframe() const;
+    const Eigen::Matrix4f& get_relative_transform() const { return m_T_relative_from_ref; }
+    void set_relative_transform(const Eigen::Matrix4f& T_relative) { m_T_relative_from_ref = T_relative; }
+    
+    // Static keyframe management
+    static void set_last_keyframe(std::shared_ptr<Frame> keyframe) { m_last_keyframe = keyframe; }
+    static std::shared_ptr<Frame> get_last_keyframe() { return m_last_keyframe; }
 
     // Feature management
     void add_feature(std::shared_ptr<Feature> feature);
@@ -137,9 +147,14 @@ private:
     Eigen::Matrix4d m_T_CB;      // Transform from camera to body frame (T_CB = T_BC.inverse())
 
     // Pose (camera pose in world frame)
-    Eigen::Matrix3f m_rotation;    // Rotation matrix
-    Eigen::Vector3f m_translation; // Translation vector
+    Eigen::Matrix3f m_rotation;    // Rotation matrix (DEPRECATED - use reference keyframe approach)
+    Eigen::Vector3f m_translation; // Translation vector (DEPRECATED - use reference keyframe approach)
     bool m_is_keyframe;           // Whether this is a keyframe
+    
+    // Reference keyframe approach for pose management
+    std::weak_ptr<Frame> m_reference_keyframe;  // Reference keyframe (weak_ptr to avoid cycles)
+    Eigen::Matrix4f m_T_relative_from_ref;      // Transform from reference keyframe to this frame
+    static std::shared_ptr<Frame> m_last_keyframe; // Last created keyframe (shared across all frames)
 
     // Thread safety
     mutable std::mutex m_pose_mutex; // Mutex for pose operations

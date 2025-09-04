@@ -322,7 +322,7 @@ namespace lightweight_vio
         int num_inliers = 0;
 
         // Chi-square threshold for 2DOF - use more relaxed threshold
-        const double chi2_threshold = 5.991;  // Much more relaxed than 5.99
+        const double chi2_threshold = 9.210;  // Chi-square threshold for 2 DoF at 99% confidence
 
         // Collect chi2 values for statistics
         std::vector<double> inlier_chi2_values;
@@ -537,7 +537,7 @@ SlidingWindowOptimizer::SlidingWindowOptimizer(size_t window_size, int max_itera
     , m_max_iterations(max_iterations)
     , m_huber_delta(1.0)  // Default Huber loss delta
     , m_pixel_noise_std(1.0)  // Default pixel noise
-    , m_outlier_threshold(5.991)  // Chi-square threshold for 2 DoF at 95% confidence
+    , m_outlier_threshold(9.210)  // Chi-square threshold for 2 DoF at 99% confidence
 {
 }
 
@@ -599,8 +599,34 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
     problem.Evaluate(ceres::Problem::EvaluateOptions(), &initial_cost, nullptr, nullptr, nullptr);
     result.initial_cost = initial_cost;
     
-    // Solve optimization problem
+    // Two-stage robust BA optimization (like g2o reference)
+    
+    // First optimization with robust kernel
     ceres::Solve(options, &problem, &summary);
+    
+    if (force_stop_flag && *force_stop_flag) {
+        result.success = false;
+        return result;
+    }
+    
+    // Outlier detection phase: mark outliers but don't remove them yet
+    for (const auto& obs_info : observations) {
+        const double* pose_params = pose_params_vec[obs_info.keyframe_index].data();
+        const double* point_params = point_params_vec[obs_info.mappoint_index].data();
+        const double* params[2] = {pose_params, point_params};
+        
+        // Compute chi-square error
+        double chi_square = obs_info.cost_function->compute_chi_square(params);
+        
+        // Mark as outlier if above threshold (equivalent to g2o's setLevel(1))
+        bool is_outlier = (chi_square > m_outlier_threshold);
+        obs_info.cost_function->set_outlier(is_outlier);
+    }
+    
+    // Second optimization without robust kernel (outliers are disabled via set_outlier)
+    ceres::Solver::Summary final_summary;
+    ceres::Solve(options, &problem, &final_summary);
+    summary = final_summary; // Use final summary for cost reporting
     
     // Final cost evaluation
     double final_cost = 0.0;
@@ -610,7 +636,7 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
     
     // Detect outliers and count inliers
     int num_inliers = detect_ba_outliers(
-        pose_params_vec, point_params_vec, observations, keyframes);
+        pose_params_vec, point_params_vec, observations, keyframes, map_points);
     
     result.num_inliers = num_inliers;
     result.num_outliers = static_cast<int>(observations.size()) - num_inliers;
@@ -625,9 +651,9 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
         // Update keyframes and map points with optimized values
         update_optimized_values(keyframes, map_points, pose_params_vec, point_params_vec);
         
-        spdlog::info("[SlidingWindowOptimizer] Optimization successful: {} poses, {} points, {} inliers, {} outliers",
-                    result.num_poses_optimized, result.num_points_optimized, 
-                    result.num_inliers, result.num_outliers);
+        // spdlog::info("[SlidingWindowOptimizer] Optimization successful: {} poses, {} points, {} inliers, {} outliers",
+        //             result.num_poses_optimized, result.num_points_optimized, 
+        //             result.num_inliers, result.num_outliers);
     } else {
         spdlog::warn("[SlidingWindowOptimizer] Optimization failed: {}", 
                     summary.BriefReport());
@@ -805,9 +831,9 @@ std::vector<BAObservationInfo> SlidingWindowOptimizer::setup_optimization_proble
             
             int mp_idx = it->second;
             
-            // Get 2D observation
-            cv::Point2f pixel_coord = feature->get_pixel_coord();
-            Eigen::Vector2d observation(pixel_coord.x, pixel_coord.y);
+            // Get 2D observation using undistorted coordinates (consistent with PnP optimizer)
+            cv::Point2f undistorted_pixel = feature->get_undistorted_coord();
+            Eigen::Vector2d observation(undistorted_pixel.x, undistorted_pixel.y);
             
             // Add BA observation
             auto obs_info = add_ba_observation(
@@ -843,8 +869,8 @@ void SlidingWindowOptimizer::apply_marginalization_strategy(
     // Fix the oldest keyframe (first in vector) as reference to prevent gauge freedom
     if (!pose_params_vec.empty()) {
         problem.SetParameterBlockConstant(const_cast<double*>(pose_params_vec[0].data()));
-        spdlog::debug("[SlidingWindowOptimizer] Fixed oldest keyframe {} as reference",
-                     keyframes[0]->get_frame_id());
+        // spdlog::debug("[SlidingWindowOptimizer] Fixed oldest keyframe {} as reference",
+        //              keyframes[0]->get_frame_id());
     }
     
     // Optional: Fix map points with insufficient observations
@@ -860,19 +886,21 @@ void SlidingWindowOptimizer::apply_marginalization_strategy(
         }
     }
     
-    if (fixed_points > 0) {
-        spdlog::debug("[SlidingWindowOptimizer] Fixed {} / {} map points with insufficient observations",
-                     fixed_points, map_points.size());
-    }
+    // if (fixed_points > 0) {
+    //     spdlog::debug("[SlidingWindowOptimizer] Fixed {} / {} map points with insufficient observations",
+    //                  fixed_points, map_points.size());
+    // }
 }
 
 int SlidingWindowOptimizer::detect_ba_outliers(
     const std::vector<std::vector<double>>& pose_params_vec,
     const std::vector<std::vector<double>>& point_params_vec,
     const std::vector<BAObservationInfo>& observations,
-    const std::vector<std::shared_ptr<Frame>>& keyframes) {
+    const std::vector<std::shared_ptr<Frame>>& keyframes,
+    const std::vector<std::shared_ptr<MapPoint>>& map_points) {
     
     int num_inliers = 0;
+    std::set<int> outlier_map_point_indices; // Track which map points are outliers
     
     for (const auto& obs_info : observations) {
         // Get parameter pointers
@@ -888,14 +916,30 @@ int SlidingWindowOptimizer::detect_ba_outliers(
         bool is_inlier = (chi_square <= m_outlier_threshold);
         if (is_inlier) {
             num_inliers++;
+        } else {
+            // Mark this map point index as outlier
+            outlier_map_point_indices.insert(obs_info.mappoint_index);
         }
         
         // Mark outlier in cost function (will return zero residuals)
         obs_info.cost_function->set_outlier(!is_inlier);
     }
     
-    spdlog::debug("[SlidingWindowOptimizer] Outlier detection: {}/{} inliers",
-                 num_inliers, observations.size());
+    // Mark all outlier map points as bad
+    int marked_bad = 0;
+    for (int mp_idx : outlier_map_point_indices) {
+        if (mp_idx >= 0 && mp_idx < static_cast<int>(map_points.size())) {
+            auto map_point = map_points[mp_idx];
+            if (map_point && !map_point->is_bad()) {
+                map_point->set_bad();
+                marked_bad++;
+            }
+        }
+    }
+    
+    if (marked_bad > 0) {
+        spdlog::info("[SlidingWindowOptimizer] Marked {} map points as bad due to outlier detection", marked_bad);
+    }
     
     return num_inliers;
 }
@@ -906,31 +950,69 @@ void SlidingWindowOptimizer::update_optimized_values(
     const std::vector<std::vector<double>>& pose_params_vec,
     const std::vector<std::vector<double>>& point_params_vec) {
     
+    int updated_keyframes = 0;
+    int updated_map_points = 0;
+    
     // Update keyframe poses
     for (size_t kf_idx = 0; kf_idx < keyframes.size(); ++kf_idx) {
         const auto& keyframe = keyframes[kf_idx];
+        if (!keyframe) continue;
+        
         const auto& pose_params = pose_params_vec[kf_idx];
+        
+        // Store original pose for comparison
+        Eigen::Matrix4f original_pose = keyframe->get_Twb();
         
         // Convert SE3 tangent space back to matrix
         Eigen::Map<const Eigen::Vector6d> tangent(pose_params.data());
         Sophus::SE3d se3_pose = Sophus::SE3d::exp(tangent);
         Eigen::Matrix4f T_wb = se3_pose.matrix().cast<float>();
         
+        // Check if pose actually changed
+        Eigen::Matrix4f pose_diff = T_wb - original_pose;
+        double pose_change = pose_diff.norm();
+        
         keyframe->set_Twb(T_wb);
+        updated_keyframes++;
+        
+        // Log significant pose changes
+        if (pose_change > 0.01) {
+            spdlog::debug("[UPDATE] Keyframe {} pose changed by {:.4f}", 
+                         keyframe->get_frame_id(), pose_change);
+        }
     }
     
     // Update map point positions
     for (size_t mp_idx = 0; mp_idx < map_points.size(); ++mp_idx) {
         const auto& map_point = map_points[mp_idx];
+        if (!map_point || map_point->is_bad()) continue;
+        
         const auto& point_params = point_params_vec[mp_idx];
         
-        Eigen::Vector3f position(
+        // Store original position for comparison
+        Eigen::Vector3f original_pos = map_point->get_position();
+        
+        Eigen::Vector3f new_position(
             static_cast<float>(point_params[0]),
             static_cast<float>(point_params[1]),
             static_cast<float>(point_params[2]));
         
-        map_point->set_position(position);
+        // Check if position actually changed
+        Eigen::Vector3f pos_diff = new_position - original_pos;
+        double position_change = pos_diff.norm();
+        
+        map_point->set_position(new_position);
+        updated_map_points++;
+        
+        // // Log significant position changes
+        // if (position_change > 0.1) {
+        //     spdlog::debug("[UPDATE] MapPoint {} position changed by {:.4f}m", 
+        //                  map_point->get_id(), position_change);
+        // }
     }
+    
+    // spdlog::info("[UPDATE] Updated {} keyframes and {} map points", 
+    //             updated_keyframes, updated_map_points);
 }
 
 ceres::Solver::Options SlidingWindowOptimizer::setup_solver_options() const {
