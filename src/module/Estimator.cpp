@@ -31,7 +31,7 @@ Estimator::Estimator()
     
     // Initialize sliding window optimizer
     m_sliding_window_optimizer = std::make_unique<SlidingWindowOptimizer>(
-        Config::getInstance().m_keyframe_window_size, 10);  // window size, max iterations
+        Config::getInstance().m_keyframe_window_size);  // window size only
 }
 
 Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp) {
@@ -343,7 +343,6 @@ int lightweight_vio::Estimator::create_initial_map_points(std::shared_ptr<Frame>
             Eigen::Vector3f world_pos = world_point.head<3>();
             
             auto map_point = std::make_shared<MapPoint>(world_pos);
-            
             m_map_points.push_back(map_point);
             
             // Associate with frame
@@ -457,7 +456,6 @@ int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> fra
         
         // Create new map point
         auto map_point = std::make_shared<MapPoint>(world_pos);
-        
         m_map_points.push_back(map_point);
         
         // Associate with current frame

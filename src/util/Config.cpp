@@ -123,18 +123,24 @@ bool Config::load(const std::string& config_file) {
             m_pnp_outlier_detection_rounds = (int)optimization["outlier_detection_rounds"];
             m_outlier_detection_rounds = m_pnp_outlier_detection_rounds; // Legacy compatibility
         }
-        if (optimization["max_observation_weight"].isReal()) {
-            m_pnp_max_observation_weight = (double)optimization["max_observation_weight"];
+        if (optimization["pnp_max_observation_weight"].isReal()) {
+            m_pnp_max_observation_weight = (double)optimization["pnp_max_observation_weight"];
             m_max_observation_weight = m_pnp_max_observation_weight; // Legacy compatibility
         }
         
-        // Sliding Window specific variables (same values)
-        m_sw_max_iterations = m_pnp_max_iterations;
+        // Sliding Window specific parameters  
+        if (optimization["sliding_window_max_iterations"].isInt()) {
+            m_sw_max_iterations = (int)optimization["sliding_window_max_iterations"];
+        }
+        if (optimization["sliding_window_max_observation_weight"].isReal()) {
+            m_sw_max_observation_weight = (double)optimization["sliding_window_max_observation_weight"];
+        }
+        
+        // Use common parameters for sliding window (function_tolerance, gradient_tolerance, parameter_tolerance)
         m_sw_function_tolerance = m_pnp_function_tolerance;
         m_sw_gradient_tolerance = m_pnp_gradient_tolerance;
         m_sw_parameter_tolerance = m_pnp_parameter_tolerance;
         m_sw_use_robust_kernel = m_pnp_use_robust_kernel;
-        m_sw_max_observation_weight = m_pnp_max_observation_weight;
         
         // Remove logging-related parameters as they're not needed
     }

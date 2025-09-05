@@ -577,7 +577,7 @@ namespace lightweight_vio
 // SlidingWindowOptimizer implementation
 namespace lightweight_vio {
 
-SlidingWindowOptimizer::SlidingWindowOptimizer(size_t window_size, int max_iterations)
+SlidingWindowOptimizer::SlidingWindowOptimizer(size_t window_size)
     : m_window_size(window_size)
 {
     // Get config for initialization
@@ -585,7 +585,7 @@ SlidingWindowOptimizer::SlidingWindowOptimizer(size_t window_size, int max_itera
     m_max_iterations = config.m_sw_max_iterations;  // Use sliding window specific max iterations
     m_huber_delta = sqrt(5.991);                          // Chi-squared 95% threshold for 2 DOF (hardcoded)
     m_pixel_noise_std = 1.0;                        // Default pixel noise
-    m_outlier_threshold = 5.991;                    // Chi-square threshold for 2 DoF at 99% confidence
+    m_outlier_threshold = 5.991;                    // Chi-square threshold for 2 DoF at 98% confidence (more relaxed)
 }
 
 SlidingWindowResult SlidingWindowOptimizer::optimize(
@@ -632,8 +632,15 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
     apply_marginalization_strategy(
         problem, keyframes, map_points, pose_params_vec, point_params_vec);
     
-    // Configure solver
-    ceres::Solver::Options options = setup_solver_options();
+    // Configure solver options
+    ceres::Solver::Options first_stage_options = setup_solver_options();
+    ceres::Solver::Options second_stage_options = setup_solver_options();
+    
+    // First stage: Use half iterations for quick outlier detection
+    first_stage_options.max_num_iterations = std::max(1, m_max_iterations / 2);
+    
+    // Second stage: Use full iterations for precise optimization
+    second_stage_options.max_num_iterations = m_max_iterations;
     
     if (force_stop_flag) {
         // TODO: Add custom callback for early termination if needed
@@ -646,10 +653,8 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
     problem.Evaluate(ceres::Problem::EvaluateOptions(), &initial_cost, nullptr, nullptr, nullptr);
     result.initial_cost = initial_cost;
     
-    // Two-stage robust BA optimization
-    
-    // First optimization with robust kernel
-    ceres::Solve(options, &problem, &summary);
+    // Stage 1: Quick optimization with robust kernel (half iterations)
+    ceres::Solve(first_stage_options, &problem, &summary);
     
     if (force_stop_flag && *force_stop_flag) {
         result.success = false;
@@ -670,9 +675,10 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
         obs_info.cost_function->set_outlier(is_outlier);
     }
     
-    // Second optimization without robust kernel (outliers are disabled via set_outlier)
+    // Stage 2: Precise optimization without robust kernel (full iterations)
+    // Outliers are disabled via set_outlier - they return zero residuals
     ceres::Solver::Summary final_summary;
-    ceres::Solve(options, &problem, &final_summary);
+    ceres::Solve(second_stage_options, &problem, &final_summary);
     summary = final_summary; // Use final summary for cost reporting
     
     // Final cost evaluation
@@ -982,6 +988,7 @@ int SlidingWindowOptimizer::detect_ba_outliers(
     
     int num_inliers = 0;
     std::set<int> outlier_map_point_indices; // Track which map points are outliers
+    std::vector<double> chi2_values;
     
     for (const auto& obs_info : observations) {
         // Get parameter pointers
@@ -992,6 +999,7 @@ int SlidingWindowOptimizer::detect_ba_outliers(
         
         // Compute chi-square error
         double chi_square = obs_info.cost_function->compute_chi_square(params);
+        chi2_values.push_back(chi_square);
         
         // Check against threshold
         bool is_inlier = (chi_square <= m_outlier_threshold);
@@ -1006,21 +1014,48 @@ int SlidingWindowOptimizer::detect_ba_outliers(
         obs_info.cost_function->set_outlier(!is_inlier);
     }
     
-    // Mark all outlier map points as bad
+    // Mark all outlier map points as bad and disconnect from all frames
     int marked_bad = 0;
+    int disconnected_features = 0;
+    
     for (int mp_idx : outlier_map_point_indices) {
         if (mp_idx >= 0 && mp_idx < static_cast<int>(map_points.size())) {
             auto map_point = map_points[mp_idx];
             if (map_point && !map_point->is_bad()) {
+                // First, find all frames that observe this map point and mark their features as outliers
+                for (const auto& keyframe : keyframes) {
+                    const auto& frame_map_points = keyframe->get_map_points();
+                    for (size_t feat_idx = 0; feat_idx < frame_map_points.size(); ++feat_idx) {
+                        if (frame_map_points[feat_idx] == map_point) {
+                            // Mark this feature as outlier in the frame
+                            keyframe->set_outlier_flag(feat_idx, true);
+                            // Remove the map point connection
+                            keyframe->set_map_point(feat_idx, nullptr);
+                            disconnected_features++;
+                        }
+                    }
+                }
+                
+                // Then mark the map point as bad
                 map_point->set_bad();
                 marked_bad++;
             }
         }
     }
     
-    // if (marked_bad > 0) {
-    //     spdlog::info("[SlidingWindowOptimizer] Marked {} map points as bad due to outlier detection", marked_bad);
-    // }
+    // Log chi-square statistics
+    if (!chi2_values.empty()) {
+        auto minmax = std::minmax_element(chi2_values.begin(), chi2_values.end());
+        double mean = std::accumulate(chi2_values.begin(), chi2_values.end(), 0.0) / chi2_values.size();
+        
+        spdlog::info("[BA_CHI2] {} observations: min={:.3f}, max={:.3f}, mean={:.3f}, threshold={:.3f}, bad_points={}", 
+                    chi2_values.size(), *minmax.first, *minmax.second, mean, m_outlier_threshold, marked_bad);
+    }
+    
+    if (marked_bad > 0) {
+        spdlog::info("[BA_OUTLIER] Marked {} map points as bad and disconnected {} features", 
+                     marked_bad, disconnected_features);
+    }
     
     return num_inliers;
 }

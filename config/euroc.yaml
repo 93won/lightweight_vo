@@ -4,7 +4,7 @@
 # Keyframe and Windowing Parameters
 # Controls keyframe selection and sliding window management
 keyframe_management:
-  keyframe_window_size: 10
+  keyframe_window_size: 5
   grid_coverage_ratio: 0.7  # Add keyframe when coverage drops to 80% of last keyframe's coverage
 
 # Feature Detection Parameters
@@ -91,7 +91,9 @@ camera:
 # Optimization Parameters
 # Controls Ceres-based optimization behavior for both PnP and Sliding Window
 optimization:
-  max_iterations: 10               # Maximum optimization iterations
+  # PnP Optimization Parameters
+  max_iterations: 10               # Maximum optimization iterations for PnP
+  sliding_window_max_iterations: 10  # Maximum optimization iterations for sliding window
   function_tolerance: 1e-6         # Function tolerance for convergence
   gradient_tolerance: 1e-10        # Gradient tolerance for convergence  
   parameter_tolerance: 1e-8        # Parameter tolerance for convergence
@@ -104,7 +106,8 @@ optimization:
   outlier_detection_rounds: 4      # Number of optimization rounds with outlier detection
   
   # Information weighting parameters
-  max_observation_weight: 3.0      # Maximum weight multiplier based on map point observation count
+  pnp_max_observation_weight: 3.0          # Maximum weight multiplier for PnP optimization
+  sliding_window_max_observation_weight: 1.0  # Maximum weight multiplier for sliding window
 
 # Performance Parameters
 # Debug and timing control flags

@@ -209,9 +209,8 @@ public:
     /**
      * @brief Constructor
      * @param window_size Maximum number of keyframes in sliding window
-     * @param max_iterations Maximum optimization iterations
      */
-    SlidingWindowOptimizer(size_t window_size = 10, int max_iterations = 10);
+    SlidingWindowOptimizer(size_t window_size = 10);
     
     /**
      * @brief Destructor

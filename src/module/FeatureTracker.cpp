@@ -363,18 +363,29 @@ void FeatureTracker::set_mask(std::shared_ptr<Frame> frame) {
         m_mask(cv::Rect(frame->get_image().cols - border_size, 0, border_size, frame->get_image().rows)) = 0; // Right
     }
     
-    // For each existing feature, create a circular mask around it
-    for (const auto& feature : frame->get_features()) {
-        if (feature->is_valid()) {
-            cv::Point2f pt = feature->get_pixel_coord();
+    // For each existing feature, create a circular mask around it (but skip outliers)
+    const auto& features = frame->get_features();
+    for (size_t i = 0; i < features.size(); ++i) {
+        const auto& feature = features[i];
+        
+        // Skip invalid features
+        if (!feature->is_valid()) {
+            continue;
+        }
+        
+        // Skip outlier features - allow new features to be detected in their place
+        if (frame->get_outlier_flag(i)) {
+            continue;
+        }
+        
+        cv::Point2f pt = feature->get_pixel_coord();
+        
+        // Check if feature is within image bounds
+        if (pt.x >= 0 && pt.y >= 0 && 
+            pt.x < frame->get_image().cols && pt.y < frame->get_image().rows) {
             
-            // Check if feature is within image bounds
-            if (pt.x >= 0 && pt.y >= 0 && 
-                pt.x < frame->get_image().cols && pt.y < frame->get_image().rows) {
-                
-                // Create circular mask around existing feature
-                cv::circle(m_mask, pt, min_distance, cv::Scalar(0), -1);
-            }
+            // Create circular mask around existing NON-OUTLIER feature
+            cv::circle(m_mask, pt, min_distance, cv::Scalar(0), -1);
         }
     }
     
