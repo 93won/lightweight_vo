@@ -33,9 +33,6 @@ bool Config::load(const std::string& config_file) {
         if (!feature_detection["max_features_per_grid"].empty()) {
             m_max_features_per_grid = (int)feature_detection["max_features_per_grid"];
         }
-        if (!feature_detection["max_observation_without_mappoint"].empty()) {
-            m_max_observation_without_mappoint = (int)feature_detection["max_observation_without_mappoint"];
-        }
     }
     
     // Optical Flow Parameters

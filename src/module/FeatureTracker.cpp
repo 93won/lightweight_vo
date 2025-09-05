@@ -42,8 +42,8 @@ void FeatureTracker::track_features(std::shared_ptr<Frame> current_frame,
         tracked_features = tracking_stats.first;
         new_map_points_from_tracking = tracking_stats.second;
         
-        // Update track counts
-        update_feature_track_count(current_frame);
+        // Track count will only be updated when frame becomes keyframe
+        // Removed: update_feature_track_count(current_frame);
     }
 
     // Extract new features if needed
@@ -620,38 +620,17 @@ std::vector<int> FeatureTracker::select_features_for_tracking(std::shared_ptr<Fr
         return selected_indices;
     }
     
-    // First, filter out features that have high observation count but no map point
-    const int max_observation_threshold = m_config.m_max_observation_without_mappoint;
+    // Simply collect all valid features without any observation count filtering
     const auto& features = previous_frame->get_features();
     std::vector<int> valid_feature_indices;
-    int filtered_count = 0;
     
     for (int i = 0; i < features.size(); ++i) {
         if (!features[i] || !features[i]->is_valid()) {
             continue;
         }
         
-        // Check if feature has high observation count but no associated map point
-        int track_count = features[i]->get_track_count();
-        bool has_map_point = previous_frame->has_map_point(i) && 
-                            previous_frame->get_map_point(i) && 
-                            !previous_frame->get_map_point(i)->is_bad();
-        
-        if (track_count >= max_observation_threshold && !has_map_point) {
-            // Filter out this feature - it's been observed many times but never became a map point
-            filtered_count++;
-            if (m_config.m_enable_debug_output && filtered_count <= 5) {
-                // spdlog::debug("Filtering feature {} with {} observations but no map point", features[i]->get_feature_id(), track_count);
-            }
-            continue;
-        }
-        
         valid_feature_indices.push_back(i);
     }
-    
-    // if (m_config.m_enable_debug_output && filtered_count > 0) {
-    //     spdlog::info("Filtered {} features with ≥{} observations but no map point",  filtered_count, max_observation_threshold);
-    // }
     
     // Initialize grid
     const int grid_rows = m_config.m_grid_rows;
@@ -694,15 +673,6 @@ std::vector<int> FeatureTracker::select_features_for_tracking(std::shared_ptr<Fr
             }
         }
     }
-    
-    // if (m_config.m_enable_debug_output) {
-    //     spdlog::info("Grid-based feature selection: {} features selected for tracking from {} valid (filtered {} high-observation features without map points)", 
-    //                  selected_indices.size(), valid_feature_indices.size(), filtered_count);
-    //     // spdlog::info("Max features per grid: {}, Grid size: {}x{} = {} cells", 
-    //     //              max_features_per_grid, grid_cols, grid_rows, grid_cols * grid_rows);
-    //     // spdlog::info("Theoretical max features: {} ({}x{}x{})", 
-    //     //              grid_cols * grid_rows * max_features_per_grid, grid_cols, grid_rows, max_features_per_grid);
-    // }
     
     return selected_indices;
 }

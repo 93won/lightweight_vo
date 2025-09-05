@@ -549,9 +549,17 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
     frame->set_keyframe(true);
     m_keyframes.push_back(frame);
     
+    // 🎯 Update track count only when frame becomes keyframe
+    const auto& features = frame->get_features();
+    for (auto& feature : features) {
+        if (feature && feature->is_valid()) {
+            feature->increment_track_count();
+        }
+    }
+    
     // Add observations to map points for this keyframe
     int observations_added = 0;
-    const auto& features = frame->get_features();
+    // Use the existing features variable from above - no duplicate declaration
     for (size_t i = 0; i < features.size(); ++i) {
         auto feature = features[i];
         auto map_point = frame->get_map_point(i);

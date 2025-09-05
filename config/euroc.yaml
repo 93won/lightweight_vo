@@ -8,7 +8,7 @@
 # Controls keyframe selection and sliding window management
 keyframe_management:
   keyframe_window_size: 10
-  grid_coverage_ratio: 0.8  # Add keyframe when coverage drops to 80% of last keyframe's coverage
+  grid_coverage_ratio: 0.7  # Add keyframe when coverage drops to 80% of last keyframe's coverage
 
 # Feature Detection Parameters
 # Controls how corner features are detected using goodFeaturesToTrack
@@ -21,7 +21,6 @@ feature_detection:
   grid_cols: 20               # Number of grid columns for feature distribution
   grid_rows: 10               # Number of grid rows for feature distribution  
   max_features_per_grid: 4   # Maximum features allowed per grid cell
-  max_observation_without_mappoint: 10  # Remove features after this many observations without map point
 
 # Optical Flow Tracking Parameters  
 # Controls Lucas-Kanade optical flow for feature tracking between frames

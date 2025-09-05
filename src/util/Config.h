@@ -48,7 +48,6 @@ namespace lightweight_vio
         int m_grid_cols = 20;
         int m_grid_rows = 10;
         int m_max_features_per_grid = 4;
-        int m_max_observation_without_mappoint = 5;  // Remove features after this many observations without map point
 
         // Optical Flow Parameters
         int m_window_size = 21;

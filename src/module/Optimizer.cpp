@@ -643,19 +643,20 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
     result.num_poses_optimized = static_cast<int>(keyframes.size());
     result.num_points_optimized = static_cast<int>(map_points.size());
     
-    // Check if optimization was successful
-    result.success = true;//(summary.termination_type == ceres::CONVERGENCE) || (summary.termination_type == ceres::USER_SUCCESS);
+    // Check if optimization was successful - SUCCESS if cost decreased
+    bool cost_decreased = (result.final_cost < result.initial_cost);
+    result.success = cost_decreased;
     
     if (result.success) {
         // Update keyframes and map points with optimized values
         update_optimized_values(keyframes, map_points, pose_params_vec, point_params_vec);
         
-        // spdlog::info("[SlidingWindowOptimizer] Optimization successful: {} poses, {} points, {} inliers, {} outliers",
-        //             result.num_poses_optimized, result.num_points_optimized, 
-        //             result.num_inliers, result.num_outliers);
+        spdlog::info("[SlidingWindowOptimizer] ✅ Optimization successful (cost decreased): {} poses, {} points, {} inliers, {} outliers, cost: {:.2e} -> {:.2e}",
+                    result.num_poses_optimized, result.num_points_optimized, 
+                    result.num_inliers, result.num_outliers, result.initial_cost, result.final_cost);
     } else {
-        spdlog::warn("[SlidingWindowOptimizer] Optimization failed: {}", 
-                    summary.BriefReport());
+        spdlog::warn("[SlidingWindowOptimizer] ❌ Optimization failed (cost increased): {:.2e} -> {:.2e}, {}", 
+                    result.initial_cost, result.final_cost, summary.BriefReport());
     }
     
     return result;
