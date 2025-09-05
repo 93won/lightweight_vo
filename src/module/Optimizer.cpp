@@ -88,8 +88,9 @@ namespace lightweight_vio
             double undist_v = undistorted_pixel.y;
             Eigen::Vector2d observation(undist_u, undist_v);
 
-            // Add mono PnP observation with desired pixel noise standard deviation
-            auto obs_info = add_mono_observation(problem, pose_params.data(), world_point, observation, camera_params, frame, 2.0);
+            // Add mono PnP observation with observation-based weighting
+            int num_observations = mp->get_observation_count();
+            auto obs_info = add_mono_observation(problem, pose_params.data(), world_point, observation, camera_params, frame, 2.0, num_observations);
 
             // Debug: Check if projection makes sense for first few features
             if (num_valid_observations < 3) {
@@ -177,13 +178,7 @@ namespace lightweight_vio
             //             config.m_outlier_detection_rounds, initial_cost, final_cost, 
             //             total_iterations, final_inliers, final_outliers);
                         
-            // Print detailed Ceres summary if requested (last round only)
-            if (config.m_print_summary && config.m_outlier_detection_rounds > 0) {
-                // Re-solve to get final summary
-                ceres::Solver::Summary final_summary;
-                ceres::Solve(options, &problem, &final_summary);
-                spdlog::info("[CERES_SUMMARY] Detailed solver report:\n{}", final_summary.FullReport());
-            }
+            // Detailed Ceres summary logging removed
         }
         else
         {
@@ -212,10 +207,7 @@ namespace lightweight_vio
             result.final_cost = summary.final_cost;
             result.num_iterations = summary.iterations.size();
             
-            // Print detailed Ceres summary if requested
-            if (config.m_print_summary) {
-                spdlog::info("[CERES_SUMMARY] Detailed solver report:\n{}", summary.FullReport());
-            }
+            // Detailed Ceres summary logging removed
         }
 
         // Count final inliers/outliers and disconnect outlier map points based on config
@@ -304,7 +296,43 @@ namespace lightweight_vio
         ceres::LossFunction *loss_function = nullptr;
         if (config.m_use_robust_kernel)
         {
-            loss_function = create_robust_loss(config.m_huber_delta_mono);
+            loss_function = create_robust_loss(sqrt(5.991));  // Chi-squared 95% threshold for 2 DOF
+        }
+
+        // Add residual block
+        auto residual_id = problem.AddResidualBlock(
+            cost_function, loss_function, pose_params);
+
+        return ObservationInfo(residual_id, cost_function);
+    }
+
+    // Overloaded version with observation-based weighting
+    ObservationInfo PnPOptimizer::add_mono_observation(
+        ceres::Problem &problem,
+        double *pose_params,
+        const Eigen::Vector3d &world_point,
+        const Eigen::Vector2d &observation,
+        const factor::CameraParameters &camera_params,
+        std::shared_ptr<Frame> frame,
+        double pixel_noise_std,
+        int num_observations)
+    {
+
+        // Create information matrix with observation-based weighting
+        Eigen::Matrix2d information = create_information_matrix(pixel_noise_std, num_observations);
+
+        // Get T_cb (body-to-camera transform) from frame directly - NO CONFIG ACCESS!
+        const Eigen::Matrix4d& T_cb = frame->get_T_CB();
+        
+        // Create mono PnP cost function with information matrix and T_cb
+        auto cost_function = new factor::PnPFactor(observation, world_point, camera_params, T_cb, information);
+
+        // Create robust loss function if enabled
+        const Config& config = Config::getInstance();
+        ceres::LossFunction *loss_function = nullptr;
+        if (config.m_use_robust_kernel)
+        {
+            loss_function = create_robust_loss(5.991);  // Chi-squared 95% threshold for 2 DOF
         }
 
         // Add residual block
@@ -470,9 +498,9 @@ namespace lightweight_vio
         options.linear_solver_type = ceres::DENSE_QR;
         options.use_explicit_schur_complement = false;
 
-        // Logging configuration
-        options.logging_type = config.m_enable_pose_solver_logging ? ceres::PER_MINIMIZER_ITERATION : ceres::SILENT;
-        options.minimizer_progress_to_stdout = config.m_enable_pose_solver_logging;
+        // Logging configuration - simplified (no config variables)
+        options.logging_type = ceres::SILENT;
+        options.minimizer_progress_to_stdout = false;
 
         return options;
     }
@@ -527,6 +555,23 @@ namespace lightweight_vio
         return precision * Eigen::Matrix2d::Identity();
     }
 
+    Eigen::Matrix2d PnPOptimizer::create_information_matrix(double pixel_noise, int num_observations) const
+    {
+        // Base precision from pixel noise
+        double base_precision = 1.0 / (pixel_noise * pixel_noise);
+        
+        // Get config instance
+        const Config& config = Config::getInstance();
+        
+        // Weight by number of observations (configurable max weight for PnP)
+        double observation_weight = std::min(static_cast<double>(num_observations), config.m_pnp_max_observation_weight);
+        
+        // Final precision = base_precision * observation_weight
+        double final_precision = base_precision * observation_weight;
+        
+        return final_precision * Eigen::Matrix2d::Identity();
+    }
+
 }
 
 // SlidingWindowOptimizer implementation
@@ -534,11 +579,13 @@ namespace lightweight_vio {
 
 SlidingWindowOptimizer::SlidingWindowOptimizer(size_t window_size, int max_iterations)
     : m_window_size(window_size)
-    , m_max_iterations(max_iterations)
-    , m_huber_delta(1.0)  // Default Huber loss delta
-    , m_pixel_noise_std(1.0)  // Default pixel noise
-    , m_outlier_threshold(5.991)  // Chi-square threshold for 2 DoF at 99% confidence
 {
+    // Get config for initialization
+    const Config& config = Config::getInstance();
+    m_max_iterations = config.m_sw_max_iterations;  // Use sliding window specific max iterations
+    m_huber_delta = sqrt(5.991);                          // Chi-squared 95% threshold for 2 DOF (hardcoded)
+    m_pixel_noise_std = 1.0;                        // Default pixel noise
+    m_outlier_threshold = 5.991;                    // Chi-square threshold for 2 DoF at 99% confidence
 }
 
 SlidingWindowResult SlidingWindowOptimizer::optimize(
@@ -599,7 +646,7 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
     problem.Evaluate(ceres::Problem::EvaluateOptions(), &initial_cost, nullptr, nullptr, nullptr);
     result.initial_cost = initial_cost;
     
-    // Two-stage robust BA optimization (like g2o reference)
+    // Two-stage robust BA optimization
     
     // First optimization with robust kernel
     ceres::Solve(options, &problem, &summary);
@@ -651,12 +698,12 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
         // Update keyframes and map points with optimized values
         update_optimized_values(keyframes, map_points, pose_params_vec, point_params_vec);
         
-        spdlog::info("[SlidingWindowOptimizer] ✅ Optimization successful (cost decreased): {} poses, {} points, {} inliers, {} outliers, cost: {:.2e} -> {:.2e}",
-                    result.num_poses_optimized, result.num_points_optimized, 
-                    result.num_inliers, result.num_outliers, result.initial_cost, result.final_cost);
+        // spdlog::info("[SlidingWindowOptimizer] ✅ Optimization successful (cost decreased): {} poses, {} points, {} inliers, {} outliers, cost: {:.2e} -> {:.2e}",
+        //             result.num_poses_optimized, result.num_points_optimized, 
+        //             result.num_inliers, result.num_outliers, result.initial_cost, result.final_cost);
     } else {
-        spdlog::warn("[SlidingWindowOptimizer] ❌ Optimization failed (cost increased): {:.2e} -> {:.2e}, {}", 
-                    result.initial_cost, result.final_cost, summary.BriefReport());
+        // spdlog::warn("[SlidingWindowOptimizer] ❌ Optimization failed (cost increased): {:.2e} -> {:.2e}, {}", 
+        //             result.initial_cost, result.final_cost, summary.BriefReport());
     }
     
     return result;
@@ -682,8 +729,8 @@ std::vector<std::shared_ptr<MapPoint>> SlidingWindowOptimizer::collect_window_ma
     // Convert set to vector
     std::vector<std::shared_ptr<MapPoint>> result(unique_map_points.begin(), unique_map_points.end());
     
-    spdlog::info("[SlidingWindowOptimizer] Collected {} unique map points from {} keyframes",
-                result.size(), keyframes.size());
+    // spdlog::info("[SlidingWindowOptimizer] Collected {} unique map points from {} keyframes",
+    //             result.size(), keyframes.size());
     
     return result;
 }
@@ -704,6 +751,38 @@ BAObservationInfo SlidingWindowOptimizer::add_ba_observation(
     
     // Create information matrix
     Eigen::Matrix2d information = create_information_matrix(pixel_noise_std);
+    
+    // Create BA factor
+    auto* cost_function = new factor::BAFactor(
+        observation, camera_params, T_CB, information);
+    
+    // Create robust loss function
+    ceres::LossFunction* loss_function = create_robust_loss(m_huber_delta);
+    
+    // Add residual block to problem
+    ceres::ResidualBlockId residual_id = problem.AddResidualBlock(
+        cost_function, loss_function, pose_params, point_params);
+    
+    return BAObservationInfo(residual_id, cost_function, kf_index, mp_index);
+}
+
+BAObservationInfo SlidingWindowOptimizer::add_ba_observation(
+    ceres::Problem& problem,
+    double* pose_params,
+    double* point_params,
+    const Eigen::Vector2d& observation,
+    const factor::CameraParameters& camera_params,
+    std::shared_ptr<Frame> frame,
+    int kf_index,
+    int mp_index,
+    double pixel_noise_std,
+    int num_observations) {
+    
+    // Get T_CB transformation from frame
+    Eigen::Matrix4d T_CB = frame->get_T_CB();
+    
+    // Create information matrix with observation-based weighting
+    Eigen::Matrix2d information = create_information_matrix(pixel_noise_std, num_observations);
     
     // Create BA factor
     auto* cost_function = new factor::BAFactor(
@@ -835,7 +914,8 @@ std::vector<BAObservationInfo> SlidingWindowOptimizer::setup_optimization_proble
             cv::Point2f undistorted_pixel = feature->get_undistorted_coord();
             Eigen::Vector2d observation(undistorted_pixel.x, undistorted_pixel.y);
             
-            // Add BA observation
+            // Add BA observation with observation-based information weighting
+            int num_observations = map_point->get_observation_count();
             auto obs_info = add_ba_observation(
                 problem,
                 pose_params_vec[kf_idx].data(),
@@ -845,14 +925,15 @@ std::vector<BAObservationInfo> SlidingWindowOptimizer::setup_optimization_proble
                 keyframe,
                 static_cast<int>(kf_idx),
                 mp_idx,
-                m_pixel_noise_std);
+                m_pixel_noise_std,
+                num_observations);
             
             observations.push_back(obs_info);
         }
     }
     
-    spdlog::info("[SlidingWindowOptimizer] Setup problem: {} keyframes, {} map points, {} observations",
-                keyframes.size(), map_points.size(), observations.size());
+    // spdlog::info("[SlidingWindowOptimizer] Setup problem: {} keyframes, {} map points, {} observations",
+    //             keyframes.size(), map_points.size(), observations.size());
     
     return observations;
 }
@@ -937,9 +1018,9 @@ int SlidingWindowOptimizer::detect_ba_outliers(
         }
     }
     
-    if (marked_bad > 0) {
-        spdlog::info("[SlidingWindowOptimizer] Marked {} map points as bad due to outlier detection", marked_bad);
-    }
+    // if (marked_bad > 0) {
+    //     spdlog::info("[SlidingWindowOptimizer] Marked {} map points as bad due to outlier detection", marked_bad);
+    // }
     
     return num_inliers;
 }
@@ -1017,16 +1098,17 @@ void SlidingWindowOptimizer::update_optimized_values(
 
 ceres::Solver::Options SlidingWindowOptimizer::setup_solver_options() const {
     ceres::Solver::Options options;
+    const Config& config = Config::getInstance();
     
     // Use sparse solver for bundle adjustment
     options.linear_solver_type = ceres::SPARSE_SCHUR;
     options.preconditioner_type = ceres::SCHUR_JACOBI;
     
-    // Solver parameters
-    options.max_num_iterations = m_max_iterations;
-    options.function_tolerance = 1e-6;
-    options.gradient_tolerance = 1e-10;
-    options.parameter_tolerance = 1e-8;
+    // Solver parameters from config
+    options.max_num_iterations = config.m_sw_max_iterations;
+    options.function_tolerance = config.m_sw_function_tolerance;
+    options.gradient_tolerance = config.m_sw_gradient_tolerance;
+    options.parameter_tolerance = config.m_sw_parameter_tolerance;
     
     // Enable detailed logging if needed
     options.minimizer_progress_to_stdout = false;
@@ -1047,6 +1129,24 @@ Eigen::Matrix2d SlidingWindowOptimizer::create_information_matrix(double pixel_n
     double variance = pixel_noise * pixel_noise;
     information_matrix << 1.0 / variance, 0.0,
                          0.0, 1.0 / variance;
+    return information_matrix;
+}
+
+Eigen::Matrix2d SlidingWindowOptimizer::create_information_matrix(double pixel_noise, int num_observations) const {
+    Eigen::Matrix2d information_matrix;
+    double variance = pixel_noise * pixel_noise;
+    
+    // Get config instance
+    const Config& config = Config::getInstance();
+    
+    // Weight by number of observations (configurable max weight for sliding window)
+    double observation_weight = std::min(static_cast<double>(num_observations), config.m_sw_max_observation_weight);
+    
+    // Apply weighting to precision
+    double weighted_precision = observation_weight / variance;
+    
+    information_matrix << weighted_precision, 0.0,
+                         0.0, weighted_precision;
     return information_matrix;
 }
 

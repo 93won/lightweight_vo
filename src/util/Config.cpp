@@ -91,45 +91,52 @@ bool Config::load(const std::string& config_file) {
                     m_grid_coverage_ratio, m_keyframe_window_size);
     }
     
-    // Pose Optimization Parameters
-    cv::FileNode pose_optimization = fs["pose_optimization"];
-    if (!pose_optimization.empty()) {
-        if (pose_optimization["max_iterations"].isInt()) {
-            m_pose_max_iterations = (int)pose_optimization["max_iterations"];
+    // Optimization Parameters (unified for PnP and Sliding Window)
+    cv::FileNode optimization = fs["optimization"];
+    if (!optimization.empty()) {
+        // PnP specific variables
+        if (optimization["max_iterations"].isInt()) {
+            m_pnp_max_iterations = (int)optimization["max_iterations"];
+            m_pose_max_iterations = m_pnp_max_iterations; // Legacy compatibility
         }
-        if (pose_optimization["function_tolerance"].isReal()) {
-            m_pose_function_tolerance = (double)pose_optimization["function_tolerance"];
+        if (optimization["function_tolerance"].isReal()) {
+            m_pnp_function_tolerance = (double)optimization["function_tolerance"];
+            m_pose_function_tolerance = m_pnp_function_tolerance; // Legacy compatibility
         }
-        if (pose_optimization["gradient_tolerance"].isReal()) {
-            m_pose_gradient_tolerance = (double)pose_optimization["gradient_tolerance"];
+        if (optimization["gradient_tolerance"].isReal()) {
+            m_pnp_gradient_tolerance = (double)optimization["gradient_tolerance"];
+            m_pose_gradient_tolerance = m_pnp_gradient_tolerance; // Legacy compatibility
         }
-        if (pose_optimization["parameter_tolerance"].isReal()) {
-            m_pose_parameter_tolerance = (double)pose_optimization["parameter_tolerance"];
+        if (optimization["parameter_tolerance"].isReal()) {
+            m_pnp_parameter_tolerance = (double)optimization["parameter_tolerance"];
+            m_pose_parameter_tolerance = m_pnp_parameter_tolerance; // Legacy compatibility
         }
-        if (pose_optimization["use_robust_kernel"].isInt()) {
-            m_use_robust_kernel = (bool)(int)pose_optimization["use_robust_kernel"];
+        if (optimization["use_robust_kernel"].isInt()) {
+            m_pnp_use_robust_kernel = (bool)(int)optimization["use_robust_kernel"];
+            m_use_robust_kernel = m_pnp_use_robust_kernel; // Legacy compatibility
         }
-        if (pose_optimization["huber_delta_mono"].isReal()) {
-            m_huber_delta_mono = (double)pose_optimization["huber_delta_mono"];
+        if (optimization["enable_outlier_detection"].isInt()) {
+            m_pnp_enable_outlier_detection = (bool)(int)optimization["enable_outlier_detection"];
+            m_enable_outlier_detection = m_pnp_enable_outlier_detection; // Legacy compatibility
         }
-        if (pose_optimization["huber_delta_stereo"].isReal()) {
-            m_huber_delta_stereo = (double)pose_optimization["huber_delta_stereo"];
+        if (optimization["outlier_detection_rounds"].isInt()) {
+            m_pnp_outlier_detection_rounds = (int)optimization["outlier_detection_rounds"];
+            m_outlier_detection_rounds = m_pnp_outlier_detection_rounds; // Legacy compatibility
         }
-        if (pose_optimization["enable_outlier_detection"].isInt()) {
-            m_enable_outlier_detection = (bool)(int)pose_optimization["enable_outlier_detection"];
+        if (optimization["max_observation_weight"].isReal()) {
+            m_pnp_max_observation_weight = (double)optimization["max_observation_weight"];
+            m_max_observation_weight = m_pnp_max_observation_weight; // Legacy compatibility
         }
-        if (pose_optimization["outlier_detection_rounds"].isInt()) {
-            m_outlier_detection_rounds = (int)pose_optimization["outlier_detection_rounds"];
-        }
-        if (pose_optimization["enable_solver_logging"].isInt()) {
-            m_enable_pose_solver_logging = (bool)(int)pose_optimization["enable_solver_logging"];
-        }
-        if (pose_optimization["minimizer_progress_to_stdout"].isInt()) {
-            m_minimizer_progress_to_stdout = (bool)(int)pose_optimization["minimizer_progress_to_stdout"];
-        }
-        if (pose_optimization["print_summary"].isInt()) {
-            m_print_summary = (bool)(int)pose_optimization["print_summary"];
-        }
+        
+        // Sliding Window specific variables (same values)
+        m_sw_max_iterations = m_pnp_max_iterations;
+        m_sw_function_tolerance = m_pnp_function_tolerance;
+        m_sw_gradient_tolerance = m_pnp_gradient_tolerance;
+        m_sw_parameter_tolerance = m_pnp_parameter_tolerance;
+        m_sw_use_robust_kernel = m_pnp_use_robust_kernel;
+        m_sw_max_observation_weight = m_pnp_max_observation_weight;
+        
+        // Remove logging-related parameters as they're not needed
     }
     
     // Camera Parameters

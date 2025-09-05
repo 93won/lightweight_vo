@@ -1,9 +1,6 @@
 %YAML:1.0
 ---
 # EuRoC Dataset Configuration for Lightweight VIO
-# This configuration file contains all tunable parameters for the VIO system
-# Adjust these values based on your dataset characteristics and performance requirements
-
 # Keyframe and Windowing Parameters
 # Controls keyframe selection and sliding window management
 keyframe_management:
@@ -91,27 +88,23 @@ camera:
                -0.0253898008918, 0.0179005838253, 0.999517347078, 0.00786212447038,
                0.0, 0.0, 0.0, 1.0]
 
-# Pose Optimization Parameters
-# Controls Ceres-based pose optimization behavior
-pose_optimization:
+# Optimization Parameters
+# Controls Ceres-based optimization behavior for both PnP and Sliding Window
+optimization:
   max_iterations: 10               # Maximum optimization iterations
   function_tolerance: 1e-6         # Function tolerance for convergence
   gradient_tolerance: 1e-10        # Gradient tolerance for convergence  
   parameter_tolerance: 1e-8        # Parameter tolerance for convergence
   
   # Robust kernel parameters
-  use_robust_kernel: true          # Enable robust kernel for outlier handling
-  huber_delta_mono: 5.99          # Huber kernel threshold for monocular reprojection error (sqrt(chi2_2dof_95%))
-  huber_delta_stereo: 7.81        # Huber kernel threshold for stereo reprojection error (sqrt(chi2_3dof_95%))
+  use_robust_kernel: true          # Enable robust kernel for outlier handling (delta=5.991 hardcoded)
   
-  # Outlier detection
+  # Outlier detection (mainly for PnP)
   enable_outlier_detection: true   # Enable ORB-SLAM style outlier detection
   outlier_detection_rounds: 4      # Number of optimization rounds with outlier detection
   
-  # Logging
-  enable_solver_logging: false    # Enable Ceres solver logging (PER_MINIMIZER_ITERATION vs SILENT)
-  minimizer_progress_to_stdout: false  # Print Ceres solver progress
-  print_summary: false             # Print optimization summary
+  # Information weighting parameters
+  max_observation_weight: 3.0      # Maximum weight multiplier based on map point observation count
 
 # Performance Parameters
 # Debug and timing control flags

@@ -86,25 +86,37 @@ namespace lightweight_vio
         double m_grid_coverage_ratio = 0.7;  // Add keyframe when coverage drops to this ratio of last keyframe's coverage
         int m_keyframe_window_size = 10;     // Number of keyframes to keep in sliding window
 
-        // Pose Optimization Parameters
+        // PnP Optimization Parameters
+        int m_pnp_max_iterations = 10;
+        double m_pnp_function_tolerance = 1e-6;
+        double m_pnp_gradient_tolerance = 1e-10;
+        double m_pnp_parameter_tolerance = 1e-8;
+        bool m_pnp_use_robust_kernel = true;
+        // m_pnp_huber_delta_mono removed - hardcoded to 5.991
+        bool m_pnp_enable_outlier_detection = true;
+        int m_pnp_outlier_detection_rounds = 3;
+        double m_pnp_max_observation_weight = 3.0;
+
+        // Sliding Window Optimization Parameters  
+        int m_sw_max_iterations = 20;
+        double m_sw_function_tolerance = 1e-6;
+        double m_sw_gradient_tolerance = 1e-10;
+        double m_sw_parameter_tolerance = 1e-8;
+        bool m_sw_use_robust_kernel = true;
+        // m_sw_huber_delta removed - hardcoded to 5.991
+        double m_sw_max_observation_weight = 3.0;
+
+        // Legacy parameters (for backward compatibility)
         int m_pose_max_iterations = 10;
         double m_pose_function_tolerance = 1e-6;
         double m_pose_gradient_tolerance = 1e-10;
         double m_pose_parameter_tolerance = 1e-8;
-        bool m_enable_pose_solver_logging = false;
-
-        // Robust kernel parameters
         bool m_use_robust_kernel = true;
-        double m_huber_delta_mono = 5.99;   // sqrt(chi2_2dof_95%)
-        double m_huber_delta_stereo = 7.81; // sqrt(chi2_3dof_95%)
-
-        // Outlier detection
+        // m_huber_delta_mono removed - hardcoded to 5.991
+        // m_huber_delta_stereo removed - not used
         bool m_enable_outlier_detection = true;
         int m_outlier_detection_rounds = 3;
-
-        // Logging
-        bool m_minimizer_progress_to_stdout = false;
-        bool m_print_summary = false;
+        double m_max_observation_weight = 3.0;
 
         // Camera Parameters
         int m_image_width = 752;
