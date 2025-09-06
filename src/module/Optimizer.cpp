@@ -128,7 +128,7 @@ namespace lightweight_vio
             double final_cost = 0.0;
             int total_iterations = 0;
             
-            // Store initial pose parameters for resetting each round (ORB-SLAM style)
+            // Store initial pose parameters for resetting each round
             Eigen::Vector6d initial_pose_params = pose_params;
             
             for (int round = 0; round < config.m_outlier_detection_rounds; ++round)
@@ -1048,15 +1048,9 @@ int SlidingWindowOptimizer::detect_ba_outliers(
         auto minmax = std::minmax_element(chi2_values.begin(), chi2_values.end());
         double mean = std::accumulate(chi2_values.begin(), chi2_values.end(), 0.0) / chi2_values.size();
         
-        spdlog::info("[BA_CHI2] {} observations: min={:.3f}, max={:.3f}, mean={:.3f}, threshold={:.3f}, bad_points={}", 
-                    chi2_values.size(), *minmax.first, *minmax.second, mean, m_outlier_threshold, marked_bad);
     }
     
-    if (marked_bad > 0) {
-        spdlog::info("[BA_OUTLIER] Marked {} map points as bad and disconnected {} features", 
-                     marked_bad, disconnected_features);
-    }
-    
+   
     return num_inliers;
 }
 

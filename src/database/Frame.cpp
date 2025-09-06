@@ -323,32 +323,14 @@ cv::Mat Frame::draw_features() const {
             cv::Scalar point_color;
             
             if (map_point && !map_point->is_bad()) {
-                // Feature with MapPoint: Blue to red gradient based on number of observations
-                int num_observations = map_point->get_observation_count();
-                float ratio = std::min(1.0f, static_cast<float>(num_observations) / 5.0f);
-                
-                // BGR color: Blue (255,0,0) -> Red (0,0,255)
-                int blue = static_cast<int>(255 * (1.0f - ratio));   // 255 -> 0
-                int green = 0;                                       // Always 0
-                int red = static_cast<int>(255 * ratio);             // 0 -> 255
-                
-                point_color = cv::Scalar(blue, green, red);
+                // Feature with MapPoint
+                point_color = cv::Scalar(0, 0, 255);
             } else {
-                // Feature without MapPoint: Orange color (BGR: 0,165,255)
-                point_color = cv::Scalar(0, 165, 255);
+                // Feature without MapPoint
+                point_color = cv::Scalar(255, 0, 0);
             }
             
-            // Increase circle size to match PangolinViewer (radius 3, thickness 2)
             cv::circle(display_image, pt, 4, point_color, 2);
-            
-            // Display MapPoint ID if feature has associated map point
-            // if (map_point && !map_point->is_bad()) {
-            //     std::string id_text = std::to_string(map_point->get_id());
-            //     cv::Point2f text_pt(pt.x + 5, pt.y - 5);  // Offset text slightly from point
-            //     // Use blue color for text (BGR: 255,0,0) and increase font size to 0.7
-            //     cv::putText(display_image, id_text, text_pt, 
-            //                cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 0, 0), 2);
-            // }
         }
     }
 
@@ -392,31 +374,19 @@ cv::Mat Frame::draw_stereo_matches() const {
                 if (right_pt.x >= 0 && right_pt.y >= 0) {
                     cv::Point2f right_pt_shifted(right_pt.x + right_offset, right_pt.y);
                     
-                    // Draw right feature (red circle)
-                    cv::circle(combined_image, right_pt_shifted, 3, cv::Scalar(0, 0, 255), 2);
+                    // Draw right feature (blue circle)
+                    cv::circle(combined_image, right_pt_shifted, 3, cv::Scalar(255, 0, 0), 2);
                     
-                    // Draw matching line (yellow)
-                    cv::line(combined_image, left_pt, right_pt_shifted, cv::Scalar(0, 255, 255), 1);
+                    // Draw matching line (red)
+                    cv::line(combined_image, left_pt, right_pt_shifted, cv::Scalar(0, 0, 255), 1);
                     
-                    // Show 3D point info instead of disparity
-                    if (feature->has_3d_point()) {
-                        Eigen::Vector3f pt3d = feature->get_3d_point();
-                        std::string depth_str = cv::format("%.2fm", pt3d[2]);
-                        cv::putText(combined_image, depth_str, 
-                                   cv::Point(left_pt.x + 5, left_pt.y - 5), 
-                                   cv::FONT_HERSHEY_SIMPLEX, 0.4, 
-                                   cv::Scalar(255, 255, 255), 1);
-                    }
+                    
                 }
             }
         }
     }
 
-    // Add labels
-    cv::putText(combined_image, "Left Camera", cv::Point(10, 30), 
-               cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
-    cv::putText(combined_image, "Right Camera", cv::Point(right_offset + 10, 30), 
-               cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
+    // Labels removed - text will be added by viewer instead
 
     return combined_image;
 }
@@ -460,11 +430,11 @@ cv::Mat Frame::draw_rectified_stereo_matches() const {
                 if (right_px.x >= 0 && right_px.y >= 0) {
                     cv::Point2f right_px_shifted(right_px.x + right_offset, right_px.y);
                     
-                    // Draw right feature (red circle)
-                    cv::circle(combined_image, right_px_shifted, 3, cv::Scalar(0, 0, 255), 2);
+                    // Draw right feature (blue circle)
+                    cv::circle(combined_image, right_px_shifted, 3, cv::Scalar(255, 0, 0), 2);
                     
-                    // Draw matching line (yellow)
-                    cv::line(combined_image, left_px, right_px_shifted, cv::Scalar(0, 255, 255), 1);
+                    // Draw matching line (pink/magenta)
+                    cv::line(combined_image, left_px, right_px_shifted, cv::Scalar(255, 0, 255), 1);
                     
                     // Show 3D point depth if available
                     if (feature->has_3d_point()) {

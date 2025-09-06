@@ -207,7 +207,7 @@ int main(int argc, char* argv[]) {
     // Initialize 3D viewer (optional)
     PangolinViewer* viewer = nullptr;
     std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
-    if (viewer_ptr->initialize(1920, 1080)) {  // Pangolin 뷰어 초기화
+    if (viewer_ptr->initialize(1920*2, 1080*2)) {  // Pangolin 뷰어 초기화
         viewer = viewer_ptr.get();
         spdlog::info("[Viewer] Pangolin viewer initialized successfully");
         
@@ -241,6 +241,9 @@ int main(int argc, char* argv[]) {
     
     // Vector to store ground truth poses for trajectory export
     std::vector<Eigen::Matrix4f> gt_poses;
+    
+    // Vector to store frame processing times for statistics
+    std::vector<double> frame_processing_times;
     
     // Process all frames
     size_t current_idx = 0;
@@ -342,6 +345,11 @@ int main(int argc, char* argv[]) {
         }
             
         auto frame_end = std::chrono::high_resolution_clock::now();
+        
+        // Calculate frame processing time
+        auto frame_duration = std::chrono::duration_cast<std::chrono::microseconds>(frame_end - frame_start);
+        double frame_time_ms = frame_duration.count() / 1000.0; // Convert to milliseconds
+        frame_processing_times.push_back(frame_time_ms);
         
         // Update viewer if available
         if (viewer) {
@@ -528,13 +536,13 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     
-    spdlog::info("[VIO] Processing completed! Processed {} frames", processed_frames);
+    spdlog::info("[VO] Processing completed! Processed {} frames \n", processed_frames);
     
     // Save trajectories in TUM format for evaluation
     spdlog::info("[TRAJECTORY] Saving trajectories to TUM format...");
     
     // 1. Save estimated trajectory
-    std::string estimated_traj_file = dataset_path + "/estimated_trajectory.txt";
+    std::string estimated_traj_file = dataset_path + "estimated_trajectory.txt";
     std::ofstream est_file(estimated_traj_file);
     if (est_file.is_open()) {
         const auto& all_frames = estimator.get_all_frames();
@@ -569,7 +577,7 @@ int main(int argc, char* argv[]) {
     }
     
     // 2. Save ground truth trajectory
-    std::string gt_traj_file = dataset_path + "/ground_truth.txt";
+    std::string gt_traj_file = dataset_path + "ground_truth.txt";
     std::ofstream gt_file(gt_traj_file);
     if (gt_file.is_open()) {
         spdlog::info("[TRAJECTORY] Saving {} ground truth poses", gt_poses.size());
@@ -599,10 +607,105 @@ int main(int argc, char* argv[]) {
         spdlog::error("[TRAJECTORY] Failed to open ground truth trajectory file: {}", gt_traj_file);
     }
     
-    spdlog::info("[TRAJECTORY] Trajectory files saved successfully!");
-    spdlog::info("[TRAJECTORY] Use evo for evaluation:");
-    spdlog::info("[TRAJECTORY]   evo_ape tum {} {} --plot --verbose", gt_traj_file, estimated_traj_file);
-    spdlog::info("[TRAJECTORY]   evo_rpe tum {} {} --plot --verbose", gt_traj_file, estimated_traj_file);
+    spdlog::info("[TRAJECTORY] Trajectory files saved successfully! \n\n");
+    
+    // 3. Frame-to-frame transform comparison
+    if (!gt_poses.empty()) {
+        
+        const auto& all_frames = estimator.get_all_frames();
+        std::vector<double> rotation_errors;
+        std::vector<double> translation_errors;
+        
+        for (size_t i = 1; i < all_frames.size() && i < gt_poses.size(); ++i) {
+            if (!all_frames[i-1] || !all_frames[i]) continue;
+            
+            // Calculate estimated transform from frame i-1 to frame i
+            Eigen::Matrix4f T_est_prev = all_frames[i-1]->get_Twb();
+            Eigen::Matrix4f T_est_curr = all_frames[i]->get_Twb();
+            Eigen::Matrix4f T_est_transform = T_est_prev.inverse() * T_est_curr;
+            
+            // Calculate GT transform from frame i-1 to frame i
+            Eigen::Matrix4f T_gt_prev = gt_poses[i-1];
+            Eigen::Matrix4f T_gt_curr = gt_poses[i];
+            Eigen::Matrix4f T_gt_transform = T_gt_prev.inverse() * T_gt_curr;
+            
+            // Calculate transform error: T_error = T_gt^-1 * T_est
+            Eigen::Matrix4f T_error = T_gt_transform.inverse() * T_est_transform;
+            
+            // Extract rotation error (angle in degrees)
+            Eigen::Matrix3f R_error = T_error.block<3,3>(0,0);
+            Eigen::AngleAxisf angle_axis(R_error);
+            double rotation_error_deg = std::abs(angle_axis.angle()) * 180.0 / M_PI;
+            
+            // Extract translation error (magnitude in meters)
+            Eigen::Vector3f t_error = T_error.block<3,1>(0,3);
+            double translation_error_m = t_error.norm();
+            
+            rotation_errors.push_back(rotation_error_deg);
+            translation_errors.push_back(translation_error_m);
+            
+            
+        }
+        
+        if (!rotation_errors.empty()) {
+            // Calculate statistics
+            std::sort(rotation_errors.begin(), rotation_errors.end());
+            std::sort(translation_errors.begin(), translation_errors.end());
+            
+            // Calculate rotation statistics
+            double rot_mean = std::accumulate(rotation_errors.begin(), rotation_errors.end(), 0.0) / rotation_errors.size();
+            double rot_median = rotation_errors[rotation_errors.size() / 2];
+            double rot_min = rotation_errors.front();
+            double rot_max = rotation_errors.back();
+            double rot_rmse = std::sqrt(std::accumulate(rotation_errors.begin(), rotation_errors.end(), 0.0, 
+                [](double sum, double err) { return sum + err * err; }) / rotation_errors.size());
+            
+            // Calculate translation statistics
+            double trans_mean = std::accumulate(translation_errors.begin(), translation_errors.end(), 0.0) / translation_errors.size();
+            double trans_median = translation_errors[translation_errors.size() / 2];
+            double trans_min = translation_errors.front();
+            double trans_max = translation_errors.back();
+            double trans_rmse = std::sqrt(std::accumulate(translation_errors.begin(), translation_errors.end(), 0.0,
+                [](double sum, double err) { return sum + err * err; }) / translation_errors.size());
+            
+            // Beautiful statistics output
+            spdlog::info("══════════════════════════════════════════════════════════════════");
+            spdlog::info("            FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS              ");
+            spdlog::info("══════════════════════════════════════════════════════════════════");
+            spdlog::info(" Total Frame Pairs Analyzed: {}", rotation_errors.size());
+            spdlog::info("══════════════════════════════════════════════════════════════════");
+            spdlog::info("                    ROTATION ERROR STATISTICS                     ");
+            spdlog::info(" Mean      : {:>10.4f}°", rot_mean);
+            spdlog::info(" Median    : {:>10.4f}°", rot_median);
+            spdlog::info(" Minimum   : {:>10.4f}°", rot_min);
+            spdlog::info(" Maximum   : {:>10.4f}°", rot_max);
+            spdlog::info(" RMSE      : {:>10.4f}°", rot_rmse);
+            spdlog::info("══════════════════════════════════════════════════════════════════");
+            spdlog::info("                  TRANSLATION ERROR STATISTICS                    ");
+            spdlog::info(" Mean      : {:>10.6f}m", trans_mean);
+            spdlog::info(" Median    : {:>10.6f}m", trans_median);
+            spdlog::info(" Minimum   : {:>10.6f}m", trans_min);
+            spdlog::info(" Maximum   : {:>10.6f}m", trans_max);
+            spdlog::info(" RMSE      : {:>10.6f}m", trans_rmse);
+            spdlog::info("══════════════════════════════════════════════════════════════════");
+            
+        }
+    } else {
+        spdlog::warn("[TRANSFORM_ANALYSIS] No ground truth data available for transform analysis");
+    }
+    
+    // 4. Frame processing time - average only
+    if (!frame_processing_times.empty()) {
+        // Calculate average processing time
+        double time_mean = std::accumulate(frame_processing_times.begin(), frame_processing_times.end(), 0.0) / frame_processing_times.size();
+        double fps_mean = 1000.0 / time_mean;  // Convert ms to FPS
+        
+        spdlog::info("[TIMING_ANALYSIS] Average frame processing time: {:.2f}ms ({:.1f}fps)", 
+                    time_mean, fps_mean, frame_processing_times.size());
+
+            spdlog::info("══════════════════════════════════════════════════════════════════");
+    }
+  
     
     return 0;
 }

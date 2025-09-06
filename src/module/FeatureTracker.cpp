@@ -836,7 +836,7 @@ void FeatureTracker::apply_fundamental_matrix_filter(std::shared_ptr<Frame> curr
         return;
     }
     
-    // Apply fundamental matrix RANSAC filtering (VINS-MONO style)
+    // Apply fundamental matrix RANSAC filtering 
     std::vector<uchar> status;
     cv::Mat fundamental_matrix = cv::findFundamentalMat(
         prev_pts, cur_pts, 

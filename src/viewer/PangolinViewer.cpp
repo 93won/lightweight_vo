@@ -49,9 +49,10 @@ PangolinViewer::PangolinViewer()
     , m_frame_id("ui.Frame ID", 0)
     , m_successful_matches("ui.Num Tracked Map Points", 0, 0, get_max_features_from_config())
     , m_auto_mode_checkbox("ui.1. Auto Mode", true, true)
-    , m_show_map_point_indices("ui.2. Show Map Point IDs", false, true)
-    , m_show_accumulated_map_points("ui.3. Show Accumulated Map Points", true, true)
-    , m_step_forward_button("ui.4. Step Forward", false, false)
+    , m_show_map_point_indices("ui.2. Show Map Point IDs", true, true)
+    , m_show_accumulated_map_points("ui.3. Show Local Map Points", true, true)
+    , m_follow_frame_checkbox("ui.4. Follow Frame", true, true)
+    , m_step_forward_button("ui.5. Step Forward", false, false)
 {
 }
 
@@ -65,7 +66,7 @@ bool PangolinViewer::initialize(int width, int height) {
     m_window_height = height;
     
     // Create OpenGL window with Pangolin
-    pangolin::CreateWindowAndBind("Lightweight VIO - Pangolin Viewer", width, height);
+    pangolin::CreateWindowAndBind("Lightweight Visual Odometry", width, height);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -124,15 +125,15 @@ void PangolinViewer::setup_panels() {
     float available_space_for_ui = 1.0f - total_image_height;
     float ui_panel_height = std::max(0.2f, available_space_for_ui); // Ensure minimum 20% height
     
-    // Calculate image positions - stacking from bottom
-    m_stereo_image_bottom = 0.0f; // Bottom-most
-    float stereo_image_top = m_stereo_image_bottom + stereo_normalized_height;
-    
-    m_tracking_image_bottom = stereo_image_top; // Right above stereo image
+    // Calculate image positions - tracking image now at bottom  
+    m_tracking_image_bottom = 0.0f; // Bottom-most (Feature Tracking)
     float tracking_image_top = m_tracking_image_bottom + tracking_normalized_height;
     
+    m_stereo_image_bottom = tracking_image_top; // Stereo image above tracking
+    float stereo_image_top = m_stereo_image_bottom + stereo_normalized_height;
+    
     // UI panel in the space above images
-    float ui_panel_bottom = tracking_image_top;
+    float ui_panel_bottom = stereo_image_top;
     float ui_panel_top = 1.0f;
     
     if (!m_panels_created) {
@@ -150,11 +151,11 @@ void PangolinViewer::setup_panels() {
         d_panel = pangolin::CreatePanel("ui")
             .SetBounds(ui_panel_bottom, ui_panel_top, 0.0, pangolin::Attach::Frac(ui_panel_ratio));
         
-        // 2. Feature tracking image
+        // 2. Feature tracking image (now at bottom)
         d_img_left = pangolin::CreateDisplay()
             .SetBounds(m_tracking_image_bottom, tracking_image_top, 0.0, pangolin::Attach::Frac(ui_panel_ratio), -tracking_aspect);
-        
-        // 3. Stereo matching image
+            
+        // 3. Stereo matching image (above tracking image)  
         d_img_right = pangolin::CreateDisplay()
             .SetBounds(m_stereo_image_bottom, stereo_image_top, 0.0, pangolin::Attach::Frac(ui_panel_ratio), -stereo_aspect);
         
@@ -176,15 +177,15 @@ void PangolinViewer::setup_panels() {
         float new_available_space_for_ui = 1.0f - new_total_image_height;
         float new_ui_panel_height = std::max(0.2f, new_available_space_for_ui);
         
-        // Recalculate image positions - stacking from bottom
-        m_stereo_image_bottom = 0.0f; // Bottom-most
-        float new_stereo_image_top = m_stereo_image_bottom + new_stereo_normalized_height;
-        
-        m_tracking_image_bottom = new_stereo_image_top; // Right above stereo image
+        // Recalculate image positions - tracking image now at bottom
+        m_tracking_image_bottom = 0.0f; // Bottom-most (Feature Tracking)  
         float new_tracking_image_top = m_tracking_image_bottom + new_tracking_normalized_height;
         
+        m_stereo_image_bottom = new_tracking_image_top; // Stereo image above tracking
+        float new_stereo_image_top = m_stereo_image_bottom + new_stereo_normalized_height;
+        
         // UI panel in the space above images
-        float new_ui_panel_bottom = new_tracking_image_top;
+        float new_ui_panel_bottom = new_stereo_image_top;  // Above stereo image (which is now above tracking)
         float new_ui_panel_top = 1.0f;
         
         d_cam.SetBounds(0.0, 1.0, pangolin::Attach::Frac(ui_panel_ratio), pangolin::Attach::Frac(1.0f));
@@ -199,7 +200,7 @@ void PangolinViewer::setup_panels() {
 
 void PangolinViewer::shutdown() {
     if (m_initialized) {
-        pangolin::DestroyWindow("Lightweight VIO - Pangolin Viewer");
+        pangolin::DestroyWindow("Lightweight Visual Odometry");
         m_initialized = false;
     }
 }
@@ -285,6 +286,9 @@ void PangolinViewer::render() {
         d_img_right.Activate();
         glColor3f(1.0, 1.0, 1.0);
         m_stereo_image.RenderToViewport();
+        
+        // Note: "Stereo Matching" text would be displayed here
+        // Text rendering removed to avoid API compatibility issues
     }
 
     // Pangolin automatically renders the UI panel with tracking variables
@@ -298,8 +302,41 @@ void PangolinViewer::render() {
     // Process keyboard input - will be handled externally
     // Note: Space bar and 'n' key handling is done in the main application loop
 
-    // Follow camera if enabled
-    if (m_follow_camera && !m_current_pose.isZero()) {
+    // Follow Frame mode - ORB-SLAM style camera tracking
+    if (m_follow_frame_checkbox && !m_current_camera_pose.isZero()) {
+        // Get current camera position and orientation
+        Eigen::Vector3f cam_pos = m_current_camera_pose.block<3, 1>(0, 3);
+        Eigen::Matrix3f cam_rot = m_current_camera_pose.block<3, 3>(0, 0);
+        
+        // ORB-SLAM style: Position camera behind and above the current frame
+        // Camera coordinate system: X-right, Y-down, Z-forward
+        Eigen::Vector3f cam_forward = cam_rot.col(2);   // +Z axis (forward direction)
+        Eigen::Vector3f cam_right = cam_rot.col(0);     // +X axis (right direction) 
+        Eigen::Vector3f cam_up = -cam_rot.col(1);       // -Y axis (up direction, camera Y is down)
+        
+        // Position the viewer camera behind and slightly above the current camera
+        float follow_distance = 10.0f;  // Distance behind the camera (increased from 1.0f)
+        float follow_height = 0.4f;    // Height above the camera (slightly increased from 0.3f)
+        Eigen::Vector3f viewer_pos = cam_pos - cam_forward * follow_distance + cam_up * follow_height;
+        
+        // Look at a point in front of the current camera
+        float look_ahead_distance = 2.0f;  // Look ahead distance
+        Eigen::Vector3f look_at = cam_pos + cam_forward * look_ahead_distance;
+        
+        // Smooth camera up vector (use world up with slight forward bias)
+        Eigen::Vector3f world_up(0.0f, 0.0f, 1.0f);  // World Z-up
+        Eigen::Vector3f smooth_up = (cam_up * 0.7f + world_up * 0.3f).normalized();
+        
+        // Update the camera view with ORB-SLAM style tracking
+        s_cam.SetModelViewMatrix(pangolin::ModelViewLookAt(
+            viewer_pos.x(), viewer_pos.y(), viewer_pos.z(),     // Viewer camera position (behind and above)
+            look_at.x(), look_at.y(), look_at.z(),              // Look ahead of the current camera
+            smooth_up.x(), smooth_up.y(), smooth_up.z()         // Smooth up vector
+        ));
+    }
+
+    // Legacy follow camera mode (fallback)
+    if (m_follow_camera && !m_current_pose.isZero() && !m_follow_frame_checkbox) {
         Eigen::Vector3f pos = m_current_pose.block<3, 1>(0, 3);
         s_cam.Follow(pangolin::OpenGlMatrix::Translate(pos.x(), pos.y(), pos.z()));
     }
@@ -404,7 +441,7 @@ void PangolinViewer::draw_map_points() {
     
     // Draw sliding window map points in white (more prominent) - excluding multi-view triangulated
     if (!m_window_map_points_storage.empty()) {
-        glPointSize(m_point_size * 1.5f); // Slightly larger
+        glPointSize(m_point_size * 1.0f); // Slightly larger
         glColor3f(1.0f, 1.0f, 1.0f); // White for window map points
         
         glBegin(GL_POINTS);
@@ -416,32 +453,11 @@ void PangolinViewer::draw_map_points() {
         }
         glEnd();
     }
-    
-    // Draw multi-view triangulated map points in large orange (special visualization)
-    if (!m_all_map_points_storage.empty() || !m_window_map_points_storage.empty()) {
-        glPointSize(m_point_size * 4.0f); // Even larger points for multi-view triangulated
-        glColor3f(1.0f, 0.65f, 0.0f); // Orange for multi-view triangulated points
-        
-        glBegin(GL_POINTS);
-        // Check all map points for multi-view triangulated ones
-        for (const auto& point : m_all_map_points_storage) {
-            if (point && !point->is_bad() && point->is_multi_view_triangulated()) {
-                Eigen::Vector3f position = point->get_position();
-                glVertex3f(position.x(), position.y(), position.z());
-            }
-        }
-        for (const auto& point : m_window_map_points_storage) {
-            if (point && !point->is_bad() && point->is_multi_view_triangulated()) {
-                Eigen::Vector3f position = point->get_position();
-                glVertex3f(position.x(), position.y(), position.z());
-            }
-        }
-        glEnd();
-    }
+   
     
     // Draw current frame tracking points in red (highest priority - overlay on top)
     if (!m_current_map_points.empty()) {
-        glPointSize(m_point_size * 2.0f); // Largest for visibility
+        glPointSize(m_point_size * 4.0f); // Largest for visibility
         glColor3f(1.0f, 0.0f, 0.0f); // Red for current frame tracking points
         
         glBegin(GL_POINTS);
@@ -731,7 +747,7 @@ void PangolinViewer::update_tracking_image_with_map_points(const cv::Mat& image,
             
             // Use blue color for text (BGR: 255,0,0) and font size 0.7
             cv::putText(image_with_grid, id_text, text_pos, 
-                       cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 0, 0), 2);  // Blue text
+                       cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 0), 1);  
         }
     }
     
@@ -819,6 +835,10 @@ bool PangolinViewer::is_auto_mode_enabled() const {
     return m_auto_mode_checkbox;
 }
 
+bool PangolinViewer::is_follow_frame_enabled() const {
+    return m_follow_frame_checkbox;
+}
+
 void PangolinViewer::draw_feature_grid(cv::Mat& image) {
     const auto& config = Config::getInstance();
     const int grid_cols = config.m_grid_cols;  // From config
@@ -826,18 +846,17 @@ void PangolinViewer::draw_feature_grid(cv::Mat& image) {
     const cv::Scalar grid_color(100, 100, 100);  // Gray color for grid lines
     const int thickness = 1;
     
-    const float cell_width = (float)image.cols / grid_cols;   // ~37.6 pixels per cell
-    const float cell_height = (float)image.rows / grid_rows; // ~48.0 pixels per cell
-    
-    // Draw vertical grid lines (20 divisions)
+    // Draw vertical grid lines (20 divisions) - use more precise calculation
     for (int i = 1; i < grid_cols; i++) {
-        int x = (int)(i * cell_width);
+        // Use integer arithmetic to avoid floating-point precision issues
+        int x = (i * image.cols) / grid_cols;
         cv::line(image, cv::Point(x, 0), cv::Point(x, image.rows), grid_color, thickness);
     }
     
-    // Draw horizontal grid lines (10 divisions)
+    // Draw horizontal grid lines (10 divisions) - use more precise calculation
     for (int i = 1; i < grid_rows; i++) {
-        int y = (int)(i * cell_height);
+        // Use integer arithmetic to avoid floating-point precision issues
+        int y = (i * image.rows) / grid_rows;
         cv::line(image, cv::Point(0, y), cv::Point(image.cols, y), grid_color, thickness);
     }
 }

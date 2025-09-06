@@ -230,9 +230,6 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - total_start_time);
     result.optimization_time_ms = duration.count() / 1000.0;
     
-    // Comprehensive timing log - only show major components
-    spdlog::info("[TIMING] Frame {} processing: total={:.2f}ms, tracking={:.2f}ms, optimization={:.2f}ms", 
-                m_current_frame->get_frame_id(), result.optimization_time_ms, tracking_time, optimization_time);
     
     // Update state
     m_previous_frame = m_current_frame;
@@ -528,11 +525,6 @@ bool lightweight_vio::Estimator::should_create_keyframe(std::shared_ptr<Frame> f
         // Use relative threshold based on last keyframe's coverage
         double relative_threshold = m_last_keyframe_grid_coverage * Config::getInstance().m_grid_coverage_ratio;
         if (current_grid_coverage < relative_threshold) {
-            if (Config::getInstance().m_enable_debug_output) {
-                spdlog::info("[KEYFRAME] Creating keyframe due to grid coverage drop: {:.2f} < {:.2f} (ratio={:.1f}% of last keyframe {:.2f})", 
-                            current_grid_coverage, relative_threshold, 
-                            Config::getInstance().m_grid_coverage_ratio * 100.0, m_last_keyframe_grid_coverage);
-            }
             return true;
         }
     }
@@ -570,10 +562,7 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
         }
     }
     
-    if (Config::getInstance().m_enable_debug_output) {
-        spdlog::info("[KEYFRAME] Added {} observations to map points for keyframe {}", 
-                    observations_added, frame->get_frame_id());
-    }
+    
     
     // Apply sliding window - remove old keyframes if window size exceeded
     const int max_keyframes = Config::getInstance().m_keyframe_window_size;
@@ -602,11 +591,7 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
         }
         
         m_keyframes.erase(m_keyframes.begin());
-        
-        if (Config::getInstance().m_enable_debug_output) {
-            spdlog::info("[KEYFRAME] Removed oldest keyframe {} (sliding window limit: {}), cleaned {} observations", 
-                        oldest_keyframe->get_frame_id(), max_keyframes, removed_observations);
-        }
+       
     }
     
    
@@ -614,8 +599,7 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
     if (m_keyframes.size() >= 2) {
         auto sw_opt_start = std::chrono::high_resolution_clock::now();
         
-        spdlog::info("[SLIDING_WINDOW] Starting optimization with {} keyframes", m_keyframes.size());
-        
+         
         auto sw_result = m_sliding_window_optimizer->optimize(m_keyframes);
         
         auto sw_opt_end = std::chrono::high_resolution_clock::now();
@@ -636,11 +620,7 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
     // Store grid coverage of this keyframe for future relative comparisons
     m_last_keyframe_grid_coverage = calculate_grid_coverage_with_map_points(frame);
     
-    if (Config::getInstance().m_enable_debug_output) {
-        spdlog::info("[KEYFRAME] Created keyframe {} with {} features, grid coverage: {:.2f} (window: {}/{})", 
-                    frame->get_frame_id(), frame->get_feature_count(), m_last_keyframe_grid_coverage,
-                    m_keyframes.size(), max_keyframes);
-    }
+  
 }
 
 OptimizationResult lightweight_vio::Estimator::optimize_pose(std::shared_ptr<Frame> frame) {
@@ -802,48 +782,48 @@ void Estimator::update_transform_from_last() {
         // T_transform = T_last^-1 * T_current
         Eigen::Matrix4f raw_transform = m_previous_frame->get_Twb().inverse() * m_current_frame->get_Twb();
         
-        // // Apply threshold to translation components (0.01 order and below -> 0)
-        // Eigen::Vector3f translation = raw_transform.block<3,1>(0,3);
-        // const float translation_threshold = 0.001f;
+        // Apply threshold to translation components (0.01 order and below -> 0)
+        Eigen::Vector3f translation = raw_transform.block<3,1>(0,3);
+        const float translation_threshold = 0.001f;
         
-        // for (int i = 0; i < 3; i++) {
-        //     if (std::abs(translation[i]) < translation_threshold) {
-        //         translation[i] = 0.0f;
-        //     }
-        // }
+        for (int i = 0; i < 3; i++) {
+            if (std::abs(translation[i]) < translation_threshold) {
+                translation[i] = 0.0f;
+            }
+        }
         
-        // // Normalize rotation part
-        // Eigen::Matrix3f rotation = raw_transform.block<3,3>(0,0);
+        // Normalize rotation part
+        Eigen::Matrix3f rotation = raw_transform.block<3,3>(0,0);
         
-        // // Check if rotation is close to identity
-        // Eigen::Matrix3f identity = Eigen::Matrix3f::Identity();
-        // float rotation_threshold = 0.001f;  // Threshold for rotation similarity
+        // Check if rotation is close to identity
+        Eigen::Matrix3f identity = Eigen::Matrix3f::Identity();
+        float rotation_threshold = 0.001f;  // Threshold for rotation similarity
         
-        // // Calculate Frobenius norm of difference from identity
-        // Eigen::Matrix3f rotation_diff = rotation - identity;
-        // float frobenius_norm = rotation_diff.norm();
+        // Calculate Frobenius norm of difference from identity
+        Eigen::Matrix3f rotation_diff = rotation - identity;
+        float frobenius_norm = rotation_diff.norm();
         
-        // Eigen::Matrix3f normalized_rotation;
-        // if (frobenius_norm < rotation_threshold) {
-        //     // Very close to identity - use identity matrix
-        //     normalized_rotation = identity;
-        // } else {
-        //     // Ensure rotation matrix is properly orthogonal (SVD-based normalization)
-        //     Eigen::JacobiSVD<Eigen::Matrix3f> svd(rotation, Eigen::ComputeFullU | Eigen::ComputeFullV);
-        //     normalized_rotation = svd.matrixU() * svd.matrixV().transpose();
+        Eigen::Matrix3f normalized_rotation;
+        if (frobenius_norm < rotation_threshold) {
+            // Very close to identity - use identity matrix
+            normalized_rotation = identity;
+        } else {
+            // Ensure rotation matrix is properly orthogonal (SVD-based normalization)
+            Eigen::JacobiSVD<Eigen::Matrix3f> svd(rotation, Eigen::ComputeFullU | Eigen::ComputeFullV);
+            normalized_rotation = svd.matrixU() * svd.matrixV().transpose();
             
-        //     // Ensure proper rotation (det = 1, not -1)
-        //     if (normalized_rotation.determinant() < 0) {
-        //         Eigen::Matrix3f V_corrected = svd.matrixV();
-        //         V_corrected.col(2) *= -1;  // Flip last column
-        //         normalized_rotation = svd.matrixU() * V_corrected.transpose();
-        //     }
-        // }
+            // Ensure proper rotation (det = 1, not -1)
+            if (normalized_rotation.determinant() < 0) {
+                Eigen::Matrix3f V_corrected = svd.matrixV();
+                V_corrected.col(2) *= -1;  // Flip last column
+                normalized_rotation = svd.matrixU() * V_corrected.transpose();
+            }
+        }
         
         // Reconstruct clean transform
-        m_transform_from_last = raw_transform;//Eigen::Matrix4f::Identity();
-        // m_transform_from_last.block<3,3>(0,0) = normalized_rotation;
-        // m_transform_from_last.block<3,1>(0,3) = translation;
+        m_transform_from_last = Eigen::Matrix4f::Identity();
+        m_transform_from_last.block<3,3>(0,0) = normalized_rotation;
+        m_transform_from_last.block<3,1>(0,3) = translation;
     }
 }
 

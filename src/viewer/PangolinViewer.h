@@ -73,6 +73,7 @@ public:
     
     // Auto mode control
     bool is_auto_mode_enabled() const;
+    bool is_follow_frame_enabled() const;
     
     // Frame info updates
     void update_frame_info(int frame_id, int total_features, int tracked_features, int new_features);
@@ -137,6 +138,7 @@ private:
     pangolin::Var<bool> m_auto_mode_checkbox;
     pangolin::Var<bool> m_show_map_point_indices;
     pangolin::Var<bool> m_show_accumulated_map_points;
+    pangolin::Var<bool> m_follow_frame_checkbox;
     pangolin::Var<bool> m_step_forward_button;
     mutable bool m_step_forward_pressed;
     
