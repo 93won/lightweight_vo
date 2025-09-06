@@ -12,6 +12,7 @@ MapPoint::MapPoint()
     : m_id(s_next_id++)
     , m_position(0.0f, 0.0f, 0.0f)
     , m_is_bad(false)
+    , m_is_multi_view_triangulated(false)
 {
 }
 
@@ -19,6 +20,7 @@ MapPoint::MapPoint(const Eigen::Vector3f& position)
     : m_id(s_next_id++)
     , m_position(position)
     , m_is_bad(false)
+    , m_is_multi_view_triangulated(false)
 {
 }
 
@@ -124,6 +126,16 @@ void MapPoint::set_bad() {
 bool MapPoint::is_bad() const {
     std::lock_guard<std::mutex> lock(m_data_mutex);
     return m_is_bad;
+}
+
+void MapPoint::set_multi_view_triangulated(bool flag) {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    m_is_multi_view_triangulated = flag;
+}
+
+bool MapPoint::is_multi_view_triangulated() const {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    return m_is_multi_view_triangulated;
 }
 
 void MapPoint::update_position_from_observations() {

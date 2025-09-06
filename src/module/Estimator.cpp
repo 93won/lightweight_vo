@@ -466,8 +466,8 @@ int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> fra
         //              m_map_points.size() - 1, world_pos.x(), world_pos.y(), world_pos.z());
         
         // Verify reprojection in current frame
-        Eigen::Matrix4f T_wc = T_wb * T_bc;  // World to camera
-        Eigen::Matrix4f T_cw = T_wc.inverse(); // Camera to world (for projection)
+        Eigen::Matrix4f T_wc = T_wb * T_bc;  // Camera to world
+        Eigen::Matrix4f T_cw = T_wc.inverse(); // World to camera (for projection)
         
         // Project back to image
         Eigen::Vector4f world_homogeneous(world_pos.x(), world_pos.y(), world_pos.z(), 1.0);
@@ -476,7 +476,7 @@ int lightweight_vio::Estimator::create_new_map_points(std::shared_ptr<Frame> fra
         if (camera_projected.z() > 0) {  // Valid projection
             auto feature = frame->get_feature(i);
             if (feature) {
-                cv::Point2f observed_pt = feature->get_pixel_coord();
+                cv::Point2f observed_pt = feature->get_undistorted_coord();
                 
                 // Get camera intrinsics from frame
                 double fx, fy, cx, cy;
@@ -581,14 +581,48 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
     if (m_keyframes.size() > static_cast<size_t>(max_keyframes)) {
         // Remove oldest keyframe
         auto oldest_keyframe = m_keyframes.front();
+        
+        // Clean up observations from map points before removing the keyframe
+        int removed_observations = 0;
+        const auto& features = oldest_keyframe->get_features();
+        for (size_t i = 0; i < features.size(); ++i) {
+            auto feature = features[i];
+            auto map_point = oldest_keyframe->get_map_point(i);
+            
+            if (feature && feature->is_valid() && map_point && !map_point->is_bad()) {
+                // Remove observation from map point
+                map_point->remove_observation(oldest_keyframe);
+                removed_observations++;
+                
+                // Check if map point has no more observations after removal
+                if (map_point->get_observation_count() == 0) {
+                    // Mark map point as bad if it has no observations
+                    map_point->set_bad();
+                }
+            }
+        }
+        
         m_keyframes.erase(m_keyframes.begin());
         
         if (Config::getInstance().m_enable_debug_output) {
-            spdlog::info("[KEYFRAME] Removed oldest keyframe {} (sliding window limit: {})", 
-                        oldest_keyframe->get_frame_id(), max_keyframes);
+            spdlog::info("[KEYFRAME] Removed oldest keyframe {} (sliding window limit: {}), cleaned {} observations", 
+                        oldest_keyframe->get_frame_id(), max_keyframes, removed_observations);
         }
     }
     
+    // // 🎯 Multi-view triangulation for features without map points
+    // if (m_keyframes.size() >= 2) {
+    //     auto triangulation_start = std::chrono::high_resolution_clock::now();
+    //     int triangulated_points = multi_view_triangulation();
+    //     auto triangulation_end = std::chrono::high_resolution_clock::now();
+    //     auto triangulation_time = std::chrono::duration_cast<std::chrono::microseconds>(triangulation_end - triangulation_start).count() / 1000.0;
+        
+    //     if (triangulated_points > 0) {
+    //         spdlog::info("[MULTI_VIEW] Successfully triangulated {} new map points in {:.2f}ms", 
+    //                     triangulated_points, triangulation_time);
+    //     }
+    // }
+
     // 🎯 Run sliding window bundle adjustment when we have enough keyframes
     if (m_keyframes.size() >= 2) {
         auto sw_opt_start = std::chrono::high_resolution_clock::now();

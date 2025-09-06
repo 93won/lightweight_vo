@@ -207,6 +207,7 @@ private:
      */
     double calculate_grid_coverage_with_map_points(std::shared_ptr<Frame> frame);
     
+    
     /**
      * @brief Create a new keyframe
      * @param frame Frame to convert to keyframe

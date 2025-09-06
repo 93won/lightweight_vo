@@ -45,6 +45,10 @@ public:
     void set_bad();
     bool is_bad() const;
     
+    // Multi-view triangulation flag
+    void set_multi_view_triangulated(bool flag);
+    bool is_multi_view_triangulated() const;
+    
     // Triangulation and refinement
     void update_position_from_observations();
     double compute_reprojection_error() const;
@@ -54,6 +58,7 @@ private:
     Eigen::Vector3f m_position;
     std::vector<Observation> m_observations;
     bool m_is_bad;
+    bool m_is_multi_view_triangulated;
     
     // Thread safety
     mutable std::mutex m_position_mutex; // Mutex for position operations

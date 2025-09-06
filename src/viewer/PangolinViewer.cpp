@@ -394,7 +394,7 @@ void PangolinViewer::draw_map_points() {
         
         glBegin(GL_POINTS);
         for (const auto& point : m_all_map_points_storage) {
-            if (point && !point->is_bad()) {
+            if (point && !point->is_bad() && !point->is_multi_view_triangulated()) {
                 Eigen::Vector3f position = point->get_position();
                 glVertex3f(position.x(), position.y(), position.z());
             }
@@ -402,14 +402,36 @@ void PangolinViewer::draw_map_points() {
         glEnd();
     }
     
-    // Draw sliding window map points in white (more prominent)
+    // Draw sliding window map points in white (more prominent) - excluding multi-view triangulated
     if (!m_window_map_points_storage.empty()) {
         glPointSize(m_point_size * 1.5f); // Slightly larger
         glColor3f(1.0f, 1.0f, 1.0f); // White for window map points
         
         glBegin(GL_POINTS);
         for (const auto& point : m_window_map_points_storage) {
-            if (point && !point->is_bad()) {
+            if (point && !point->is_bad() && !point->is_multi_view_triangulated()) {
+                Eigen::Vector3f position = point->get_position();
+                glVertex3f(position.x(), position.y(), position.z());
+            }
+        }
+        glEnd();
+    }
+    
+    // Draw multi-view triangulated map points in large orange (special visualization)
+    if (!m_all_map_points_storage.empty() || !m_window_map_points_storage.empty()) {
+        glPointSize(m_point_size * 4.0f); // Even larger points for multi-view triangulated
+        glColor3f(1.0f, 0.65f, 0.0f); // Orange for multi-view triangulated points
+        
+        glBegin(GL_POINTS);
+        // Check all map points for multi-view triangulated ones
+        for (const auto& point : m_all_map_points_storage) {
+            if (point && !point->is_bad() && point->is_multi_view_triangulated()) {
+                Eigen::Vector3f position = point->get_position();
+                glVertex3f(position.x(), position.y(), position.z());
+            }
+        }
+        for (const auto& point : m_window_map_points_storage) {
+            if (point && !point->is_bad() && point->is_multi_view_triangulated()) {
                 Eigen::Vector3f position = point->get_position();
                 glVertex3f(position.x(), position.y(), position.z());
             }

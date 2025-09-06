@@ -57,7 +57,7 @@ depth:
 # Triangulation Parameters
 # Controls 3D point generation from stereo matches
 triangulation:
-  max_reprojection_error: 2.447651936 # Maximum reprojection error for valid triangulation (pixels)
+  max_reprojection_error: 2.447651936 # Maximum reprojection error for valid triangulation (pixels) - sqrt(5.991) for chi2 95% with 2 DOF
   min_parallax: 0.1           # Minimum parallax angle for reliable triangulation (degrees)
 
 # Camera Parameters (EuRoC dataset specific)
@@ -65,7 +65,7 @@ triangulation:
 camera:
   image_width: 752            # Image width in pixels (EuRoC standard)
   image_height: 480           # Image height in pixels (EuRoC standard)  
-  border_size: 1              # Border size to exclude from feature detection (pixels)
+  border_size: 10              # Border size to exclude from feature detection (pixels)
   baseline: 0.110073813            # Stereo baseline in meters (EuRoC dataset)
   
   # Left camera (cam0) intrinsics
@@ -113,4 +113,4 @@ optimization:
 # Debug and timing control flags
 performance:
   enable_timing: true         # Print timing information for performance analysis
-  enable_debug_output: false   # Print debug messages and feature counts
+  enable_debug_output: true   # Print debug messages and feature counts
