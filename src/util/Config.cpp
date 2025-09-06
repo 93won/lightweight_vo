@@ -152,11 +152,6 @@ bool Config::load(const std::string& config_file) {
         m_image_height = (int)camera["image_height"];
         m_border_size = (int)camera["border_size"];
         
-        // Load baseline if specified
-        if (!camera["baseline"].empty()) {
-            m_baseline = (double)camera["baseline"];
-        }
-        
         // Load camera intrinsics
         cv::FileNode left_intrinsics = camera["left_intrinsics"];
         cv::FileNode right_intrinsics = camera["right_intrinsics"];

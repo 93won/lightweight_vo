@@ -286,7 +286,6 @@ std::shared_ptr<Frame> Estimator::create_frame(const cv::Mat& left_image, const 
         m_frame_id_counter++,
         gray_left, gray_right,
         left_K.at<double>(0, 0), left_K.at<double>(1, 1), left_K.at<double>(0, 2), left_K.at<double>(1, 2),
-        global_config.m_baseline,
         global_config.left_dist_coeffs()
     );
     
@@ -610,19 +609,7 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
         }
     }
     
-    // // 🎯 Multi-view triangulation for features without map points
-    // if (m_keyframes.size() >= 2) {
-    //     auto triangulation_start = std::chrono::high_resolution_clock::now();
-    //     int triangulated_points = multi_view_triangulation();
-    //     auto triangulation_end = std::chrono::high_resolution_clock::now();
-    //     auto triangulation_time = std::chrono::duration_cast<std::chrono::microseconds>(triangulation_end - triangulation_start).count() / 1000.0;
-        
-    //     if (triangulated_points > 0) {
-    //         spdlog::info("[MULTI_VIEW] Successfully triangulated {} new map points in {:.2f}ms", 
-    //                     triangulated_points, triangulation_time);
-    //     }
-    // }
-
+   
     // 🎯 Run sliding window bundle adjustment when we have enough keyframes
     if (m_keyframes.size() >= 2) {
         auto sw_opt_start = std::chrono::high_resolution_clock::now();

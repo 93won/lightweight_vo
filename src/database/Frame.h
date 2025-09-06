@@ -20,14 +20,12 @@ public:
     Frame(long long timestamp, int frame_id);
     Frame(long long timestamp, int frame_id, 
           double fx, double fy, double cx, double cy, 
-          double baseline, // Stereo baseline
           const std::vector<double>& distortion_coeffs);
     
     // Stereo constructor - directly takes both images with manual camera params
     Frame(long long timestamp, int frame_id,
           const cv::Mat& left_image, const cv::Mat& right_image,
           double fx, double fy, double cx, double cy, 
-          double baseline,
           const std::vector<double>& distortion_coeffs);
           
     // Simple stereo constructor - uses Config for camera parameters
@@ -47,7 +45,6 @@ public:
     const Eigen::Vector3f& get_translation() const { return m_translation; }
     bool is_keyframe() const { return m_is_keyframe; }
     bool is_stereo() const { return true; } // Always stereo
-    double get_baseline() const { return m_baseline; }
 
     // Stereo input only
     void set_stereo_images(const cv::Mat& left_image, const cv::Mat& right_image);
@@ -140,7 +137,6 @@ private:
     // Camera intrinsic parameters
     double m_fx, m_fy;           // Focal lengths
     double m_cx, m_cy;           // Principal point
-    double m_baseline;           // Stereo baseline (distance between cameras)
     std::vector<double> m_distortion_coeffs; // Distortion coefficients [k1, k2, p1, p2, k3]
     
     // Camera extrinsics (body to camera transformation)

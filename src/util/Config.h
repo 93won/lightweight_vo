@@ -121,8 +121,7 @@ namespace lightweight_vio
         // Camera Parameters
         int m_image_width = 752;
         int m_image_height = 480;
-        int m_border_size = 1; // Baseline for convenience (EuRoC dataset)
-        double m_baseline = 0.11;
+        int m_border_size = 1;
 
         // Performance Parameters
         bool m_enable_timing = true;

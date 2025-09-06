@@ -45,7 +45,7 @@ Frame::Frame(long long timestamp, int frame_id)
 
 Frame::Frame(long long timestamp, int frame_id, 
              double fx, double fy, double cx, double cy, 
-             double baseline, const std::vector<double>& distortion_coeffs)
+             const std::vector<double>& distortion_coeffs)
     : m_timestamp(timestamp)
     , m_frame_id(frame_id)
     , m_rotation(Eigen::Matrix3f::Identity())
@@ -54,7 +54,6 @@ Frame::Frame(long long timestamp, int frame_id,
     , m_T_relative_from_ref(Eigen::Matrix4f::Identity())
     , m_fx(fx), m_fy(fy)
     , m_cx(cx), m_cy(cy)
-    , m_baseline(baseline)
     , m_distortion_coeffs(distortion_coeffs)
 {
     // Get T_BC from config and convert to T_CB (body to camera)
@@ -78,7 +77,6 @@ Frame::Frame(long long timestamp, int frame_id,
 Frame::Frame(long long timestamp, int frame_id,
              const cv::Mat& left_image, const cv::Mat& right_image,
              double fx, double fy, double cx, double cy, 
-             double baseline,
              const std::vector<double>& distortion_coeffs)
     : m_timestamp(timestamp)
     , m_frame_id(frame_id)
@@ -90,7 +88,6 @@ Frame::Frame(long long timestamp, int frame_id,
     , m_T_relative_from_ref(Eigen::Matrix4f::Identity())
     , m_fx(fx), m_fy(fy)
     , m_cx(cx), m_cy(cy)
-    , m_baseline(baseline)
     , m_distortion_coeffs(distortion_coeffs)
 {
     // Get T_BC from config and convert to T_CB (body to camera)
@@ -164,9 +161,6 @@ Frame::Frame(long long timestamp, int frame_id,
         // Fallback to identity if config not available
         m_T_CB = Eigen::Matrix4d::Identity();
     }
-    
-    // Baseline will be calculated automatically in triangulation from transform
-    m_baseline = 0.11; // Default fallback, will be overridden by actual calculation
     
     // Set reference keyframe to last keyframe if available
     if (m_last_keyframe) {

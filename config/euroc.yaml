@@ -65,8 +65,7 @@ triangulation:
 camera:
   image_width: 752            # Image width in pixels (EuRoC standard)
   image_height: 480           # Image height in pixels (EuRoC standard)  
-  border_size: 10              # Border size to exclude from feature detection (pixels)
-  baseline: 0.110073813            # Stereo baseline in meters (EuRoC dataset)
+  border_size: 1              # Border size to exclude from feature detection (pixels)
   
   # Left camera (cam0) intrinsics
   left_intrinsics: [458.654, 457.296, 367.215, 248.375]  # [fx, fy, cx, cy]
