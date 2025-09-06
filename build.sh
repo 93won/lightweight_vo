@@ -22,7 +22,16 @@ if [ ! -d "build" ]; then
     mkdir build
 fi
 cd build
-cmake .. -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_BENCHMARKS=OFF
+cmake .. \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_EXAMPLES=OFF \
+    -DBUILD_BENCHMARKS=OFF \
+    -DUSE_TBB=OFF \
+    -DUSE_OPENMP=ON \
+    -DSUITESPARSE=OFF \
+    -DCXSPARSE=OFF \
+    -DMINIGLOG=ON \
+    -DEIGENSPARSE=ON
 make -j$NPROC
 cd ../../..
 
