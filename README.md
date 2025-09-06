@@ -13,6 +13,11 @@ This is a lightweight stereo visual odometry (VO) project designed for real-time
 
 [![Stereo VO Demo](https://img.youtube.com/vi/zcConJRXgEQ/0.jpg)](https://www.youtube.com/watch?v=zcConJRXgEQ)
 
+## To-Do List
+
+- [ ] **IMU Integration**: Incorporate IMU data to create a more robust Visual-Inertial Odometry (VIO) system, improving accuracy and handling of fast motions.
+
+
 ## 1. Native Build (Ubuntu 22.04)
 
 This method builds the project and all its dependencies directly on your system. It has been tested on Ubuntu 22.04.
