@@ -16,6 +16,8 @@ This is a lightweight stereo visual odometry (VO) project designed for real-time
 ## To-Do List
 
 - [ ] **IMU Integration**: Incorporate IMU data to create a more robust Visual-Inertial Odometry (VIO) system, improving accuracy and handling of fast motions.
+- [ ] **Embedded Environment Testing**: Test and optimize performance on embedded platforms like Jetson Nano, Raspberry Pi, and other resource-constrained devices.
+- [ ] **Fisheye Camera Support**: Add support for fisheye camera models and distortion correction for wide-angle stereo setups.
 
 
 ## 1. Native Build (Ubuntu 22.04)
