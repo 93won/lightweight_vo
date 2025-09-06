@@ -836,9 +836,6 @@ void Frame::triangulate_stereo_points() {
     // Handle translation vector separately (3x1)
     t_eigen << t_lr.at<double>(0,0), t_lr.at<double>(1,0), t_lr.at<double>(2,0);  // Use left-to-right translation
     
-    // Calculate baseline for triangulation (removed debug output)
-    double baseline = t_eigen.norm();
-    
     // Counters for debugging with detailed failure analysis
     int triangulated_count = 0;
     int depth_rejected = 0;
