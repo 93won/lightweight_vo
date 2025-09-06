@@ -1,4 +1,4 @@
-# Lightweight Stereo VIO
+# Lightweight Stereo VO
 
 This is a lightweight stereo visual odometry (VO) project designed for real-time performance. It utilizes feature tracking, sliding window optimization with Ceres Solver, and Pangolin for visualization.
 
@@ -8,6 +8,10 @@ This is a lightweight stereo visual odometry (VO) project designed for real-time
 - Sliding window optimization using Ceres Solver
 - Real-time visualization with Pangolin
 - Docker support for easy deployment and testing
+
+## Demo
+
+[![Stereo VO Demo](https://img.youtube.com/vi/zcConJRXgEQ/0.jpg)](https://www.youtube.com/watch?v=zcConJRXgEQ)
 
 ## 1. Native Build (Ubuntu 22.04)
 
