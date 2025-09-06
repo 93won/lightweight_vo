@@ -51,8 +51,11 @@ PangolinViewer::PangolinViewer()
     , m_auto_mode_checkbox("ui.1. Auto Mode", true, true)
     , m_show_map_point_indices("ui.2. Show Map Point IDs", true, true)
     , m_show_accumulated_map_points("ui.3. Show Local Map Points", true, true)
-    , m_follow_frame_checkbox("ui.4. Follow Frame", true, true)
-    , m_step_forward_button("ui.5. Step Forward", false, false)
+    , m_show_estimated_trajectory("ui.4. Show Estimated Trajectory", true, true)
+    , m_show_ground_truth_trajectory("ui.5. Show Ground Truth Trajectory", true, true)
+    , m_show_sliding_window_keyframes("ui.6. Show Sliding Window Keyframes", true, true)
+    , m_follow_frame_checkbox("ui.7. Follow Frame", true, true)
+    , m_step_forward_button("ui.8. Step Forward", false, false)
 {
 }
 
@@ -255,15 +258,15 @@ void PangolinViewer::render() {
     // Draw map points with color differentiation
     draw_map_points();
 
-    if (m_show_trajectory && !m_trajectory.empty()) {
+    if (m_show_estimated_trajectory && m_show_trajectory && !m_trajectory.empty()) {
         draw_trajectory();
     }
 
-    if (m_show_keyframe_frustums && !m_keyframe_window.empty()) {
+    if (m_show_sliding_window_keyframes && m_show_keyframe_frustums && !m_keyframe_window.empty()) {
         draw_keyframe_frustums();
     }
 
-    if (m_show_gt_trajectory && !m_gt_trajectory.empty()) {
+    if (m_show_ground_truth_trajectory && m_show_gt_trajectory && !m_gt_trajectory.empty()) {
         draw_gt_trajectory();
     }
 

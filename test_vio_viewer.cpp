@@ -373,7 +373,7 @@ int main(int argc, char* argv[]) {
                 viewer->add_frame(current_frame);
                 
                 // Update keyframe window with latest keyframes from estimator
-                const auto& keyframes = estimator.get_keyframes();
+                const auto keyframes = estimator.get_keyframes_safe();  // Use thread-safe version
                 viewer->update_keyframe_window(keyframes);
                 
                 // Update last keyframe if we have keyframes
@@ -533,7 +533,7 @@ int main(int argc, char* argv[]) {
         ++current_idx;
         
         // Control frame rate
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(3));
     }
     
     spdlog::info("[VO] Processing completed! Processed {} frames \n", processed_frames);

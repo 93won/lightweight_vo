@@ -138,6 +138,9 @@ private:
     pangolin::Var<bool> m_auto_mode_checkbox;
     pangolin::Var<bool> m_show_map_point_indices;
     pangolin::Var<bool> m_show_accumulated_map_points;
+    pangolin::Var<bool> m_show_estimated_trajectory;
+    pangolin::Var<bool> m_show_ground_truth_trajectory;
+    pangolin::Var<bool> m_show_sliding_window_keyframes;
     pangolin::Var<bool> m_follow_frame_checkbox;
     pangolin::Var<bool> m_step_forward_button;
     mutable bool m_step_forward_pressed;

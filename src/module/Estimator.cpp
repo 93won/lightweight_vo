@@ -21,7 +21,9 @@ Estimator::Estimator()
     , m_current_pose(Eigen::Matrix4f::Identity())
     , m_transform_from_last(Eigen::Matrix4f::Identity())
     , m_has_initial_gt_pose(false)
-    , m_initial_gt_pose(Eigen::Matrix4f::Identity()) {
+    , m_initial_gt_pose(Eigen::Matrix4f::Identity())
+    , m_sliding_window_thread_running(false)
+    , m_keyframes_updated(false) {
     
     // Initialize feature tracker
     m_feature_tracker = std::make_unique<FeatureTracker>();
@@ -32,6 +34,12 @@ Estimator::Estimator()
     // Initialize sliding window optimizer
     m_sliding_window_optimizer = std::make_unique<SlidingWindowOptimizer>(
         Config::getInstance().m_keyframe_window_size);  // window size only
+    
+    // Start sliding window optimization thread
+    m_sliding_window_thread_running = true;
+    m_sliding_window_thread = std::make_unique<std::thread>(&Estimator::sliding_window_thread_function, this);
+    
+    spdlog::info("[ESTIMATOR] Sliding window optimization thread started");
 }
 
 Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp) {
@@ -237,6 +245,20 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
     return result;
 }
 
+Estimator::~Estimator() {
+    // Stop sliding window thread
+    if (m_sliding_window_thread_running) {
+        m_sliding_window_thread_running = false;
+        m_keyframes_cv.notify_one();
+        
+        if (m_sliding_window_thread && m_sliding_window_thread->joinable()) {
+            m_sliding_window_thread->join();
+        }
+        
+        spdlog::info("[ESTIMATOR] Sliding window optimization thread stopped");
+    }
+}
+
 void Estimator::reset() {
     m_current_frame.reset();
     m_previous_frame.reset();
@@ -252,6 +274,11 @@ void Estimator::reset() {
 
 Eigen::Matrix4f Estimator::get_current_pose() const {
     return m_current_pose;
+}
+
+std::vector<std::shared_ptr<Frame>> Estimator::get_keyframes_safe() const {
+    std::lock_guard<std::mutex> lock(m_keyframes_mutex);
+    return m_keyframes;  // Return a copy
 }
 
 std::shared_ptr<Frame> Estimator::create_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp) {
@@ -538,7 +565,41 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
     }
     
     frame->set_keyframe(true);
-    m_keyframes.push_back(frame);
+    
+    // Thread-safe keyframe management
+    {
+        std::lock_guard<std::mutex> lock(m_keyframes_mutex);
+        m_keyframes.push_back(frame);
+        
+        // Apply sliding window - remove old keyframes if window size exceeded
+        const int max_keyframes = Config::getInstance().m_keyframe_window_size;
+        if (m_keyframes.size() > static_cast<size_t>(max_keyframes)) {
+            // Remove oldest keyframe
+            auto oldest_keyframe = m_keyframes.front();
+            
+            // Clean up observations from map points before removing the keyframe
+            int removed_observations = 0;
+            const auto& features = oldest_keyframe->get_features();
+            for (size_t i = 0; i < features.size(); ++i) {
+                auto feature = features[i];
+                auto map_point = oldest_keyframe->get_map_point(i);
+                
+                if (feature && feature->is_valid() && map_point && !map_point->is_bad()) {
+                    // Remove observation from map point
+                    map_point->remove_observation(oldest_keyframe);
+                    removed_observations++;
+                    
+                    // Check if map point has no more observations after removal
+                    if (map_point->get_observation_count() == 0) {
+                        // Mark map point as bad if it has no observations
+                        map_point->set_bad();
+                    }
+                }
+            }
+            
+            m_keyframes.erase(m_keyframes.begin());
+        }
+    } // Release mutex lock here
     
     // 🎯 Update track count only when frame becomes keyframe
     const auto& features = frame->get_features();
@@ -562,65 +623,11 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
         }
     }
     
-    
-    
-    // Apply sliding window - remove old keyframes if window size exceeded
-    const int max_keyframes = Config::getInstance().m_keyframe_window_size;
-    if (m_keyframes.size() > static_cast<size_t>(max_keyframes)) {
-        // Remove oldest keyframe
-        auto oldest_keyframe = m_keyframes.front();
-        
-        // Clean up observations from map points before removing the keyframe
-        int removed_observations = 0;
-        const auto& features = oldest_keyframe->get_features();
-        for (size_t i = 0; i < features.size(); ++i) {
-            auto feature = features[i];
-            auto map_point = oldest_keyframe->get_map_point(i);
-            
-            if (feature && feature->is_valid() && map_point && !map_point->is_bad()) {
-                // Remove observation from map point
-                map_point->remove_observation(oldest_keyframe);
-                removed_observations++;
-                
-                // Check if map point has no more observations after removal
-                if (map_point->get_observation_count() == 0) {
-                    // Mark map point as bad if it has no observations
-                    map_point->set_bad();
-                }
-            }
-        }
-        
-        m_keyframes.erase(m_keyframes.begin());
-       
-    }
-    
-   
-    // 🎯 Run sliding window bundle adjustment when we have enough keyframes
-    if (m_keyframes.size() >= 2) {
-        auto sw_opt_start = std::chrono::high_resolution_clock::now();
-        
-         
-        auto sw_result = m_sliding_window_optimizer->optimize(m_keyframes);
-        
-        auto sw_opt_end = std::chrono::high_resolution_clock::now();
-        auto sw_opt_time = std::chrono::duration_cast<std::chrono::microseconds>(sw_opt_end - sw_opt_start).count() / 1000.0;
-        
-        if (sw_result.success) {
-            spdlog::info("[SLIDING_WINDOW] ✅ Optimization successful: {} poses, {} points, {} inliers, {} outliers, cost: {:.2e} -> {:.2e}, time: {:.2f}ms",
-                        sw_result.num_poses_optimized, sw_result.num_points_optimized,
-                        sw_result.num_inliers, sw_result.num_outliers,
-                        sw_result.initial_cost, sw_result.final_cost, sw_opt_time);
-        } else {
-            spdlog::warn("[SLIDING_WINDOW] ❌ Optimization failed after {:.2f}ms", sw_opt_time);
-        }
-    } else {
-        spdlog::debug("[SLIDING_WINDOW] Skipping optimization: only {} keyframes (need ≥2)", m_keyframes.size());
-    }
-    
     // Store grid coverage of this keyframe for future relative comparisons
     m_last_keyframe_grid_coverage = calculate_grid_coverage_with_map_points(frame);
     
-  
+    // Notify sliding window optimization thread
+    notify_sliding_window_thread();
 }
 
 OptimizationResult lightweight_vio::Estimator::optimize_pose(std::shared_ptr<Frame> frame) {
@@ -896,6 +903,61 @@ double lightweight_vio::Estimator::calculate_grid_coverage_with_map_points(std::
     // }
     
     return coverage_ratio;
+}
+
+void Estimator::notify_sliding_window_thread() {
+    {
+        std::lock_guard<std::mutex> lock(m_keyframes_mutex);
+        m_keyframes_updated = true;
+    }
+    m_keyframes_cv.notify_one();
+}
+
+void Estimator::sliding_window_thread_function() {
+    spdlog::info("[SW_THREAD] Sliding window optimization thread started");
+    
+    while (m_sliding_window_thread_running) {
+        // Wait for keyframe updates
+        std::unique_lock<std::mutex> lock(m_keyframes_mutex);
+        m_keyframes_cv.wait(lock, [this] { 
+            return !m_sliding_window_thread_running || m_keyframes_updated; 
+        });
+        
+        if (!m_sliding_window_thread_running) {
+            break;
+        }
+        
+        if (m_keyframes_updated) {
+            m_keyframes_updated = false;
+            
+            // Copy current keyframes for optimization (thread-safe)
+            std::vector<std::shared_ptr<Frame>> keyframes_copy = m_keyframes;
+            lock.unlock(); // Release lock early
+            
+            // Run sliding window bundle adjustment when we have enough keyframes
+            if (keyframes_copy.size() >= 2) {
+                auto sw_opt_start = std::chrono::high_resolution_clock::now();
+                
+                auto sw_result = m_sliding_window_optimizer->optimize(keyframes_copy);
+                
+                auto sw_opt_end = std::chrono::high_resolution_clock::now();
+                auto sw_opt_time = std::chrono::duration_cast<std::chrono::microseconds>(sw_opt_end - sw_opt_start).count() / 1000.0;
+                
+                if (sw_result.success) {
+                    spdlog::info("[SW_THREAD] ✅ Optimization successful: {} poses, {} points, {} inliers, {} outliers, cost: {:.2e} -> {:.2e}, time: {:.2f}ms",
+                                sw_result.num_poses_optimized, sw_result.num_points_optimized,
+                                sw_result.num_inliers, sw_result.num_outliers,
+                                sw_result.initial_cost, sw_result.final_cost, sw_opt_time);
+                } else {
+                    spdlog::warn("[SW_THREAD] ❌ Optimization failed after {:.2f}ms", sw_opt_time);
+                }
+            } else {
+                spdlog::debug("[SW_THREAD] Skipping optimization: only {} keyframes (need ≥2)", keyframes_copy.size());
+            }
+        }
+    }
+    
+    spdlog::info("[SW_THREAD] Sliding window optimization thread stopped");
 }
 
 } // namespace lightweight_vio

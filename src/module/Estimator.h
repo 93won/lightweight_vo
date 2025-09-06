@@ -3,6 +3,11 @@
 #include <memory>
 #include <vector>
 #include <optional>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <queue>
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
 #include "Optimizer.h"
@@ -65,7 +70,7 @@ public:
     /**
      * @brief Destructor
      */
-    ~Estimator() = default;
+    ~Estimator();
 
     /**
      * @brief Process a new stereo frame
@@ -100,10 +105,16 @@ public:
     void apply_gt_pose_to_current_frame(const Eigen::Matrix4f& gt_pose);
 
     /**
-     * @brief Get all keyframes
+     * @brief Get all keyframes (not thread-safe)
      * @return Vector of keyframes
      */
     const std::vector<std::shared_ptr<Frame>>& get_keyframes() const { return m_keyframes; }
+    
+    /**
+     * @brief Get all keyframes (thread-safe copy)
+     * @return Copy of keyframes vector
+     */
+    std::vector<std::shared_ptr<Frame>> get_keyframes_safe() const;
 
     /**
      * @brief Get all processed frames (for trajectory export)
@@ -152,6 +163,18 @@ private:
     // Ground truth initialization
     bool m_has_initial_gt_pose;
     Eigen::Matrix4f m_initial_gt_pose;
+    
+    // Sliding window optimization thread
+    std::unique_ptr<std::thread> m_sliding_window_thread;
+    std::atomic<bool> m_sliding_window_thread_running;
+    mutable std::mutex m_keyframes_mutex;
+    std::condition_variable m_keyframes_cv;
+    std::atomic<bool> m_keyframes_updated;
+    
+    /**
+     * @brief Sliding window optimization thread function
+     */
+    void sliding_window_thread_function();
     
     /**
      * @brief Initialize a new stereo frame
@@ -213,6 +236,11 @@ private:
      * @param frame Frame to convert to keyframe
      */
     void create_keyframe(std::shared_ptr<Frame> frame);
+    
+    /**
+     * @brief Notify sliding window thread about keyframe updates
+     */
+    void notify_sliding_window_thread();
     
     /**
      * @brief Perform pose optimization
