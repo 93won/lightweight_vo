@@ -1,8 +1,8 @@
-#include <module/Estimator.h>
-#include <module/FeatureTracker.h>
+#include <processing/Estimator.h>
+#include <processing/FeatureTracker.h>
 #include <database/Frame.h>
 #include <database/MapPoint.h>
-#include <module/Optimizer.h>
+#include <processing/Optimizer.h>
 
 #include <util/Config.h>
 #include <util/EurocUtils.h>

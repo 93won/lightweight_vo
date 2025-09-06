@@ -5,8 +5,8 @@
 #include <mutex>
 #include <ceres/ceres.h>
 #include <Eigen/Dense>
-#include <factor/Parameters.h>
-#include <factor/Factors.h>
+#include <optimization/Parameters.h>
+#include <optimization/Factors.h>
 
 // Forward declarations
 namespace lightweight_vio {

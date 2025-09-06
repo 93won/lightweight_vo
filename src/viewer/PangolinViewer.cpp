@@ -29,7 +29,6 @@ PangolinViewer::PangolinViewer()
     , m_has_stereo_image(false)
     , m_space_pressed(false)
     , m_next_pressed(false)
-    , m_step_forward_pressed(false)
     , m_initialized(false)
     , m_window_width(1280)
     , m_window_height(960)
@@ -51,11 +50,15 @@ PangolinViewer::PangolinViewer()
     , m_auto_mode_checkbox("ui.1. Auto Mode", true, true)
     , m_show_map_point_indices("ui.2. Show Map Point IDs", true, true)
     , m_show_accumulated_map_points("ui.3. Show Local Map Points", true, true)
-    , m_show_estimated_trajectory("ui.4. Show Estimated Trajectory", true, true)
-    , m_show_ground_truth_trajectory("ui.5. Show Ground Truth Trajectory", true, true)
+    , m_show_current_map_points("ui.4. Show Current Map Points", true, true)
+    , m_show_estimated_trajectory("ui.5. Show Estimated Trajectory", true, true)
+    , m_show_ground_truth_trajectory("ui.6. Show Ground Truth Trajectory", true, true)
     , m_show_sliding_window_keyframes("ui.6. Show Sliding Window Keyframes", true, true)
     , m_follow_frame_checkbox("ui.7. Follow Frame", true, true)
     , m_step_forward_button("ui.8. Step Forward", false, false)
+    , m_finish_button("ui.9. Finish & Exit", false, false)
+    , m_step_forward_pressed(false)
+    , m_finish_pressed(false)
 {
 }
 
@@ -302,6 +305,11 @@ void PangolinViewer::render() {
         m_step_forward_pressed = true;
     }
 
+    // Check Finish button
+    if (pangolin::Pushed(m_finish_button)) {
+        m_finish_pressed = true;
+    }
+
     // Process keyboard input - will be handled externally
     // Note: Space bar and 'n' key handling is done in the main application loop
 
@@ -443,7 +451,7 @@ void PangolinViewer::draw_map_points() {
     }
     
     // Draw sliding window map points in white (more prominent) - excluding multi-view triangulated
-    if (!m_window_map_points_storage.empty()) {
+    if (!m_window_map_points_storage.empty() && m_show_accumulated_map_points) {
         glPointSize(m_point_size * 1.0f); // Slightly larger
         glColor3f(1.0f, 1.0f, 1.0f); // White for window map points
         
@@ -459,7 +467,7 @@ void PangolinViewer::draw_map_points() {
    
     
     // Draw current frame tracking points in red (highest priority - overlay on top)
-    if (!m_current_map_points.empty()) {
+    if (!m_current_map_points.empty() && m_show_current_map_points) {
         glPointSize(m_point_size * 4.0f); // Largest for visibility
         glColor3f(1.0f, 0.0f, 0.0f); // Red for current frame tracking points
         
@@ -840,6 +848,10 @@ bool PangolinViewer::is_auto_mode_enabled() const {
 
 bool PangolinViewer::is_follow_frame_enabled() const {
     return m_follow_frame_checkbox;
+}
+
+bool PangolinViewer::is_finish_requested() const {
+    return m_finish_pressed;
 }
 
 void PangolinViewer::draw_feature_grid(cv::Mat& image) {

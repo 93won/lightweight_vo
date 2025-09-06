@@ -64,7 +64,11 @@ if [ ! -d "thirdparty/pangolin/build" ]; then
     mkdir -p thirdparty/pangolin/build
 fi
 cd thirdparty/pangolin/build
-cmake .. -DBUILD_EXAMPLES=OFF -DBUILD_TOOLS=OFF
+cmake .. \
+    -DBUILD_EXAMPLES=OFF \
+    -DBUILD_TOOLS=OFF \
+    -DBUILD_PYPANGOLIN=OFF \
+    -DBUILD_PANGOLIN_PYTHON=OFF
 make -j$NPROC
 cd ../../..
 
@@ -88,5 +92,3 @@ echo ""
 echo "=============================================="
 echo "  Build completed successfully!"
 echo "=============================================="
-echo "Executable: ./build/test_vio_viewer"
-echo "Usage: ./build/test_vio_viewer <euroc_dataset_path>"

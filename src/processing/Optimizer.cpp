@@ -1,7 +1,7 @@
-#include <module/Optimizer.h>
+#include <processing/Optimizer.h>
 #include <database/Frame.h>
 #include <database/MapPoint.h>
-#include <factor/Parameters.h>
+#include <optimization/Parameters.h>
 #include <util/Config.h>
 #include <spdlog/spdlog.h>
 #include <sstream>

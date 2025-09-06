@@ -1,9 +1,14 @@
 #pragma once
 
-#include <pangolin/pangolin.h>
+#include <pangolin/display/display.h>
+#include <pangolin/display/view.h>
+#include <pangolin/handler/handler.h>
+#include <pangolin/gl/glinclude.h>
 #include <pangolin/display/image_view.h>
 #include <pangolin/gl/gldraw.h>
-#include <pangolin/scene/axis.h>
+#include <pangolin/var/var.h>
+#include <pangolin/display/widgets.h>
+#include <pangolin/var/varextra.h>
 #include <Eigen/Dense>
 #include <vector>
 #include <memory>
@@ -74,6 +79,7 @@ public:
     // Auto mode control
     bool is_auto_mode_enabled() const;
     bool is_follow_frame_enabled() const;
+    bool is_finish_requested() const;  // New method to check finish button
     
     // Frame info updates
     void update_frame_info(int frame_id, int total_features, int tracked_features, int new_features);
@@ -138,12 +144,15 @@ private:
     pangolin::Var<bool> m_auto_mode_checkbox;
     pangolin::Var<bool> m_show_map_point_indices;
     pangolin::Var<bool> m_show_accumulated_map_points;
+    pangolin::Var<bool> m_show_current_map_points;
     pangolin::Var<bool> m_show_estimated_trajectory;
     pangolin::Var<bool> m_show_ground_truth_trajectory;
     pangolin::Var<bool> m_show_sliding_window_keyframes;
     pangolin::Var<bool> m_follow_frame_checkbox;
     pangolin::Var<bool> m_step_forward_button;
+    pangolin::Var<bool> m_finish_button;
     mutable bool m_step_forward_pressed;
+    mutable bool m_finish_pressed;
     
     // Input state
     bool m_space_pressed;

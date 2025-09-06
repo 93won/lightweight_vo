@@ -15,8 +15,8 @@
 #include <database/Frame.h>
 #include <database/Feature.h>
 #include <database/MapPoint.h>
-#include <module/FeatureTracker.h>
-#include <module/Estimator.h>
+#include <processing/FeatureTracker.h>
+#include <processing/Estimator.h>
 #include <util/Config.h>
 #include <util/EurocUtils.h>
 #include <viewer/PangolinViewer.h>
@@ -252,6 +252,12 @@ int main(int argc, char* argv[]) {
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {
             spdlog::info("[Viewer] User requested exit");
+            break;
+        }
+        
+        // Check if finish button was pressed
+        if (viewer && viewer->is_finish_requested()) {
+            spdlog::info("[Viewer] User pressed Finish & Exit button");
             break;
         }
         
@@ -706,6 +712,15 @@ int main(int argc, char* argv[]) {
             spdlog::info("══════════════════════════════════════════════════════════════════");
     }
   
+    // Wait for user to click Finish button before exiting
+    if (viewer) {
+        spdlog::info("[VIEWER] Processing completed! Click 'Finish & Exit' button to close the application.");
+        while (!viewer->should_close() && !viewer->is_finish_requested()) {
+            viewer->render();
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        }
+        spdlog::info("[VIEWER] User requested exit. Shutting down...");
+    }
     
     return 0;
 }

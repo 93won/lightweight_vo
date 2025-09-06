@@ -78,22 +78,22 @@ file(GLOB_RECURSE SOURCES
 
 
 # Add VIO with Pangolin viewer
-add_executable(test_vio_viewer test_vio_viewer.cpp 
+add_executable(euroc_stereo_vo app/euroc_stereo_vo.cpp 
     src/database/Frame.cpp
     src/database/Feature.cpp
     src/database/MapPoint.cpp  
-    src/module/FeatureTracker.cpp
-    src/module/Optimizer.cpp
-    src/module/Estimator.cpp
-    src/factor/Factors.cpp
-    src/factor/Parameters.cpp
+    src/processing/FeatureTracker.cpp
+    src/processing/Optimizer.cpp
+    src/processing/Estimator.cpp
+    src/optimization/Factors.cpp
+    src/optimization/Parameters.cpp
     src/util/Config.cpp
     src/util/EurocUtils.cpp
     src/viewer/PangolinViewer.cpp
 )
 
 # Link libraries
-target_link_libraries(test_vio_viewer 
+target_link_libraries(euroc_stereo_vo 
     ${OpenCV_LIBS} 
     yaml-cpp 
     OpenGL::GL 
@@ -112,10 +112,10 @@ target_link_libraries(test_vio_viewer
 
 # Link Eigen3 to all targets
 if(TARGET Eigen3::Eigen)
-    target_link_libraries(test_vio_viewer Eigen3::Eigen)
+    target_link_libraries(euroc_stereo_vo Eigen3::Eigen)
 else()
     # Fallback for older CMake versions
-    target_include_directories(test_vio_viewer PRIVATE ${EIGEN3_INCLUDE_DIR})
+    target_include_directories(euroc_stereo_vo PRIVATE ${EIGEN3_INCLUDE_DIR})
 endif()
 
 # Print OpenCV information for debugging

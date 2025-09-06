@@ -1,4 +1,4 @@
-#include <module/FeatureTracker.h>
+#include <processing/FeatureTracker.h>
 #include <database/Frame.h>
 #include <database/Feature.h>
 #include <database/MapPoint.h>
