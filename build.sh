@@ -6,9 +6,12 @@ echo "=============================================="
 echo "  Lightweight VIO Build Script with ThirdParty"
 echo "=============================================="
 
-# Get number of CPU cores for parallel compilation
-NPROC=$(nproc)
-echo "Using $NPROC cores for compilation"
+# Get number of CPU cores for parallel compilation (use half of available cores)
+NPROC=$(($(nproc) / 2))
+if [ $NPROC -lt 1 ]; then
+    NPROC=1
+fi
+echo "Using $NPROC cores for compilation (half of available)"
 
 # Install system dependencies
 echo ""
