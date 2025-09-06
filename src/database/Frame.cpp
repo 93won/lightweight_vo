@@ -1,12 +1,28 @@
-#include <database/Frame.h>
-#include <database/MapPoint.h>
-#include <util/Config.h>
+/**
+ * @file      Frame.cpp
+ * @brief     Implements the Frame class, representing a single camera capture.
+ * @author    Seungwon Choi (csw3575@snu.ac.kr)
+ * @date      2025-08-11
+ * @copyright Copyright (c) 2025 Seungwon Choi. All rights reserved.
+ *
+ * @par License
+ * This project is released under the MIT License.
+ */
+
+#include "database/Frame.h"
+#include "database/Feature.h" // Include Feature header
+#include "database/MapPoint.h"
+#include "util/Config.h"
+#include <opencv2/features2d.hpp>
 #include <spdlog/spdlog.h>
-#include <sophus/se3.hpp>
-#include <algorithm>
 #include <iostream>
+#include <numeric>
+#include <algorithm>
 
 namespace lightweight_vio {
+
+// Define the destructor here, where Feature is a complete type
+Frame::~Frame() = default;
 
 // Static member definition
 std::shared_ptr<Frame> Frame::m_last_keyframe = nullptr;

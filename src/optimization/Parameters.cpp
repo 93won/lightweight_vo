@@ -1,4 +1,15 @@
-#include "Parameters.h"
+/**
+ * @file      Parameters.cpp
+ * @brief     Implements parameter block management for Ceres optimization.
+ * @author    Seungwon Choi (csw3575@snu.ac.kr)
+ * @date      2025-08-18
+ * @copyright Copyright (c) 2025 Seungwon Choi. All rights reserved.
+ *
+ * @par License
+ * This project is released under the MIT License.
+ */
+
+#include "optimization/Parameters.h"
 
 namespace lightweight_vio {
 namespace factor {

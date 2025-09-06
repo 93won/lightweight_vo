@@ -1,6 +1,17 @@
-#include <database/MapPoint.h>
-#include <database/Frame.h>
-#include <database/Feature.h>
+/**
+ * @file      MapPoint.cpp
+ * @brief     Implements the MapPoint class.
+ * @author    Seungwon Choi (csw3575@snu.ac.kr)
+ * @date      2025-08-18
+ * @copyright Copyright (c) 2025 Seungwon Choi. All rights reserved.
+ *
+ * @par License
+ * This project is released under the MIT License.
+ */
+
+#include "database/MapPoint.h"
+#include "database/Frame.h"
+#include "database/Feature.h"
 #include <algorithm>
 #include <iostream>
 

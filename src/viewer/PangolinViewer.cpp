@@ -1,12 +1,24 @@
-#include "PangolinViewer.h"
+/**
+ * @file      PangolinViewer.cpp
+ * @brief     Implements the Pangolin-based 3D viewer for VIO.
+ * @author    Seungwon Choi (csw3575@snu.ac.kr)
+ * @date      2025-08-30
+ * @copyright Copyright (c) 2025 Seungwon Choi. All rights reserved.
+ *
+ * @par License
+ * This project is released under the MIT License.
+ */
+
+#include "viewer/PangolinViewer.h"
+#include "util/Config.h"
+#include "database/Feature.h"
+#include "database/MapPoint.h"
+#include "database/Frame.h"
+
 #include <iostream>
 #include <cmath>
 #include <cstdio>
 #include <spdlog/spdlog.h>
-#include <util/Config.h>
-#include <database/Feature.h>
-#include <database/MapPoint.h>
-#include <database/Frame.h>
 
 namespace lightweight_vio {
 
@@ -47,7 +59,7 @@ PangolinViewer::PangolinViewer()
     , m_trajectory_width(2.0f)
     , m_frame_id("ui.Frame ID", 0)
     , m_successful_matches("ui.Num Tracked Map Points", 0, 0, get_max_features_from_config())
-    , m_auto_mode_checkbox("ui.1. Auto Mode", false, true)
+    , m_auto_mode_checkbox("ui.1. Auto Mode", true, true)
     , m_show_map_point_indices("ui.2. Show Map Point IDs", true, true)
     , m_show_accumulated_map_points("ui.3. Show Local Map Points", true, true)
     , m_show_current_map_points("ui.4. Show Current Map Points", true, true)

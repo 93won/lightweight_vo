@@ -1,12 +1,27 @@
-#include <processing/Optimizer.h>
-#include <database/Frame.h>
-#include <database/MapPoint.h>
-#include <optimization/Parameters.h>
-#include <util/Config.h>
+/**
+ * @file      Optimizer.cpp
+ * @brief     Implements pose and bundle adjustment optimizers using Ceres Solver.
+ * @author    Seungwon Choi (csw3575@snu.ac.kr)
+ * @date      2025-08-18
+ * @copyright Copyright (c) 2025 Seungwon Choi. All rights reserved.
+ *
+ * @par License
+ * This project is released under the MIT License.
+ */
+
+#include "processing/Optimizer.h"
+#include "database/Frame.h"
+#include "database/MapPoint.h"
+#include "optimization/Parameters.h"
+#include "util/Config.h"
+#include "optimization/Factors.h"
+#include "database/Feature.h"
 #include <spdlog/spdlog.h>
+#include <sophus/se3.hpp>
 #include <sstream>
-#include <algorithm>
 #include <numeric>
+#include <algorithm>
+#include <iostream>
 #include <set>
 #include <unordered_map>
 #include <thread>

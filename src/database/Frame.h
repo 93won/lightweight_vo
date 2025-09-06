@@ -1,6 +1,16 @@
+/**
+ * @file      Frame.h
+ * @brief     Defines the Frame class, representing a single camera capture.
+ * @author    Seungwon Choi (csw3575@snu.ac.kr)
+ * @date      2025-08-11
+ * @copyright Copyright (c) 2025 Seungwon Choi. All rights reserved.
+ *
+ * @par License
+ * This project is released under the MIT License.
+ */
+
 #pragma once
 
-#include <database/Feature.h>
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
 #include <vector>
@@ -12,6 +22,7 @@
 
 namespace lightweight_vio {
 
+class Feature; // Forward declaration
 class MapPoint;
 
 class Frame {
@@ -31,7 +42,8 @@ public:
     // Simple stereo constructor - uses Config for camera parameters
     Frame(long long timestamp, int frame_id,
           const cv::Mat& left_image, const cv::Mat& right_image);
-    ~Frame() = default;
+    ~Frame(); // Use explicit destructor
+
 
     // Getters
     long long get_timestamp() const { return m_timestamp; }

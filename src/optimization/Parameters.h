@@ -1,3 +1,14 @@
+/**
+ * @file      Parameters.h
+ * @brief     Defines parameter blocks for Ceres optimization.
+ * @author    Seungwon Choi (csw3575@snu.ac.kr)
+ * @date      2025-08-18
+ * @copyright Copyright (c) 2025 Seungwon Choi. All rights reserved.
+ *
+ * @par License
+ * This project is released under the MIT License.
+ */
+
 #pragma once
 
 #include <ceres/local_parameterization.h>

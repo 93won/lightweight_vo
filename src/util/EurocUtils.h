@@ -1,9 +1,23 @@
+/**
+ * @file      EurocUtils.h
+ * @brief     Defines utilities for handling the EuRoC dataset.
+ * @author    Seungwon Choi (csw3575@snu.ac.kr)
+ * @date      2025-08-30
+ * @copyright Copyright (c) 2025 Seungwon Choi. All rights reserved.
+ *
+ * @par License
+ * This project is released under the MIT License.
+ */
+
+
 #pragma once
 
 #include <vector>
 #include <string>
 #include <optional>
 #include <Eigen/Dense>
+
+
 
 namespace lightweight_vio {
 

@@ -11,7 +11,7 @@ This is a lightweight stereo visual odometry (VO) project designed for real-time
 
 ## Demo
 
-[![Stereo VO Demo](https://img.youtube.com/vi/zcConJRXgEQ/0.jpg)](https://www.youtube.com/watch?v=zcConJRXgEQ)
+[![Stereo VO Demo](https://img.youtube.com/vi/fM0tq-6E8fg/0.jpg)](https://youtu.be/fM0tq-6E8fg)
 
 ## To-Do List
 

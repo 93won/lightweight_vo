@@ -1,7 +1,18 @@
-#include <processing/FeatureTracker.h>
-#include <database/Frame.h>
-#include <database/Feature.h>
-#include <database/MapPoint.h>
+/**
+ * @file      FeatureTracker.cpp
+ * @brief     Implements feature tracking and management for VIO.
+ * @author    Seungwon Choi (csw3575@snu.ac.kr)
+ * @date      2025-08-11
+ * @copyright Copyright (c) 2025 Seungwon Choi. All rights reserved.
+ *
+ * @par License
+ * This project is released under the MIT License.
+ */
+
+#include "processing/FeatureTracker.h"
+#include "database/Frame.h"
+#include "database/Feature.h"
+#include "database/MapPoint.h"
 #include <spdlog/spdlog.h>
 #include <Eigen/Dense>
 #include <algorithm>

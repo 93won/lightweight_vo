@@ -1,3 +1,14 @@
+/**
+ * @file      Estimator.h
+ * @brief     Defines the main VO estimation class.
+ * @author    Seungwon Choi (csw3575@snu.ac.kr)
+ * @date      2025-08-23
+ * @copyright Copyright (c) 2025 Seungwon Choi. All rights reserved.
+ *
+ * @par License
+ * This project is released under the MIT License.
+ */
+
 #pragma once
 
 #include <memory>
@@ -10,7 +21,7 @@
 #include <queue>
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
-#include "Optimizer.h"
+#include "processing/Optimizer.h"
 
 // Forward declarations
 namespace lightweight_vio {
@@ -18,6 +29,7 @@ namespace lightweight_vio {
     class MapPoint;
     class FeatureTracker;
 }
+
 
 namespace lightweight_vio {
 

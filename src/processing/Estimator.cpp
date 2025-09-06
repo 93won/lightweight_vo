@@ -1,11 +1,25 @@
-#include <processing/Estimator.h>
-#include <processing/FeatureTracker.h>
-#include <database/Frame.h>
-#include <database/MapPoint.h>
-#include <processing/Optimizer.h>
+/**
+ * @file      Estimator.cpp
+ * @brief     Implements the main VO estimation logic.
+ * @author    Seungwon Choi (csw3575@snu.ac.kr)
+ * @date      2025-08-23
+ * @copyright Copyright (c) 2025 Seungwon Choi. All rights reserved.
+ *
+ * @par License
+ * This project is released under the MIT License.
+ */
 
-#include <util/Config.h>
-#include <util/EurocUtils.h>
+#include "processing/Estimator.h"
+#include "processing/FeatureTracker.h"
+#include "database/Frame.h"
+#include "database/MapPoint.h"
+#include "processing/Optimizer.h"
+#include "util/Config.h"
+#include "util/EurocUtils.h"
+#include "database/Feature.h"
+
+#include <opencv2/opencv.hpp>
+#include <Eigen/Dense>
 #include <spdlog/spdlog.h>
 #include <chrono>
 #include <iostream>

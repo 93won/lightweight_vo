@@ -1,3 +1,14 @@
+/**
+ * @file      Optimizer.h
+ * @brief     Defines pose and bundle adjustment optimizers using Ceres Solver.
+ * @author    Seungwon Choi (csw3575@snu.ac.kr)
+ * @date      2025-08-18
+ * @copyright Copyright (c) 2025 Seungwon Choi. All rights reserved.
+ *
+ * @par License
+ * This project is released under the MIT License.
+ */
+
 #pragma once
 
 #include <memory>
@@ -5,8 +16,7 @@
 #include <mutex>
 #include <ceres/ceres.h>
 #include <Eigen/Dense>
-#include <optimization/Parameters.h>
-#include <optimization/Factors.h>
+#include <sophus/se3.hpp>
 
 // Forward declarations
 namespace lightweight_vio {
@@ -15,6 +25,7 @@ namespace lightweight_vio {
     
     namespace factor {
         class PnPFactor;
+        class BAFactor;
         struct CameraParameters;
     }
 }
@@ -137,14 +148,14 @@ private:
      * @param frame Frame with pose to convert
      * @return SE3 tangent space vector [6]
      */
-    Eigen::Vector6d frame_to_se3_tangent(std::shared_ptr<Frame> frame) const;
+    Sophus::SE3d::Tangent frame_to_se3_tangent(std::shared_ptr<Frame> frame) const;
     
     /**
      * @brief Convert SE3 tangent space to 4x4 matrix
      * @param se3_tangent SE3 tangent space vector [6]
      * @return 4x4 transformation matrix
      */
-    Eigen::Matrix4f se3_tangent_to_matrix(const Eigen::Vector6d& se3_tangent) const;
+    Eigen::Matrix4f se3_tangent_to_matrix(const Sophus::SE3d::Tangent& se3_tangent) const;
     
     /**
      * @brief Create robust loss function
