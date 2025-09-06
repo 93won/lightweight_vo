@@ -39,12 +39,21 @@ run_container() {
     fi
     
     echo "Running Docker container with dataset: $dataset_path"
+
+    # Allow Docker to connect to the host's X server for GUI forwarding
+    echo "Temporarily allowing local connections to X server..."
+    xhost +local:docker
+    
     docker run --rm -it \
         -v "$dataset_path:/dataset:ro" \
         -e DISPLAY=$DISPLAY \
         -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
         --privileged \
         $IMAGE_NAME:$TAG /dataset
+
+    # Revoke access after the container exits
+    echo "Revoking local connections to X server."
+    xhost -local:docker
 }
 
 # Function to run interactive shell in container
