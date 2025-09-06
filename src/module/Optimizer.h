@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <vector>
+#include <mutex>
 #include <ceres/ceres.h>
 #include <Eigen/Dense>
 #include <factor/Parameters.h>
@@ -166,6 +167,11 @@ private:
      * @return 2x2 information matrix
      */
     Eigen::Matrix2d create_information_matrix(double pixel_noise, int num_observations) const;
+
+private:
+    // Global mutexes for thread-safe access to MapPoints and Frames
+    static std::mutex s_mappoint_mutex;
+    static std::mutex s_keyframe_mutex;
 };
 
 /**
@@ -377,6 +383,10 @@ private:
     double m_huber_delta;        // Huber loss delta parameter
     double m_pixel_noise_std;    // Pixel noise standard deviation
     double m_outlier_threshold;  // Chi-square outlier threshold
+    
+    // Global mutexes for thread-safe access to MapPoints and Frames
+    static std::mutex s_mappoint_mutex;
+    static std::mutex s_keyframe_mutex;
 };
 
 } // namespace lightweight_vio

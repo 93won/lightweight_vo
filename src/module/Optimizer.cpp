@@ -14,6 +14,10 @@
 namespace lightweight_vio
 {
 
+    // Define global mutexes for thread-safe access
+    std::mutex PnPOptimizer::s_mappoint_mutex;
+    std::mutex PnPOptimizer::s_keyframe_mutex;
+
     PnPOptimizer::PnPOptimizer()
     {
     }
@@ -44,68 +48,72 @@ namespace lightweight_vio
         // spdlog::debug("[DEBUG_CAM] Camera intrinsics: fx={:.2f}, fy={:.2f}, cx={:.2f}, cy={:.2f}",
         //              fx, fy, cx, cy);
 
-        // Add observations to the problem
+                // Add observations to the problem
         std::vector<ObservationInfo> observations;
         std::vector<int> feature_indices; // Track which features correspond to observations
         int num_valid_observations = 0;
         int num_excluded_outliers = 0;
 
         // Add mono PnP observations from frame's map points
-        const auto &map_points = frame->get_map_points();
-        
-        for (size_t i = 0; i < map_points.size(); ++i)
+        // Protect MapPoint access with mutex
         {
-            auto mp = map_points[i];
-            if (!mp || mp->is_bad())
+            std::lock_guard<std::mutex> lock(s_mappoint_mutex);
+            const auto &map_points = frame->get_map_points();
+            
+            for (size_t i = 0; i < map_points.size(); ++i)
             {
-                continue;
+                auto mp = map_points[i];
+                if (!mp || mp->is_bad())
+                {
+                    continue;
+                }
+
+                // Give outliers a second chance - don't exclude them immediately
+                // Only exclude if they've been consistently outliers for multiple frames
+                // For now, let all features with map points participate in optimization
+                bool is_previous_outlier = frame->get_outlier_flag(i);
+                if (is_previous_outlier) {
+                    // Still include but track that it was an outlier
+                    num_excluded_outliers++; // This now means "previous outliers given another chance"
+                }
+
+                // Get 3D world point
+                Eigen::Vector3d world_point = mp->get_position().cast<double>();
+
+                // Get 2D observation from feature
+                if (i >= frame->get_features().size())
+                {
+                    continue;
+                }
+
+                auto feature = frame->get_features()[i];
+
+                // Get undistorted normalized coordinates and convert to pixel coordinates (consistent with CREATE_MP)
+                cv::Point2f undistorted_pixel = feature->get_undistorted_coord();
+
+                double undist_u = undistorted_pixel.x;
+                double undist_v = undistorted_pixel.y;
+                Eigen::Vector2d observation(undist_u, undist_v);
+
+                // Add mono PnP observation with observation-based weighting
+                int num_observations = mp->get_observation_count();
+                auto obs_info = add_mono_observation(problem, pose_params.data(), world_point, observation, camera_params, frame, 2.0, num_observations);
+
+                // Debug: Check if projection makes sense for first few features
+                if (num_valid_observations < 3) {
+                    // spdlog::debug("[PROJECTION] Feature {}: pixel=({:.2f},{:.2f}), world=({:.2f},{:.2f},{:.2f})", 
+                    //              i, observation.x(), observation.y(), 
+                    //              world_point.x(), world_point.y(), world_point.z());
+                }
+
+                if (obs_info.residual_id)
+                {
+                    observations.push_back(obs_info);
+                    feature_indices.push_back(i);
+                    num_valid_observations++;
+                }
             }
-
-            // Give outliers a second chance - don't exclude them immediately
-            // Only exclude if they've been consistently outliers for multiple frames
-            // For now, let all features with map points participate in optimization
-            bool is_previous_outlier = frame->get_outlier_flag(i);
-            if (is_previous_outlier) {
-                // Still include but track that it was an outlier
-                num_excluded_outliers++; // This now means "previous outliers given another chance"
-            }
-
-            // Get 3D world point
-            Eigen::Vector3d world_point = mp->get_position().cast<double>();
-
-            // Get 2D observation from feature
-            if (i >= frame->get_features().size())
-            {
-                continue;
-            }
-
-            auto feature = frame->get_features()[i];
-
-            // Get undistorted normalized coordinates and convert to pixel coordinates (consistent with CREATE_MP)
-            cv::Point2f undistorted_pixel = feature->get_undistorted_coord();
-
-            double undist_u = undistorted_pixel.x;
-            double undist_v = undistorted_pixel.y;
-            Eigen::Vector2d observation(undist_u, undist_v);
-
-            // Add mono PnP observation with observation-based weighting
-            int num_observations = mp->get_observation_count();
-            auto obs_info = add_mono_observation(problem, pose_params.data(), world_point, observation, camera_params, frame, 2.0, num_observations);
-
-            // Debug: Check if projection makes sense for first few features
-            if (num_valid_observations < 3) {
-                // spdlog::debug("[PROJECTION] Feature {}: pixel=({:.2f},{:.2f}), world=({:.2f},{:.2f},{:.2f})", 
-                //              i, observation.x(), observation.y(), 
-                //              world_point.x(), world_point.y(), world_point.z());
-            }
-
-            if (obs_info.residual_id)
-            {
-                observations.push_back(obs_info);
-                feature_indices.push_back(i);
-                num_valid_observations++;
-            }
-        }
+        } // Release mutex here
 
         // Check if we have enough observations
         if (num_valid_observations < 5)
@@ -216,6 +224,8 @@ namespace lightweight_vio
             result.num_outliers = 0;
             int disconnected_map_points = 0;
             
+            // Protect MapPoint disconnection with mutex
+            std::lock_guard<std::mutex> lock(s_mappoint_mutex);
             const auto &outlier_flags = frame->get_outlier_flags();
             for (size_t i = 0; i < outlier_flags.size(); ++i)
             {
@@ -258,6 +268,7 @@ namespace lightweight_vio
         // Update frame pose if optimization was successful
         if (result.success)
         {
+            std::lock_guard<std::mutex> lock(s_keyframe_mutex);
             frame->set_Twb(result.optimized_pose);
         }
 
@@ -365,11 +376,15 @@ namespace lightweight_vio
             bool is_outlier = (chi2_error > chi2_threshold);
             int feature_idx = feature_indices[i];
             
-            // Get previous outlier status
-            bool was_outlier = frame->get_outlier_flag(feature_idx);
-            
-            // Update outlier flag - can be both set and cleared based on current chi2 test
-            frame->set_outlier_flag(feature_idx, is_outlier);
+            // Get previous outlier status (protect with keyframe mutex)
+            bool was_outlier;
+            {
+                std::lock_guard<std::mutex> lock(s_keyframe_mutex);
+                was_outlier = frame->get_outlier_flag(feature_idx);
+                
+                // Update outlier flag - can be both set and cleared based on current chi2 test
+                frame->set_outlier_flag(feature_idx, is_outlier);
+            }
 
             // Set outlier flag in the cost function to disable it for next optimization round
             observations[i].cost_function->set_outlier(is_outlier);
@@ -419,67 +434,67 @@ namespace lightweight_vio
         //                 *outlier_minmax.second, outlier_mean);
         // }
 
-        // Debug: Print details for some outliers to understand what's wrong
-        int debug_count = 0;
-        Eigen::Map<const Eigen::Vector6d> se3_tangent(pose_params[0]);
-        Sophus::SE3d current_pose = Sophus::SE3d::exp(se3_tangent);
+        // // Debug: Print details for some outliers to understand what's wrong
+        // int debug_count = 0;
+        // Eigen::Map<const Eigen::Vector6d> se3_tangent(pose_params[0]);
+        // Sophus::SE3d current_pose = Sophus::SE3d::exp(se3_tangent);
         
-        // Convert matrix to string for logging
-        std::stringstream ss;
-        ss << current_pose.matrix();
-        // spdlog::debug("[OUTLIER_DEBUG] Current pose Twb:\n{}", ss.str());
+        // // Convert matrix to string for logging
+        // std::stringstream ss;
+        // ss << current_pose.matrix();
+        // // spdlog::debug("[OUTLIER_DEBUG] Current pose Twb:\n{}", ss.str());
         
-        for (size_t i = 0; i < observations.size() && debug_count < 3; ++i)
-        {
-            double chi2_error = observations[i].cost_function->compute_chi_square(pose_params);
-            if (chi2_error > chi2_threshold)
-            {
-                int feature_idx = feature_indices[i];
-                auto feature = frame->get_features()[feature_idx];
-                auto mp = frame->get_map_points()[feature_idx];
+        // for (size_t i = 0; i < observations.size() && debug_count < 3; ++i)
+        // {
+        //     double chi2_error = observations[i].cost_function->compute_chi_square(pose_params);
+        //     if (chi2_error > chi2_threshold)
+        //     {
+        //         int feature_idx = feature_indices[i];
+        //         auto feature = frame->get_features()[feature_idx];
+        //         auto mp = frame->get_map_points()[feature_idx];
                 
-                // Manually project to see what the expected pixel should be
-                Eigen::Vector3d world_pos = mp->get_position().cast<double>();
+        //         // Manually project to see what the expected pixel should be
+        //         Eigen::Vector3d world_pos = mp->get_position().cast<double>();
                 
-                // Transform to camera coordinates: Pc = Rcw * Pw + tcw
-                Eigen::Matrix3d Rwb = current_pose.rotationMatrix();
-                Eigen::Vector3d t_wb = current_pose.translation();
-                Eigen::Matrix3d Rbw = Rwb.transpose();
-                Eigen::Vector3d t_bw = -Rbw * t_wb;
+        //         // Transform to camera coordinates: Pc = Rcw * Pw + tcw
+        //         Eigen::Matrix3d Rwb = current_pose.rotationMatrix();
+        //         Eigen::Vector3d t_wb = current_pose.translation();
+        //         Eigen::Matrix3d Rbw = Rwb.transpose();
+        //         Eigen::Vector3d t_bw = -Rbw * t_wb;
                 
-                // Get T_cb (body-to-camera transform) from frame directly - CONSISTENT WITH add_mono_observation
-                const Eigen::Matrix4d& T_cb = frame->get_T_CB();
+        //         // Get T_cb (body-to-camera transform) from frame directly - CONSISTENT WITH add_mono_observation
+        //         const Eigen::Matrix4d& T_cb = frame->get_T_CB();
                 
-                // Transform to camera coordinates: Pc = T_cb * (Rbw * Pw + t_bw)
-                Eigen::Vector3d point_body = Rbw * world_pos + t_bw;
-                Eigen::Vector4d point_body_h(point_body.x(), point_body.y(), point_body.z(), 1.0);
-                Eigen::Vector4d point_camera_h = T_cb * point_body_h;
-                Eigen::Vector3d point_camera = point_camera_h.head<3>();
+        //         // Transform to camera coordinates: Pc = T_cb * (Rbw * Pw + t_bw)
+        //         Eigen::Vector3d point_body = Rbw * world_pos + t_bw;
+        //         Eigen::Vector4d point_body_h(point_body.x(), point_body.y(), point_body.z(), 1.0);
+        //         Eigen::Vector4d point_camera_h = T_cb * point_body_h;
+        //         Eigen::Vector3d point_camera = point_camera_h.head<3>();
                 
-                // Project to image plane
-                double fx, fy, cx, cy;
-                frame->get_camera_intrinsics(fx, fy, cx, cy);
+        //         // Project to image plane
+        //         double fx, fy, cx, cy;
+        //         frame->get_camera_intrinsics(fx, fy, cx, cy);
                 
-                if (point_camera.z() > 0) {
-                    double u_proj = fx * point_camera.x() / point_camera.z() + cx;
-                    double v_proj = fy * point_camera.y() / point_camera.z() + cy;
+        //         if (point_camera.z() > 0) {
+        //             double u_proj = fx * point_camera.x() / point_camera.z() + cx;
+        //             double v_proj = fy * point_camera.y() / point_camera.z() + cy;
                     
-                    // Get undistorted observation using normalized coordinates (consistent with CREATE_MP)
-                    cv::Point2f undistorted_pixel = feature->get_undistorted_coord();
-                    double undist_u = undistorted_pixel.x;
-                    double undist_v = undistorted_pixel.y;
+        //             // Get undistorted observation using normalized coordinates (consistent with CREATE_MP)
+        //             cv::Point2f undistorted_pixel = feature->get_undistorted_coord();
+        //             double undist_u = undistorted_pixel.x;
+        //             double undist_v = undistorted_pixel.y;
 
-                    auto map_point = frame->get_map_point(feature_idx);
-                    // spdlog::debug("[OUTLIER_DEBUG] Feature {}: chi2={:.3f}, observed_undist=({:.1f},{:.1f}), projected=({:.1f},{:.1f}), world=({:.2f},{:.2f},{:.2f})", 
-                    //              feature_idx, chi2_error, undist_u, undist_v,
-                    //              u_proj, v_proj, world_pos.x(), world_pos.y(), world_pos.z());
-                } else {
-                    // spdlog::debug("[OUTLIER_DEBUG] Feature {}: chi2={:.3f}, BEHIND_CAMERA: z={:.2f}", 
-                    //              feature_idx, chi2_error, point_camera.z());
-                }
-                debug_count++;
-            }
-        }
+        //             auto map_point = frame->get_map_point(feature_idx);
+        //             // spdlog::debug("[OUTLIER_DEBUG] Feature {}: chi2={:.3f}, observed_undist=({:.1f},{:.1f}), projected=({:.1f},{:.1f}), world=({:.2f},{:.2f},{:.2f})", 
+        //             //              feature_idx, chi2_error, undist_u, undist_v,
+        //             //              u_proj, v_proj, world_pos.x(), world_pos.y(), world_pos.z());
+        //         } else {
+        //             // spdlog::debug("[OUTLIER_DEBUG] Feature {}: chi2={:.3f}, BEHIND_CAMERA: z={:.2f}", 
+        //             //              feature_idx, chi2_error, point_camera.z());
+        //         }
+        //         debug_count++;
+        //     }
+        // }
 
         return num_inliers;
     }
@@ -576,6 +591,10 @@ namespace lightweight_vio
 
 // SlidingWindowOptimizer implementation
 namespace lightweight_vio {
+
+// Define global mutexes for SlidingWindowOptimizer
+std::mutex SlidingWindowOptimizer::s_mappoint_mutex;
+std::mutex SlidingWindowOptimizer::s_keyframe_mutex;
 
 SlidingWindowOptimizer::SlidingWindowOptimizer(size_t window_size)
     : m_window_size(window_size)
@@ -720,14 +739,17 @@ std::vector<std::shared_ptr<MapPoint>> SlidingWindowOptimizer::collect_window_ma
     
     std::set<std::shared_ptr<MapPoint>> unique_map_points;
     
-    // Collect all unique map points from keyframes
-    for (const auto& keyframe : keyframes) {
-        if (!keyframe) continue;
-        
-        const auto& map_points = keyframe->get_map_points();
-        for (const auto& mp : map_points) {
-            if (mp && !mp->is_bad()) {
-                unique_map_points.insert(mp);
+    // Collect all unique map points from keyframes with mutex protection
+    {
+        std::lock_guard<std::mutex> lock(s_mappoint_mutex);
+        for (const auto& keyframe : keyframes) {
+            if (!keyframe) continue;
+            
+            const auto& map_points = keyframe->get_map_points();
+            for (const auto& mp : map_points) {
+                if (mp && !mp->is_bad()) {
+                    unique_map_points.insert(mp);
+                }
             }
         }
     }
@@ -819,46 +841,49 @@ std::vector<BAObservationInfo> SlidingWindowOptimizer::setup_optimization_proble
         mappoint_to_index[map_points[i]] = static_cast<int>(i);
     }
     
-    // Initialize pose parameters from keyframes
-    for (size_t kf_idx = 0; kf_idx < keyframes.size(); ++kf_idx) {
-        const auto& keyframe = keyframes[kf_idx];
-        Eigen::Matrix4f T_wb = keyframe->get_Twb();
-        
-        // Convert to double precision
-        Eigen::Matrix4d T_wb_d = T_wb.cast<double>();
-        
-        // Extract rotation and translation
-        Eigen::Matrix3d R_wb = T_wb_d.block<3, 3>(0, 0);
-        Eigen::Vector3d t_wb = T_wb_d.block<3, 1>(0, 3);
-        
-        // Ensure rotation matrix is perfectly orthogonal using SVD
-        Eigen::JacobiSVD<Eigen::Matrix3d> svd(R_wb, Eigen::ComputeFullU | Eigen::ComputeFullV);
-        R_wb = svd.matrixU() * svd.matrixV().transpose();
-        
-        // Ensure proper rotation (det = 1, not -1)
-        if (R_wb.determinant() < 0) {
-            Eigen::Matrix3d V_corrected = svd.matrixV();
-            V_corrected.col(2) *= -1;  // Flip last column
-            R_wb = svd.matrixU() * V_corrected.transpose();
+    // Initialize pose parameters from keyframes with keyframe mutex protection
+    {
+        std::lock_guard<std::mutex> lock(s_keyframe_mutex);
+        for (size_t kf_idx = 0; kf_idx < keyframes.size(); ++kf_idx) {
+            const auto& keyframe = keyframes[kf_idx];
+            Eigen::Matrix4f T_wb = keyframe->get_Twb();
+            
+            // Convert to double precision
+            Eigen::Matrix4d T_wb_d = T_wb.cast<double>();
+            
+            // Extract rotation and translation
+            Eigen::Matrix3d R_wb = T_wb_d.block<3, 3>(0, 0);
+            Eigen::Vector3d t_wb = T_wb_d.block<3, 1>(0, 3);
+            
+            // Ensure rotation matrix is perfectly orthogonal using SVD
+            Eigen::JacobiSVD<Eigen::Matrix3d> svd(R_wb, Eigen::ComputeFullU | Eigen::ComputeFullV);
+            R_wb = svd.matrixU() * svd.matrixV().transpose();
+            
+            // Ensure proper rotation (det = 1, not -1)
+            if (R_wb.determinant() < 0) {
+                Eigen::Matrix3d V_corrected = svd.matrixV();
+                V_corrected.col(2) *= -1;  // Flip last column
+                R_wb = svd.matrixU() * V_corrected.transpose();
+            }
+            
+            // Reconstruct clean transformation matrix
+            Eigen::Matrix4d T_wb_clean = Eigen::Matrix4d::Identity();
+            T_wb_clean.block<3, 3>(0, 0) = R_wb;
+            T_wb_clean.block<3, 1>(0, 3) = t_wb;
+            
+            // Convert to SE3 tangent space
+            Sophus::SE3d se3_pose(T_wb_clean);
+            Eigen::Vector6d tangent = se3_pose.log();
+            
+            std::copy(tangent.data(), tangent.data() + 6, pose_params_vec[kf_idx].data());
+            
+            // Add parameter block to problem FIRST
+            problem.AddParameterBlock(pose_params_vec[kf_idx].data(), 6);
+            
+            // Then set pose parameterization
+            auto* pose_parameterization = new factor::SE3GlobalParameterization();
+            problem.SetParameterization(pose_params_vec[kf_idx].data(), pose_parameterization);
         }
-        
-        // Reconstruct clean transformation matrix
-        Eigen::Matrix4d T_wb_clean = Eigen::Matrix4d::Identity();
-        T_wb_clean.block<3, 3>(0, 0) = R_wb;
-        T_wb_clean.block<3, 1>(0, 3) = t_wb;
-        
-        // Convert to SE3 tangent space
-        Sophus::SE3d se3_pose(T_wb_clean);
-        Eigen::Vector6d tangent = se3_pose.log();
-        
-        std::copy(tangent.data(), tangent.data() + 6, pose_params_vec[kf_idx].data());
-        
-        // Add parameter block to problem FIRST
-        problem.AddParameterBlock(pose_params_vec[kf_idx].data(), 6);
-        
-        // Then set pose parameterization
-        auto* pose_parameterization = new factor::SE3GlobalParameterization();
-        problem.SetParameterization(pose_params_vec[kf_idx].data(), pose_parameterization);
     }
     
     // Initialize map point parameters
@@ -888,53 +913,56 @@ std::vector<BAObservationInfo> SlidingWindowOptimizer::setup_optimization_proble
         K.at<double>(1, 2)   // cy
     );
     
-    // Add observations for each keyframe
-    for (size_t kf_idx = 0; kf_idx < keyframes.size(); ++kf_idx) {
-        const auto& keyframe = keyframes[kf_idx];
-        const auto& features = keyframe->get_features();
-        const auto& frame_map_points = keyframe->get_map_points();
-        
-        for (size_t feat_idx = 0; feat_idx < features.size(); ++feat_idx) {
-            const auto& feature = features[feat_idx];
-            const auto& map_point = frame_map_points[feat_idx];
+    // Add observations for each keyframe with mutex protection
+    {
+        std::lock_guard<std::mutex> lock(s_mappoint_mutex);
+        for (size_t kf_idx = 0; kf_idx < keyframes.size(); ++kf_idx) {
+            const auto& keyframe = keyframes[kf_idx];
+            const auto& features = keyframe->get_features();
+            const auto& frame_map_points = keyframe->get_map_points();
             
-            // Skip invalid features or map points
-            if (!feature || !feature->is_valid() || !map_point || map_point->is_bad()) {
-                continue;
+            for (size_t feat_idx = 0; feat_idx < features.size(); ++feat_idx) {
+                const auto& feature = features[feat_idx];
+                const auto& map_point = frame_map_points[feat_idx];
+                
+                // Skip invalid features or map points
+                if (!feature || !feature->is_valid() || !map_point || map_point->is_bad()) {
+                    continue;
+                }
+                
+                // Skip outlier features
+                if (keyframe->get_outlier_flag(feat_idx)) {
+                    continue;
+                }
+                
+                // Find map point index
+                auto it = mappoint_to_index.find(map_point);
+                if (it == mappoint_to_index.end()) {
+                    continue; // Map point not in our optimization set
+                }
+                
+                int mp_idx = it->second;
+                
+                // Get 2D observation using undistorted coordinates (consistent with PnP optimizer)
+                cv::Point2f undistorted_pixel = feature->get_undistorted_coord();
+                Eigen::Vector2d observation(undistorted_pixel.x, undistorted_pixel.y);
+                
+                // Add BA observation with observation-based information weighting
+                int num_observations = map_point->get_observation_count();
+                auto obs_info = add_ba_observation(
+                    problem,
+                    pose_params_vec[kf_idx].data(),
+                    point_params_vec[mp_idx].data(),
+                    observation,
+                    camera_params,
+                    keyframe,
+                    static_cast<int>(kf_idx),
+                    mp_idx,
+                    m_pixel_noise_std,
+                    num_observations);
+                
+                observations.push_back(obs_info);
             }
-            
-            // Skip outlier features
-            if (keyframe->get_outlier_flag(feat_idx)) {
-                continue;
-            }
-            
-            // Find map point index
-            auto it = mappoint_to_index.find(map_point);
-            if (it == mappoint_to_index.end()) {
-                continue; // Map point not in our optimization set
-            }
-            
-            int mp_idx = it->second;
-            
-            // Get 2D observation using undistorted coordinates (consistent with PnP optimizer)
-            cv::Point2f undistorted_pixel = feature->get_undistorted_coord();
-            Eigen::Vector2d observation(undistorted_pixel.x, undistorted_pixel.y);
-            
-            // Add BA observation with observation-based information weighting
-            int num_observations = map_point->get_observation_count();
-            auto obs_info = add_ba_observation(
-                problem,
-                pose_params_vec[kf_idx].data(),
-                point_params_vec[mp_idx].data(),
-                observation,
-                camera_params,
-                keyframe,
-                static_cast<int>(kf_idx),
-                mp_idx,
-                m_pixel_noise_std,
-                num_observations);
-            
-            observations.push_back(obs_info);
         }
     }
     
@@ -1018,27 +1046,33 @@ int SlidingWindowOptimizer::detect_ba_outliers(
     int marked_bad = 0;
     int disconnected_features = 0;
     
-    for (int mp_idx : outlier_map_point_indices) {
-        if (mp_idx >= 0 && mp_idx < static_cast<int>(map_points.size())) {
-            auto map_point = map_points[mp_idx];
-            if (map_point && !map_point->is_bad()) {
-                // First, find all frames that observe this map point and mark their features as outliers
-                for (const auto& keyframe : keyframes) {
-                    const auto& frame_map_points = keyframe->get_map_points();
-                    for (size_t feat_idx = 0; feat_idx < frame_map_points.size(); ++feat_idx) {
-                        if (frame_map_points[feat_idx] == map_point) {
-                            // Mark this feature as outlier in the frame
-                            keyframe->set_outlier_flag(feat_idx, true);
-                            // Remove the map point connection
-                            keyframe->set_map_point(feat_idx, nullptr);
-                            disconnected_features++;
+    // Protect MapPoint modifications and keyframe outlier flags with mutexes
+    {
+        std::lock_guard<std::mutex> mp_lock(s_mappoint_mutex);
+        std::lock_guard<std::mutex> kf_lock(s_keyframe_mutex);
+        
+        for (int mp_idx : outlier_map_point_indices) {
+            if (mp_idx >= 0 && mp_idx < static_cast<int>(map_points.size())) {
+                auto map_point = map_points[mp_idx];
+                if (map_point && !map_point->is_bad()) {
+                    // First, find all frames that observe this map point and mark their features as outliers
+                    for (const auto& keyframe : keyframes) {
+                        const auto& frame_map_points = keyframe->get_map_points();
+                        for (size_t feat_idx = 0; feat_idx < frame_map_points.size(); ++feat_idx) {
+                            if (frame_map_points[feat_idx] == map_point) {
+                                // Mark this feature as outlier in the frame
+                                keyframe->set_outlier_flag(feat_idx, true);
+                                // Remove the map point connection
+                                keyframe->set_map_point(feat_idx, nullptr);
+                                disconnected_features++;
+                            }
                         }
                     }
+                    
+                    // Then mark the map point as bad
+                    map_point->set_bad();
+                    marked_bad++;
                 }
-                
-                // Then mark the map point as bad
-                map_point->set_bad();
-                marked_bad++;
             }
         }
     }
@@ -1063,62 +1097,68 @@ void SlidingWindowOptimizer::update_optimized_values(
     int updated_keyframes = 0;
     int updated_map_points = 0;
     
-    // Update keyframe poses
-    for (size_t kf_idx = 0; kf_idx < keyframes.size(); ++kf_idx) {
-        const auto& keyframe = keyframes[kf_idx];
-        if (!keyframe) continue;
-        
-        const auto& pose_params = pose_params_vec[kf_idx];
-        
-        // Store original pose for comparison
-        Eigen::Matrix4f original_pose = keyframe->get_Twb();
-        
-        // Convert SE3 tangent space back to matrix
-        Eigen::Map<const Eigen::Vector6d> tangent(pose_params.data());
-        Sophus::SE3d se3_pose = Sophus::SE3d::exp(tangent);
-        Eigen::Matrix4f T_wb = se3_pose.matrix().cast<float>();
-        
-        // Check if pose actually changed
-        Eigen::Matrix4f pose_diff = T_wb - original_pose;
-        double pose_change = pose_diff.norm();
-        
-        keyframe->set_Twb(T_wb);
-        updated_keyframes++;
-        
-        // Log significant pose changes
-        if (pose_change > 0.01) {
-            spdlog::debug("[UPDATE] Keyframe {} pose changed by {:.4f}", 
-                         keyframe->get_frame_id(), pose_change);
+    // Update keyframe poses with keyframe mutex protection
+    {
+        std::lock_guard<std::mutex> lock(s_keyframe_mutex);
+        for (size_t kf_idx = 0; kf_idx < keyframes.size(); ++kf_idx) {
+            const auto& keyframe = keyframes[kf_idx];
+            if (!keyframe) continue;
+            
+            const auto& pose_params = pose_params_vec[kf_idx];
+            
+            // Store original pose for comparison
+            Eigen::Matrix4f original_pose = keyframe->get_Twb();
+            
+            // Convert SE3 tangent space back to matrix
+            Eigen::Map<const Eigen::Vector6d> tangent(pose_params.data());
+            Sophus::SE3d se3_pose = Sophus::SE3d::exp(tangent);
+            Eigen::Matrix4f T_wb = se3_pose.matrix().cast<float>();
+            
+            // Check if pose actually changed
+            Eigen::Matrix4f pose_diff = T_wb - original_pose;
+            double pose_change = pose_diff.norm();
+            
+            keyframe->set_Twb(T_wb);
+            updated_keyframes++;
+            
+            // Log significant pose changes
+            if (pose_change > 0.01) {
+                spdlog::debug("[UPDATE] Keyframe {} pose changed by {:.4f}", 
+                             keyframe->get_frame_id(), pose_change);
+            }
         }
     }
     
-    // Update map point positions
-    for (size_t mp_idx = 0; mp_idx < map_points.size(); ++mp_idx) {
-        const auto& map_point = map_points[mp_idx];
-        if (!map_point || map_point->is_bad()) continue;
-        
-        const auto& point_params = point_params_vec[mp_idx];
-        
-        // Store original position for comparison
-        Eigen::Vector3f original_pos = map_point->get_position();
-        
-        Eigen::Vector3f new_position(
-            static_cast<float>(point_params[0]),
-            static_cast<float>(point_params[1]),
-            static_cast<float>(point_params[2]));
-        
-        // Check if position actually changed
-        Eigen::Vector3f pos_diff = new_position - original_pos;
-        double position_change = pos_diff.norm();
-        
-        map_point->set_position(new_position);
-        updated_map_points++;
-        
-        // // Log significant position changes
-        // if (position_change > 0.1) {
-        //     spdlog::debug("[UPDATE] MapPoint {} position changed by {:.4f}m", 
-        //                  map_point->get_id(), position_change);
-        // }
+    // Update map point positions with mutex protection
+    {
+        std::lock_guard<std::mutex> lock(s_mappoint_mutex);
+        for (size_t mp_idx = 0; mp_idx < map_points.size(); ++mp_idx) {
+            const auto& map_point = map_points[mp_idx];
+            if (!map_point || map_point->is_bad()) continue;
+            
+            const auto& point_params = point_params_vec[mp_idx];
+            
+            // Store original position for comparison
+            Eigen::Vector3f original_pos = map_point->get_position();
+            
+            Eigen::Vector3f new_position(
+                static_cast<float>(point_params[0]),
+                static_cast<float>(point_params[1]),
+                static_cast<float>(point_params[2]));
+            
+            // Check if position actually changed
+            Eigen::Vector3f pos_diff = new_position - original_pos;
+            double position_change = pos_diff.norm();
+            
+            map_point->set_position(new_position);
+            updated_map_points++;
+            
+            // // Log significant position changes
+            // if (position_change > 0.1) {
+            //     spdlog::debug("[UPDATE] MapPoint {} position changed by {:.4f}m", 
+            //                  map_point->get_id(), position_change);
+            // }
+        }
     }
     
     // spdlog::info("[UPDATE] Updated {} keyframes and {} map points", 

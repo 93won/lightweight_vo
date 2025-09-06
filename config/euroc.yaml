@@ -92,7 +92,7 @@ camera:
 optimization:
   # PnP Optimization Parameters
   max_iterations: 10               # Maximum optimization iterations for PnP
-  sliding_window_max_iterations: 10  # Maximum optimization iterations for sliding window
+  sliding_window_max_iterations: 4  # Maximum optimization iterations for sliding window
   function_tolerance: 1e-6         # Function tolerance for convergence
   gradient_tolerance: 1e-10        # Gradient tolerance for convergence  
   parameter_tolerance: 1e-8        # Parameter tolerance for convergence
