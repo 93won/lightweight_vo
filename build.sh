@@ -10,6 +10,27 @@ echo "=============================================="
 NPROC=$(nproc)
 echo "Using $NPROC cores for compilation"
 
+# Install system dependencies
+echo ""
+echo "Step 0: Installing system dependencies..."
+echo "========================================"
+sudo apt update
+sudo apt install -y \
+    cmake \
+    build-essential \
+    libopencv-dev \
+    libeigen3-dev \
+    libgl1-mesa-dev \
+    libglu1-mesa-dev \
+    libglew-dev \
+    libyaml-cpp-dev \
+    libgflags-dev \
+    libgoogle-glog-dev \
+    libatlas-base-dev \
+    libsuitesparse-dev
+
+echo "System dependencies installed successfully!"
+
 # Build third-party dependencies
 echo ""
 echo "Step 1: Building third-party dependencies..."
@@ -17,11 +38,10 @@ echo "=============================================="
 
 # Build Ceres Solver
 echo "Building Ceres Solver..."
-cd thirdparty/ceres-solver
-if [ ! -d "build" ]; then
-    mkdir build
+if [ ! -d "thirdparty/ceres-solver/build" ]; then
+    mkdir -p thirdparty/ceres-solver/build
 fi
-cd build
+cd thirdparty/ceres-solver/build
 cmake .. \
     -DBUILD_TESTING=OFF \
     -DBUILD_EXAMPLES=OFF \
@@ -37,11 +57,10 @@ cd ../../..
 
 # Build Pangolin
 echo "Building Pangolin..."
-cd thirdparty/pangolin
-if [ ! -d "build" ]; then
-    mkdir build
+if [ ! -d "thirdparty/pangolin/build" ]; then
+    mkdir -p thirdparty/pangolin/build
 fi
-cd build
+cd thirdparty/pangolin/build
 cmake .. -DBUILD_EXAMPLES=OFF -DBUILD_TOOLS=OFF
 make -j$NPROC
 cd ../../..
