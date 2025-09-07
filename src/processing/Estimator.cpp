@@ -269,7 +269,6 @@ Estimator::~Estimator() {
             m_sliding_window_thread->join();
         }
         
-        spdlog::info("[ESTIMATOR] Sliding window optimization thread stopped");
     }
 }
 
@@ -970,8 +969,6 @@ void Estimator::sliding_window_thread_function() {
             }
         }
     }
-    
-    spdlog::info("[SW_THREAD] Sliding window optimization thread stopped");
 }
 
 } // namespace lightweight_vio
