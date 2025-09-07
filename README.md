@@ -21,7 +21,7 @@ This is a lightweight stereo visual odometry (VO) project designed for real-time
 
 ## Installation
 
-## 1. Native Build (Ubuntu 22.04)
+### 1. Native Build (Ubuntu 22.04)
 
 This method builds the project and all its dependencies directly on your system. It has been tested on Ubuntu 22.04.
 
@@ -73,7 +73,7 @@ After the build is complete, you can run the VIO with a EuRoC dataset. The confi
 
 ---
 
-## 2. Docker Usage
+### 2. Docker Usage
 
 Using Docker is the recommended method as it provides a self-contained, consistent environment. The `docker.sh` script simplifies the process.
 
@@ -116,23 +116,23 @@ The container will automatically execute the VIO with the provided dataset.
 
 The application automatically performs comprehensive analysis of the visual odometry results and outputs detailed statistics upon completion.
 
-### Built-in Analysis Features
+### 1. Built-in Analysis Features
 
-**1. Frame-to-Frame Transform Error Analysis**
+**1-1. Frame-to-Frame Transform Error Analysis**
 - Calculates rotation and translation errors between consecutive frames when ground truth is available
 - Provides statistical metrics: mean, median, min, max, and RMSE
 - Outputs beautifully formatted results with rotation errors in degrees and translation errors in meters
 
-**2. Timing Analysis** 
+**1-2. Timing Analysis** 
 - Measures frame processing times throughout the entire sequence
 - Reports average processing time in milliseconds and equivalent FPS
 - Helps evaluate real-time performance capabilities
 
-**3. Trajectory Output**
+**1-3. Trajectory Output**
 - Saves both ground truth and estimated trajectories in TUM format
 - Files are automatically generated for further analysis with external tools
 
-### External Evaluation with EVO
+### 2. External Evaluation with EVO
 
 For more comprehensive trajectory evaluation, you can use the [EVO (Python package for the evaluation of odometry and SLAM)](https://github.com/MichaelGrupp/evo) tool with the generated trajectory files.
 
