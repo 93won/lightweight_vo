@@ -54,21 +54,21 @@ The repository includes a convenience script to download all EuRoC MAV datasets 
 
 ```bash
 chmod +x script/download_euroc.sh
-./script/download_euroc.sh dataset
+./script/download_euroc.sh /path/of/dataset
 ```
-This will download all sequences into a `dataset/` directory at the root of the project. The script automatically skips sequences that are already downloaded.
+This will download all sequences into a `/path/of/dataset` directory at the root of the project. The script automatically skips sequences that are already downloaded.
 
 ### Step 1-4: Run the VIO
 
 After the build is complete, you can run the VIO with a EuRoC dataset. The configuration file (`config/euroc.yaml`) is loaded automatically by the executable.
 
 ```bash
-./build/euroc_stereo_vo <path_to_euroc_dataset>
+./build/euroc_stereo_vo /path/of/dataset
 ```
 
 **Example:**
 ```bash
-./build/euroc_stereo_vo dataset/MH_01_easy
+./build/euroc_stereo_vo /home/dataset/EuRoC/MH_01_easy
 ```
 
 ---
@@ -83,9 +83,9 @@ First, download the dataset on your host machine. The repository includes a conv
 
 ```bash
 chmod +x script/download_euroc.sh
-./script/download_euroc.sh dataset
+./script/download_euroc.sh /path/of/dataset
 ```
-This will download all sequences into a `dataset/` directory at the root of the project. This directory will be mounted into the Docker container.
+This will download all sequences into a `/path/of/dataset` directory at the root of the project. This directory will be mounted into the Docker container.
 
 ### Step 2-2: Build the Docker Image
 
@@ -106,7 +106,7 @@ This command runs the VIO inside a new container. It mounts your local dataset d
 **Example:**
 ```bash
 # Assuming you downloaded the dataset to the default 'dataset' directory
-./docker.sh run $(pwd)/dataset/MH_01_easy
+./docker.sh run /home/dataset/EuRoC/MH_01_easy
 ```
 The container will automatically execute the VIO with the provided dataset.
 
