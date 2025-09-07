@@ -16,8 +16,9 @@ This is a lightweight stereo visual odometry (VO) project designed for real-time
 ## To-Do List
 
 - [ ] **IMU Integration**: Incorporate IMU data to create a more robust Visual-Inertial Odometry (VIO) system, improving accuracy and handling of fast motions.
-- [ ] **Embedded Environment Testing**: Test and optimize performance on embedded platforms like Jetson Nano, Raspberry Pi, and other resource-constrained devices.
 - [ ] **Fisheye Camera Support**: Add support for fisheye camera models and distortion correction for wide-angle stereo setups.
+- [ ] **Embedded Environment Testing**: Test and optimize performance on embedded platforms like Jetson Nano, NUC, and other resource-constrained devices.
+
 
 
 ## 1. Native Build (Ubuntu 22.04)
@@ -49,13 +50,13 @@ chmod +x build.sh
 
 ### Step 3: Prepare the EuRoC Dataset
 
-The repository includes a convenience script to download the `MH_01_easy` sequence.
+The repository includes a convenience script to download all EuRoC MAV datasets (11 sequences total: MH_01-05 and V1_01-03, V2_01-03).
 
 ```bash
 chmod +x script/download_euroc.sh
-./script/download_euroc.sh /path/to/download/
+./script/download_euroc.sh dataset
 ```
-This will download the sequence into the specified directory path. You can modify the script to download other sequences.
+This will download all sequences into a `dataset/` directory at the root of the project. The script automatically skips sequences that are already downloaded.
 
 ### Step 4: Run the VIO
 
@@ -78,13 +79,13 @@ Using Docker is the recommended method as it provides a self-contained, consiste
 
 ### Step 1: Prepare the EuRoC Dataset
 
-First, download the dataset on your host machine. The repository includes a convenience script to download the `MH_01_easy` sequence.
+First, download the dataset on your host machine. The repository includes a convenience script to download all EuRoC MAV datasets (11 sequences total).
 
 ```bash
 chmod +x script/download_euroc.sh
-./script/download_euroc.sh /path/to/download/
+./script/download_euroc.sh dataset
 ```
-This will download the sequence into the specified directory path. This directory will be mounted into the Docker container.
+This will download all sequences into a `dataset/` directory at the root of the project. This directory will be mounted into the Docker container.
 
 ### Step 2: Build the Docker Image
 
