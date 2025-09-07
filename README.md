@@ -19,7 +19,7 @@ This is a lightweight stereo visual odometry (VO) project designed for real-time
 - [ ] **Fisheye Camera Support**: Add support for fisheye camera models and distortion correction for wide-angle stereo setups.
 - [ ] **Embedded Environment Testing**: Test and optimize performance on embedded platforms like Jetson Nano, NUC, and other resource-constrained devices.
 
-
+## Installation
 
 ## 1. Native Build (Ubuntu 22.04)
 
@@ -32,14 +32,14 @@ This method builds the project and all its dependencies directly on your system.
 - **CMake** (>= 3.10)
 - **Git**
 
-### Step 1: Clone the Repository
+### Step 1-1: Clone the Repository
 
 ```bash
 git clone https://github.com/93won/lightweight_vo.git
 cd lightweight_vo
 ```
 
-### Step 2: Run the Build Script
+### Step 1-2: Run the Build Script
 
 The provided `build.sh` script will automatically install system dependencies (like OpenCV, Eigen, etc.) and then build the third-party libraries (Ceres, Pangolin) and the main VIO application.
 
@@ -48,7 +48,7 @@ chmod +x build.sh
 ./build.sh
 ```
 
-### Step 3: Prepare the EuRoC Dataset
+### Step 1-3: Prepare the EuRoC Dataset
 
 The repository includes a convenience script to download all EuRoC MAV datasets (11 sequences total: MH_01-05 and V1_01-03, V2_01-03).
 
@@ -58,7 +58,7 @@ chmod +x script/download_euroc.sh
 ```
 This will download all sequences into a `dataset/` directory at the root of the project. The script automatically skips sequences that are already downloaded.
 
-### Step 4: Run the VIO
+### Step 1-4: Run the VIO
 
 After the build is complete, you can run the VIO with a EuRoC dataset. The configuration file (`config/euroc.yaml`) is loaded automatically by the executable.
 
@@ -77,7 +77,7 @@ After the build is complete, you can run the VIO with a EuRoC dataset. The confi
 
 Using Docker is the recommended method as it provides a self-contained, consistent environment. The `docker.sh` script simplifies the process.
 
-### Step 1: Prepare the EuRoC Dataset
+### Step 2-1: Prepare the EuRoC Dataset
 
 First, download the dataset on your host machine. The repository includes a convenience script to download all EuRoC MAV datasets (11 sequences total).
 
@@ -87,7 +87,7 @@ chmod +x script/download_euroc.sh
 ```
 This will download all sequences into a `dataset/` directory at the root of the project. This directory will be mounted into the Docker container.
 
-### Step 2: Build the Docker Image
+### Step 2-2: Build the Docker Image
 
 This command builds a Docker image named `lightweight-vio:latest` with all necessary dependencies and source code.
 
@@ -95,7 +95,7 @@ This command builds a Docker image named `lightweight-vio:latest` with all neces
 ./docker.sh build
 ```
 
-### Step 3: Run the VIO in a Container
+### Step 2-3: Run the VIO in a Container
 
 This command runs the VIO inside a new container. It mounts your local dataset directory into the container (read-only) and forwards your X11 display for the Pangolin viewer.
 
