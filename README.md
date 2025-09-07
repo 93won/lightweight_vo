@@ -53,9 +53,9 @@ The repository includes a convenience script to download the `MH_01_easy` sequen
 
 ```bash
 chmod +x script/download_euroc.sh
-./script/download_euroc.sh
+./script/download_euroc.sh /path/to/download/
 ```
-This will download the sequence into a `dataset/` directory at the root of the project. You can modify the script to download other sequences.
+This will download the sequence into the specified directory path. You can modify the script to download other sequences.
 
 ### Step 4: Run the VIO
 
@@ -82,9 +82,9 @@ First, download the dataset on your host machine. The repository includes a conv
 
 ```bash
 chmod +x script/download_euroc.sh
-./script/download_euroc.sh
+./script/download_euroc.sh /path/to/download/
 ```
-This will download the sequence into a `dataset/` directory at the root of the project. This directory will be mounted into the Docker container.
+This will download the sequence into the specified directory path. This directory will be mounted into the Docker container.
 
 ### Step 2: Build the Docker Image
 
