@@ -58,17 +58,17 @@ chmod +x script/download_euroc.sh
 ```
 This will download all sequences into a `/path/of/dataset` directory at the root of the project. The script automatically skips sequences that are already downloaded.
 
-### Step 1-4: Run the VIO
+### Step 1-4: Run the VO
 
-After the build is complete, you can run the VIO with a EuRoC dataset. The configuration file (`config/euroc.yaml`) is loaded automatically by the executable.
+After the build is complete, you can run the VO with a EuRoC dataset. You need to provide both the configuration file path and the dataset path as arguments.
 
 ```bash
-./build/euroc_stereo_vo /path/of/dataset
+./build/euroc_stereo_vo <config_file_path> <euroc_dataset_path>
 ```
 
 **Example:**
 ```bash
-./build/euroc_stereo_vo /home/dataset/EuRoC/MH_01_easy
+./build/euroc_stereo_vo config/euroc.yaml /home/dataset/EuRoC/MH_01_easy
 ```
 
 ---
@@ -97,7 +97,7 @@ This command builds a Docker image named `lightweight-vio:latest` with all neces
 
 ### Step 2-3: Run the VIO in a Container
 
-This command runs the VIO inside a new container. It mounts your local dataset directory into the container (read-only) and forwards your X11 display for the Pangolin viewer.
+This command runs the VIO inside a new container. It mounts your local dataset directory into the container (read-only) and forwards your X11 display for the Pangolin viewer. The container automatically uses the built-in configuration file and the provided dataset path.
 
 ```bash
 ./docker.sh run <path_to_euroc_dataset_on_host>
@@ -108,7 +108,7 @@ This command runs the VIO inside a new container. It mounts your local dataset d
 # Assuming you downloaded the dataset to the default 'dataset' directory
 ./docker.sh run /home/dataset/EuRoC/MH_01_easy
 ```
-The container will automatically execute the VIO with the provided dataset.
+The container will automatically execute the VIO with the built-in config file and the provided dataset.
 
 
 

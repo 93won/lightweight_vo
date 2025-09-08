@@ -25,6 +25,17 @@ namespace lightweight_vio {
 class Feature; // Forward declaration
 class MapPoint;
 
+// IMU measurement structure
+struct IMUData {
+    double timestamp;              // timestamp in seconds
+    Eigen::Vector3d linear_accel;  // linear acceleration [m/s^2]
+    Eigen::Vector3d angular_vel;   // angular velocity [rad/s]
+    
+    IMUData() = default;
+    IMUData(double ts, const Eigen::Vector3d& accel, const Eigen::Vector3d& gyro)
+        : timestamp(ts), linear_accel(accel), angular_vel(gyro) {}
+};
+
 class Frame {
 public:
     // Constructors
@@ -125,6 +136,13 @@ public:
     cv::Mat draw_tracks(const Frame& previous_frame) const;
     cv::Mat draw_stereo_matches() const;
 
+    // IMU data management
+    void set_imu_data_from_last_frame(const std::vector<IMUData>& imu_data);
+    const std::vector<IMUData>& get_imu_data_from_last_frame() const { return m_imu_vec_from_last_frame; }
+    std::vector<IMUData>& get_imu_data_from_last_frame_mutable() { return m_imu_vec_from_last_frame; }
+    bool has_imu_data() const { return !m_imu_vec_from_last_frame.empty(); }
+    size_t get_imu_data_count() const { return m_imu_vec_from_last_frame.size(); }
+
 private:
     // Frame information
     long long m_timestamp;         // Timestamp in nanoseconds
@@ -170,6 +188,9 @@ private:
     // Feature detection parameters
     double m_quality_level = 0.01;
     double m_min_distance = 30.0;
+
+    // IMU data from last frame to current frame
+    std::vector<IMUData> m_imu_vec_from_last_frame;
 
     // Helper functions
     void update_feature_index();

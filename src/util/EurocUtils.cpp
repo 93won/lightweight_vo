@@ -10,6 +10,7 @@
  */
 
 #include "util/EurocUtils.h"
+#include "database/Frame.h" // For IMUData struct
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -27,6 +28,10 @@ bool EurocUtils::s_data_loaded = false;
 std::vector<Eigen::Matrix4f> EurocUtils::s_matched_poses;
 std::vector<long long> EurocUtils::s_image_timestamps;
 std::vector<double> EurocUtils::s_timestamp_errors;
+
+// IMU data static members
+std::vector<IMUData> EurocUtils::s_imu_data;
+bool EurocUtils::s_imu_data_loaded = false;
 
 bool EurocUtils::load_ground_truth(const std::string& dataset_root_path) {
     std::string gt_file_path = dataset_root_path + "/mav0/state_groundtruth_estimate0/data.csv";
@@ -326,6 +331,172 @@ std::optional<Eigen::Matrix4f> EurocUtils::get_matched_pose(size_t image_index) 
 
 size_t EurocUtils::get_matched_count() {
     return s_matched_poses.size();
+}
+
+// Helper function to trim whitespace
+std::string trim(const std::string& str) {
+    size_t first = str.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return "";
+    size_t last = str.find_last_not_of(" \t\r\n");
+    return str.substr(first, (last - first + 1));
+}
+
+bool EurocUtils::load_imu_data(const std::string& dataset_root_path) {
+    std::string imu_file_path = dataset_root_path + "/mav0/imu0/data.csv";
+    
+    std::ifstream file(imu_file_path);
+    if (!file.is_open()) {
+        spdlog::error("[EurocUtils] Failed to open IMU file: {}", imu_file_path);
+        return false;
+    }
+    
+    spdlog::info("[EurocUtils] Loading IMU data from: {}", imu_file_path);
+    
+    std::string line;
+    // Skip header line
+    if (!std::getline(file, line)) {
+        spdlog::error("[EurocUtils] IMU file is empty");
+        return false;
+    }
+    
+    s_imu_data.clear();
+    
+    while (std::getline(file, line)) {
+        if (line.empty() || line[0] == '#') {
+            continue;  // Skip empty lines or comments
+        }
+        
+        std::stringstream ss(line);
+        std::string cell;
+        std::vector<std::string> row;
+        
+        // Parse CSV line
+        while (std::getline(ss, cell, ',')) {
+            row.push_back(trim(cell));
+        }
+        
+        // EuRoC IMU format: timestamp,w_RS_S_x,w_RS_S_y,w_RS_S_z,a_RS_S_x,a_RS_S_y,a_RS_S_z
+        // where w_RS_S_* are angular velocities and a_RS_S_* are linear accelerations
+        if (row.size() >= 7) {
+            try {
+                long long timestamp_ns = std::stoll(row[0]);
+                double timestamp_sec = static_cast<double>(timestamp_ns) / 1e9;
+                
+                // Parse angular velocity [rad/s]
+                double gyro_x = std::stod(row[1]);
+                double gyro_y = std::stod(row[2]);
+                double gyro_z = std::stod(row[3]);
+                
+                // Parse linear acceleration [m/s^2]
+                double accel_x = std::stod(row[4]);
+                double accel_y = std::stod(row[5]);
+                double accel_z = std::stod(row[6]);
+                
+                // Create IMU data
+                IMUData imu_data;
+                imu_data.timestamp = timestamp_sec;
+                imu_data.angular_vel = Eigen::Vector3d(gyro_x, gyro_y, gyro_z);
+                imu_data.linear_accel = Eigen::Vector3d(accel_x, accel_y, accel_z);
+                
+                s_imu_data.push_back(imu_data);
+                
+            } catch (const std::exception& e) {
+                spdlog::warn("[EurocUtils] Failed to parse IMU line: {} - {}", line, e.what());
+                continue;
+            }
+        }
+    }
+    
+    file.close();
+    
+    if (s_imu_data.empty()) {
+        spdlog::error("[EurocUtils] No valid IMU data loaded");
+        s_imu_data_loaded = false;
+        return false;
+    }
+    
+    // Sort by timestamp (should already be sorted, but just in case)
+    std::sort(s_imu_data.begin(), s_imu_data.end(), 
+              [](const IMUData& a, const IMUData& b) {
+                  return a.timestamp < b.timestamp;
+              });
+    
+    s_imu_data_loaded = true;
+    
+    spdlog::info("[EurocUtils] Loaded {} IMU measurements", s_imu_data.size());
+    spdlog::info("[EurocUtils] IMU time range: {:.6f}s to {:.6f}s", 
+                s_imu_data.front().timestamp, s_imu_data.back().timestamp);
+    
+    return true;
+}
+
+std::vector<IMUData> EurocUtils::get_imu_between_timestamps(long long start_timestamp, long long end_timestamp) {
+    std::vector<IMUData> result;
+    
+    if (!s_imu_data_loaded || s_imu_data.empty()) {
+        return result;
+    }
+    
+    // Convert nanoseconds to seconds
+    double start_sec = static_cast<double>(start_timestamp) / 1e9;
+    double end_sec = static_cast<double>(end_timestamp) / 1e9;
+    
+    // Find IMU data between timestamps (exclusive start, inclusive end)
+    for (const auto& imu : s_imu_data) {
+        if (imu.timestamp > start_sec && imu.timestamp <= end_sec) {
+            result.push_back(imu);
+        }
+        // Early exit if we've passed the end time (since data is sorted)
+        if (imu.timestamp > end_sec) {
+            break;
+        }
+    }
+    
+    return result;
+}
+
+bool EurocUtils::has_imu_data() {
+    return s_imu_data_loaded && !s_imu_data.empty();
+}
+
+void EurocUtils::print_imu_stats() {
+    if (!s_imu_data_loaded || s_imu_data.empty()) {
+        spdlog::info("[EurocUtils] No IMU data loaded");
+        return;
+    }
+    
+    spdlog::info("====== IMU Data Statistics ======");
+    spdlog::info("Total IMU measurements: {}", s_imu_data.size());
+    spdlog::info("Time range: {:.6f}s to {:.6f}s", 
+                s_imu_data.front().timestamp, s_imu_data.back().timestamp);
+    
+    double duration = s_imu_data.back().timestamp - s_imu_data.front().timestamp;
+    double avg_frequency = (s_imu_data.size() - 1) / duration;
+    spdlog::info("Average frequency: {:.1f}Hz", avg_frequency);
+    
+    // Calculate some basic statistics
+    Eigen::Vector3d accel_sum = Eigen::Vector3d::Zero();
+    Eigen::Vector3d gyro_sum = Eigen::Vector3d::Zero();
+    
+    for (const auto& imu : s_imu_data) {
+        accel_sum += imu.linear_accel;
+        gyro_sum += imu.angular_vel;
+    }
+    
+    Eigen::Vector3d accel_mean = accel_sum / s_imu_data.size();
+    Eigen::Vector3d gyro_mean = gyro_sum / s_imu_data.size();
+    
+    spdlog::info("Mean acceleration: [{:.3f}, {:.3f}, {:.3f}] m/s²", 
+                accel_mean.x(), accel_mean.y(), accel_mean.z());
+    spdlog::info("Mean angular velocity: [{:.6f}, {:.6f}, {:.6f}] rad/s", 
+                gyro_mean.x(), gyro_mean.y(), gyro_mean.z());
+    spdlog::info("=================================");
+}
+
+void EurocUtils::clear_imu_data() {
+    s_imu_data.clear();
+    s_imu_data_loaded = false;
+    spdlog::info("[EurocUtils] IMU data cleared");
 }
 
 } // namespace lightweight_vio

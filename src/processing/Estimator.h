@@ -28,6 +28,7 @@ namespace lightweight_vio {
     class Frame;
     class MapPoint;
     class FeatureTracker;
+    struct IMUData; 
 }
 
 
@@ -92,6 +93,17 @@ public:
      * @return Estimation result
      */
     EstimationResult process_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp);
+
+    /**
+     * @brief Process a new stereo frame with IMU data
+     * @param left_image Left stereo image
+     * @param right_image Right stereo image  
+     * @param timestamp Frame timestamp in nanoseconds
+     * @param imu_data_from_last_frame IMU measurements between last frame and current frame
+     * @return Estimation result
+     */
+    EstimationResult process_frame(const cv::Mat& left_image, const cv::Mat& right_image, 
+                                 long long timestamp, const std::vector<IMUData>& imu_data_from_last_frame);
 
     /**
      * @brief Reset the estimator state

@@ -259,6 +259,169 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
     return result;
 }
 
+// IMU process_frame overload
+Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, const cv::Mat& right_image, 
+                                                    long long timestamp, const std::vector<IMUData>& imu_data_from_last_frame) {
+    // Create frame first
+    std::shared_ptr<Frame> frame = create_frame(left_image, right_image, timestamp);
+    if (!frame) {
+        EstimationResult result;
+        result.success = false;
+        return result;
+    }
+    
+    // Set IMU data to the frame
+    frame->set_imu_data_from_last_frame(imu_data_from_last_frame);
+    
+    // Print frame header
+    std::cout<<"\n";
+    spdlog::info("============================== Frame {} ==============================\n", frame->get_frame_id());
+    
+    // Log IMU data information
+    if (!imu_data_from_last_frame.empty()) {
+        spdlog::info("[IMU] Frame {} has {} IMU measurements from last frame", 
+                    frame->get_frame_id(), imu_data_from_last_frame.size());
+        
+        // Log first and last IMU measurement timestamps
+        double first_imu_time = imu_data_from_last_frame.front().timestamp;
+        double last_imu_time = imu_data_from_last_frame.back().timestamp;
+        double frame_time = static_cast<double>(timestamp) / 1e9; // Convert ns to seconds
+        
+        spdlog::debug("[IMU] IMU time range: {:.6f}s to {:.6f}s, Frame time: {:.6f}s", 
+                     first_imu_time, last_imu_time, frame_time);
+    }
+    
+    // Independent VIO processing with IMU data
+    EstimationResult result;
+    auto total_start_time = std::chrono::high_resolution_clock::now();
+    
+    if (m_previous_frame) {
+        // Predict state using IMU data or constant velocity model
+        predict_state();
+        
+        // Track features from previous frame using FeatureTracker
+        m_feature_tracker->track_features(frame, m_previous_frame);
+        
+        result.num_features = frame->get_feature_count();
+        
+        // Compute stereo depth for all features
+        frame->compute_stereo_depth();
+        
+        // Count how many features have associated map points
+        int num_tracked_with_map_points = count_features_with_map_points(frame);
+        
+        // Log tracking information
+        spdlog::info("[TRACKING] {} features tracked, {} with map points", 
+                    result.num_features, num_tracked_with_map_points);
+        
+        if (num_tracked_with_map_points > 0) {
+            if (num_tracked_with_map_points >= 5) {
+                auto opt_result = optimize_pose(frame);
+                
+                result.success = opt_result.success;
+                result.num_inliers = opt_result.num_inliers;
+                result.num_outliers = opt_result.num_outliers;
+                
+                if (opt_result.success) {
+                    m_current_pose = opt_result.optimized_pose;
+                    frame->set_Twb(m_current_pose);
+                    
+                    // Update transform from last frame for velocity estimation
+                    update_transform_from_last();
+                    
+                    spdlog::info("[POSE_OPT] ✅ Optimization successful: {} inliers, {} outliers, initial_cost={:.2f}, final_cost={:.2f}, iterations={}, time=0.0ms", 
+                                opt_result.num_inliers, opt_result.num_outliers, opt_result.initial_cost, opt_result.final_cost, opt_result.num_iterations);
+                } else {
+                    spdlog::warn("[POSE_OPT] ❌ Optimization failed - keeping previous pose");
+                }
+            } else {
+                spdlog::warn("[POSE_OPT] ⚠️ Not enough map point associations for optimization: {} (need ≥5)", num_tracked_with_map_points);
+                // Fallback: use current pose as-is
+                m_current_pose = frame->get_Twb();
+                
+                // Update transform from last frame for velocity estimation
+                update_transform_from_last();
+                
+                result.success = true;
+                result.num_inliers = num_tracked_with_map_points;
+                result.num_outliers = 0;
+            }
+        } else {
+            // No tracking, keep previous pose
+            m_current_pose = frame->get_Twb();
+            
+            // Update transform from last frame for velocity estimation
+            update_transform_from_last();
+            
+            result.success = false;
+        }
+        
+        // Decide whether to create keyframe
+        bool is_keyframe = should_create_keyframe(frame);
+        
+        if (is_keyframe) {
+            int new_map_points = create_new_map_points(frame);
+            result.num_new_map_points = new_map_points;
+            
+            create_keyframe(frame);
+            m_frames_since_last_keyframe = 0;
+        } else {
+            result.num_new_map_points = 0;
+        }
+        
+        // Count tracked features and features with map points
+        result.num_tracked_features = frame->get_feature_count();
+        result.num_features_with_map_points = count_features_with_map_points(frame);
+        
+    } else {
+        // First frame - extract features using FeatureTracker
+        m_feature_tracker->track_features(frame, nullptr);
+        
+        result.num_features = frame->get_feature_count();
+        
+        // Compute stereo depth for all features
+        frame->compute_stereo_depth();
+        
+        // First frame - keep identity pose (already set in create_frame)
+        m_current_pose = frame->get_Twb();
+        
+        // Increment frame counter (first frame processing)
+        m_frames_since_last_keyframe++;
+        
+        // Create initial map points (first frame is always considered keyframe)
+        int initial_map_points = create_initial_map_points(frame);
+        result.num_new_map_points = initial_map_points;
+        spdlog::info("[MAP_POINTS] Created {} initial map points", initial_map_points);
+        
+        create_keyframe(frame);
+        m_frames_since_last_keyframe = 0;
+        
+        // Count features for first frame
+        result.num_tracked_features = frame->get_feature_count();
+        result.num_features_with_map_points = count_features_with_map_points(frame);
+        
+        result.success = true;
+    }
+    
+    // Update result
+    result.pose = frame->get_Twb();
+    
+    // Add processed frame to all frames vector for trajectory export
+    m_all_frames.push_back(frame);
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - total_start_time);
+    result.optimization_time_ms = duration.count() / 1000.0;
+    
+    // Store current frame
+    m_current_frame = frame;
+    
+    // Update state
+    m_previous_frame = frame;
+    
+    return result;
+}
+
 Estimator::~Estimator() {
     // Stop sliding window thread
     if (m_sliding_window_thread_running) {

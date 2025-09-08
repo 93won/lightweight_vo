@@ -1257,4 +1257,9 @@ double Frame::compute_disparity_at_point(const cv::Point2f& pixel_coord) const {
     return 0.0;
 }
 
+// IMU data management methods
+void Frame::set_imu_data_from_last_frame(const std::vector<IMUData>& imu_data) {
+    m_imu_vec_from_last_frame = imu_data;
+}
+
 } // namespace lightweight_vio

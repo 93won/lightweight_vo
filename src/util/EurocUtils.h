@@ -17,9 +17,10 @@
 #include <optional>
 #include <Eigen/Dense>
 
-
-
 namespace lightweight_vio {
+
+// Forward declaration
+struct IMUData;
 
 /**
  * @brief Utility class for EuRoC dataset specific operations
@@ -92,6 +93,37 @@ public:
      */
     static void clear_ground_truth();
 
+    /**
+     * @brief Load IMU data from EuRoC dataset
+     * @param dataset_root_path Root path of the EuRoC dataset (e.g., /path/to/V1_01_easy)
+     * @return True if loaded successfully
+     */
+    static bool load_imu_data(const std::string& dataset_root_path);
+
+    /**
+     * @brief Get IMU measurements between two timestamps
+     * @param start_timestamp Start timestamp in nanoseconds (exclusive)
+     * @param end_timestamp End timestamp in nanoseconds (inclusive)
+     * @return Vector of IMU measurements between timestamps
+     */
+    static std::vector<IMUData> get_imu_between_timestamps(long long start_timestamp, long long end_timestamp);
+
+    /**
+     * @brief Check if IMU data is loaded
+     * @return True if IMU data is available
+     */
+    static bool has_imu_data();
+
+    /**
+     * @brief Print statistics about loaded IMU data
+     */
+    static void print_imu_stats();
+
+    /**
+     * @brief Clear all loaded IMU data
+     */
+    static void clear_imu_data();
+
 private:
     static std::vector<GroundTruthPose> s_ground_truth_data;
     static bool s_data_loaded;
@@ -100,6 +132,10 @@ private:
     static std::vector<Eigen::Matrix4f> s_matched_poses;
     static std::vector<long long> s_image_timestamps;
     static std::vector<double> s_timestamp_errors;  // In seconds
+    
+    // IMU data
+    static std::vector<IMUData> s_imu_data;
+    static bool s_imu_data_loaded;
 };
 
 } // namespace lightweight_vio

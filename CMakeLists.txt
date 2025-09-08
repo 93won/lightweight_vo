@@ -92,8 +92,39 @@ add_executable(euroc_stereo_vo app/euroc_stereo_vo.cpp
     src/viewer/PangolinViewer.cpp
 )
 
+# Add VIO with IMU and Pangolin viewer
+add_executable(euroc_stereo_vio app/euroc_stereo_vio.cpp 
+    src/database/Frame.cpp
+    src/database/Feature.cpp
+    src/database/MapPoint.cpp  
+    src/processing/FeatureTracker.cpp
+    src/processing/Optimizer.cpp
+    src/processing/Estimator.cpp
+    src/optimization/Factors.cpp
+    src/optimization/Parameters.cpp
+    src/util/Config.cpp
+    src/util/EurocUtils.cpp
+    src/viewer/PangolinViewer.cpp
+)
+
 # Link libraries
 target_link_libraries(euroc_stereo_vo 
+    ${OpenCV_LIBS} 
+    yaml-cpp 
+    OpenGL::GL 
+    GLEW::GLEW
+    Threads::Threads
+    ceres
+    Sophus::Sophus
+    spdlog::spdlog
+    pango_display
+    pango_windowing
+    pango_opengl
+    pango_core
+    pango_image
+)
+
+target_link_libraries(euroc_stereo_vio 
     ${OpenCV_LIBS} 
     yaml-cpp 
     OpenGL::GL 
@@ -113,9 +144,11 @@ target_link_libraries(euroc_stereo_vo
 # Link Eigen3 to all targets
 if(TARGET Eigen3::Eigen)
     target_link_libraries(euroc_stereo_vo Eigen3::Eigen)
+    target_link_libraries(euroc_stereo_vio Eigen3::Eigen)
 else()
     # Fallback for older CMake versions
     target_include_directories(euroc_stereo_vo PRIVATE ${EIGEN3_INCLUDE_DIR})
+    target_include_directories(euroc_stereo_vio PRIVATE ${EIGEN3_INCLUDE_DIR})
 endif()
 
 # Print OpenCV information for debugging
