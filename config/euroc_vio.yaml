@@ -12,9 +12,8 @@ system_mode:
 # Controls keyframe selection and sliding window management
 keyframe_management:
   keyframe_window_size: 5
-  grid_coverage_ratio: 0.7  # Add keyframe when coverage drops to 70% of last keyframe's coverage
-  time_threshold: 0.5       # Force keyframe creation if time since last keyframe exceeds this (seconds)
-
+  grid_coverage_ratio: 0.7  # Add keyframe when coverage drops to 80% of last keyframe's coverage
+  time_threshold: 0.5   # Same as VO for consistency when IMU is not available   
 # Feature Detection Parameters
 # Controls how corner features are detected using goodFeaturesToTrack
 feature_detection:

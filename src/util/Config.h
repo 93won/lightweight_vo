@@ -96,6 +96,7 @@ namespace lightweight_vio
         // Keyframe Parameters
         double m_grid_coverage_ratio = 0.7;  // Add keyframe when coverage drops to this ratio of last keyframe's coverage
         int m_keyframe_window_size = 10;     // Number of keyframes to keep in sliding window
+        double m_keyframe_time_threshold = 0.5;  // Force keyframe creation if time since last keyframe exceeds this (seconds)
 
         // PnP Optimization Parameters
         int m_pnp_max_iterations = 10;
@@ -137,6 +138,20 @@ namespace lightweight_vio
         // Performance Parameters
         bool m_enable_timing = true;
         bool m_enable_debug_output = true;
+
+        // System Mode Parameters
+        std::string m_system_mode = "VIO";  // "VO" or "VIO"
+        
+        // Gravity Estimation Parameters (VIO mode only)
+        bool m_gravity_estimation_enable = true;
+        int m_gravity_min_frames_for_estimation = 10;
+        double m_gravity_magnitude = 9.81;
+
+        // IMU Noise Model Parameters
+        double m_gyro_noise_density = 1.6968e-04;      // rad/s/√Hz (gyro white noise)
+        double m_gyro_random_walk = 1.9393e-05;        // rad/s²/√Hz (gyro bias diffusion)
+        double m_accel_noise_density = 2.0000e-3;      // m/s²/√Hz (accel white noise)
+        double m_accel_random_walk = 3.0000e-3;        // m/s³/√Hz (accel bias diffusion)
 
     private:
         Config() = default;

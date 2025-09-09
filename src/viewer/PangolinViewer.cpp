@@ -59,7 +59,7 @@ PangolinViewer::PangolinViewer()
     , m_trajectory_width(2.0f)
     , m_frame_id("ui.Frame ID", 0)
     , m_successful_matches("ui.Num Tracked Map Points", 0, 0, get_max_features_from_config())
-    , m_auto_mode_checkbox("ui.1. Auto Mode", true, true)
+    , m_auto_mode_checkbox("ui.1. Auto Mode", false, true)
     , m_show_map_point_indices("ui.2. Show Map Point IDs", true, true)
     , m_show_accumulated_map_points("ui.3. Show Local Map Points", true, true)
     , m_show_current_map_points("ui.4. Show Current Map Points", true, true)
@@ -71,6 +71,8 @@ PangolinViewer::PangolinViewer()
     , m_finish_button("ui.9. Finish & Exit", false, false)
     , m_step_forward_pressed(false)
     , m_finish_pressed(false)
+    , m_Tgw(Eigen::Matrix4f::Identity())
+    , m_has_gravity_transformation(false)
 {
 }
 
@@ -325,13 +327,12 @@ void PangolinViewer::render() {
     // Process keyboard input - will be handled externally
     // Note: Space bar and 'n' key handling is done in the main application loop
 
-    // Follow Frame mode - ORB-SLAM style camera tracking
+    // Follow Frame mode
     if (m_follow_frame_checkbox && !m_current_camera_pose.isZero()) {
         // Get current camera position and orientation
         Eigen::Vector3f cam_pos = m_current_camera_pose.block<3, 1>(0, 3);
         Eigen::Matrix3f cam_rot = m_current_camera_pose.block<3, 3>(0, 0);
         
-        // ORB-SLAM style: Position camera behind and above the current frame
         // Camera coordinate system: X-right, Y-down, Z-forward
         Eigen::Vector3f cam_forward = cam_rot.col(2);   // +Z axis (forward direction)
         Eigen::Vector3f cam_right = cam_rot.col(0);     // +X axis (right direction) 
@@ -350,7 +351,7 @@ void PangolinViewer::render() {
         Eigen::Vector3f world_up(0.0f, 0.0f, 1.0f);  // World Z-up
         Eigen::Vector3f smooth_up = (cam_up * 0.7f + world_up * 0.3f).normalized();
         
-        // Update the camera view with ORB-SLAM style tracking
+        // Update the camera view with tracking
         s_cam.SetModelViewMatrix(pangolin::ModelViewLookAt(
             viewer_pos.x(), viewer_pos.y(), viewer_pos.z(),     // Viewer camera position (behind and above)
             look_at.x(), look_at.y(), look_at.z(),              // Look ahead of the current camera
@@ -494,14 +495,20 @@ void PangolinViewer::draw_map_points() {
 }
 
 void PangolinViewer::draw_trajectory() {
-    if (m_trajectory.size() < 2) return;
+    // Use get_all_frames() for thread-safe access
+    auto all_frames = get_all_frames();
+    
+    if (all_frames.size() < 2) return;
     
     glLineWidth(m_trajectory_width);
     glColor3f(1.0f, 1.0f, 0.0f); // Yellow trajectory
     
     glBegin(GL_LINE_STRIP);
-    for (const auto& pos : m_trajectory) {
-        glVertex3f(pos.x(), pos.y(), pos.z());
+    for (const auto& frame : all_frames) {
+        if (frame) {
+            Eigen::Vector3f position = frame->get_Twb().block<3, 1>(0, 3);
+            glVertex3f(position.x(), position.y(), position.z());
+        }
     }
     glEnd();
     
@@ -566,10 +573,22 @@ void PangolinViewer::draw_gt_trajectory() {
     
     glLineWidth(m_trajectory_width + 1.0f);
     glColor3f(0.0f, 1.0f, 0.0f); // Green GT trajectory
+
+    auto first_frame = get_first_frame();
+
+    auto prefix = m_gt_trajectory[0].inverse() * first_frame->get_Twb();
+
+
     
     glBegin(GL_LINE_STRIP);
-    for (const auto& pos : m_gt_trajectory) {
-        glVertex3f(pos.x(), pos.y(), pos.z());
+    for (const auto& pose : m_gt_trajectory) {
+        // Apply gravity transformation if available
+
+        Eigen::Matrix4f adjusted_pose = pose * prefix;
+
+        Eigen::Vector3f transformed_pos = adjusted_pose.block<3, 1>(0, 3);
+       
+        glVertex3f(transformed_pos.x(), transformed_pos.y(), transformed_pos.z());
     }
     glEnd();
     
@@ -704,6 +723,64 @@ void PangolinViewer::update_trajectory(const std::vector<Eigen::Vector3f>& traje
     m_trajectory = trajectory;
 }
 
+void PangolinViewer::update_trajectory_with_gt(const std::vector<Eigen::Matrix4f>& trajectory, const std::vector<Eigen::Matrix4f>& gt_trajectory) {
+    // Convert trajectory poses to positions for legacy m_trajectory
+    m_trajectory.clear();
+    for (const auto& pose : trajectory) {
+        m_trajectory.push_back(pose.block<3, 1>(0, 3));
+    }
+    
+    // Clear existing GT trajectory to avoid duplication
+    m_gt_trajectory.clear();
+
+    // Use GT trajectory directly as poses with first frame alignment
+    if (!gt_trajectory.empty() && !trajectory.empty()) {
+        // Get first estimated pose from trajectory frames
+        auto first_frame = get_first_frame();
+        if (!first_frame) return;
+        
+        Eigen::Matrix4f first_est_pose = first_frame->get_Twb();
+        Eigen::Matrix4f first_gt_pose = gt_trajectory[0];
+
+        // Apply gravity transformation to GT trajectory if available
+        std::vector<Eigen::Matrix4f> transformed_gt_trajectory;
+        // Apply Tgw to all GT poses (same transformation applied to VIO trajectory)
+        for (const auto& gt_pose : gt_trajectory) {
+            Eigen::Matrix4f transformed_gt_pose = m_Tgw * gt_pose;
+            transformed_gt_trajectory.push_back(transformed_gt_pose);
+        }
+        // Update first GT pose after transformation
+        first_gt_pose = transformed_gt_trajectory[0];
+
+        
+        // Calculate SE(3) prefix for proper alignment (rotation + translation)
+        Eigen::Matrix4f prefix = first_gt_pose.inverse() * first_est_pose;
+        
+        // Apply prefix to all transformed GT poses and add them
+        for (const auto& gt_pose : transformed_gt_trajectory) {
+            // Apply SE(3) alignment prefix
+            Eigen::Matrix4f aligned_gt_pose = gt_pose * prefix;
+            m_gt_trajectory.push_back(aligned_gt_pose);
+        }
+    }
+    
+    // Print trajectory difference for the current frame (using aligned GT)
+    if (!trajectory.empty() && !m_gt_trajectory.empty()) {
+        size_t current_idx = trajectory.size() - 1;
+        if (current_idx < m_gt_trajectory.size()) {
+            Eigen::Vector3f current_est = trajectory[current_idx].block<3, 1>(0, 3);  // Extract position from pose
+            Eigen::Vector3f current_gt = m_gt_trajectory[current_idx].block<3,1>(0,3);
+            float position_error = (current_gt - current_est).norm();
+            
+            spdlog::info("[VIEWER_TRAJ] Frame {}: EST=({:.3f}, {:.3f}, {:.3f}) GT=({:.3f}, {:.3f}, {:.3f}) ERROR={:.4f}m", 
+                        current_idx, 
+                        current_est.x(), current_est.y(), current_est.z(),
+                        current_gt.x(), current_gt.y(), current_gt.z(),
+                        position_error);
+        }
+    }
+}
+
 // DEPRECATED: Use update_keyframe_window() instead
 void PangolinViewer::update_keyframe_poses(const std::vector<Eigen::Matrix4f>& keyframe_poses) {
     // This function is deprecated but kept for backward compatibility
@@ -713,19 +790,14 @@ void PangolinViewer::update_keyframe_poses(const std::vector<Eigen::Matrix4f>& k
 }
 
 void PangolinViewer::add_ground_truth_pose(const Eigen::Matrix4f& gt_pose) {
-    Eigen::Vector3f position = gt_pose.block<3, 1>(0, 3);
-    m_gt_trajectory.push_back(position);
+    // Store original pose - transformation will be applied during rendering
+    m_gt_trajectory.push_back(gt_pose);
 }
 
-void PangolinViewer::update_ground_truth_trajectory(const std::vector<Eigen::Vector3f>& gt_trajectory) {
-    m_gt_trajectory = gt_trajectory;
-}
 
 void PangolinViewer::update_map_points(const std::vector<Eigen::Vector3f>& all_points, const std::vector<Eigen::Vector3f>& current_points) {
     m_all_map_points = all_points;
     m_current_map_points = current_points;
-    
-    // spdlog::debug("[VIEWER] Updated map points: {} total, {} current", all_points.size(), current_points.size());
 }
 
 void PangolinViewer::update_tracking_image(const cv::Mat& image) {
@@ -892,6 +964,31 @@ void PangolinViewer::draw_feature_grid(cv::Mat& image) {
 void PangolinViewer::add_frame(std::shared_ptr<Frame> frame) {
     std::lock_guard<std::mutex> lock(m_data_mutex);
     m_all_frames.push_back(frame);
+    
+    // Automatically extract current frame map points (red dots)
+    m_current_map_points.clear();
+    if (frame) {
+        const auto& frame_map_points = frame->get_map_points();
+        for (const auto& mp : frame_map_points) {
+            if (mp && !mp->is_bad()) {
+                Eigen::Vector3f position = mp->get_position();
+                m_current_map_points.push_back(position);
+            }
+        }
+    }
+}
+
+std::vector<std::shared_ptr<Frame>> PangolinViewer::get_all_frames() const {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    return m_all_frames;
+}
+
+std::shared_ptr<Frame> PangolinViewer::get_first_frame() const {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    if (!m_all_frames.empty()) {
+        return m_all_frames.front();
+    }
+    return nullptr;
 }
 
 void PangolinViewer::update_keyframe_window(const std::vector<std::shared_ptr<Frame>>& keyframes) {
@@ -917,6 +1014,17 @@ void PangolinViewer::update_all_map_points(const std::vector<std::shared_ptr<Map
 void PangolinViewer::update_window_map_points(const std::vector<std::shared_ptr<MapPoint>>& window_map_points) {
     std::lock_guard<std::mutex> lock(m_data_mutex);
     m_window_map_points_storage = window_map_points;
+}
+
+void PangolinViewer::set_gravity_transformation(const Eigen::Matrix4f& Tgw) {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    m_Tgw = Tgw;
+    m_has_gravity_transformation = true;
+    spdlog::info("[PangolinViewer] Set gravity transformation matrix Tgw");
+    spdlog::info("  [{:.6f}, {:.6f}, {:.6f}, {:.6f}]", Tgw(0,0), Tgw(0,1), Tgw(0,2), Tgw(0,3));
+    spdlog::info("  [{:.6f}, {:.6f}, {:.6f}, {:.6f}]", Tgw(1,0), Tgw(1,1), Tgw(1,2), Tgw(1,3));
+    spdlog::info("  [{:.6f}, {:.6f}, {:.6f}, {:.6f}]", Tgw(2,0), Tgw(2,1), Tgw(2,2), Tgw(2,3));
+    spdlog::info("  [{:.6f}, {:.6f}, {:.6f}, {:.6f}]", Tgw(3,0), Tgw(3,1), Tgw(3,2), Tgw(3,3));
 }
 
 } // namespace lightweight_vio

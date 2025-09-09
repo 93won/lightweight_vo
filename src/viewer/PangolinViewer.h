@@ -57,9 +57,9 @@ public:
     void update_pose(const Eigen::Matrix4f& pose);
     void update_camera_pose(const Eigen::Matrix4f& T_wc);  // Update current frame camera pose
     void update_trajectory(const std::vector<Eigen::Vector3f>& trajectory);
+    void update_trajectory_with_gt(const std::vector<Eigen::Matrix4f>& trajectory, const std::vector<Eigen::Matrix4f>& gt_trajectory);
     void update_keyframe_poses(const std::vector<Eigen::Matrix4f>& keyframe_poses);
     void add_ground_truth_pose(const Eigen::Matrix4f& gt_pose);
-    void update_ground_truth_trajectory(const std::vector<Eigen::Vector3f>& gt_trajectory);
     
     // Map point updates with color differentiation
     void update_map_points(const std::vector<Eigen::Vector3f>& all_points, const std::vector<Eigen::Vector3f>& current_points);
@@ -73,6 +73,8 @@ public:
     
     // Frame and keyframe management (new sliding window approach)
     void add_frame(std::shared_ptr<Frame> frame);
+    std::vector<std::shared_ptr<Frame>> get_all_frames() const;
+    std::shared_ptr<Frame> get_first_frame() const;
     void update_keyframe_window(const std::vector<std::shared_ptr<Frame>>& keyframes);
     void set_last_keyframe(std::shared_ptr<Frame> last_keyframe);
         void update_relative_pose_from_last_keyframe(const Eigen::Matrix4f& relative_pose);
@@ -96,6 +98,9 @@ public:
     void update_frame_info(int frame_id, int total_features, int tracked_features, int new_features);
     void update_tracking_stats(int frame_id, int total_features, int stereo_matches, int map_points, float success_rate, float position_error);
 
+    // Gravity frame transformation
+    void set_gravity_transformation(const Eigen::Matrix4f& Tgw);
+
 private:
     // Pangolin components
     pangolin::OpenGlRenderState s_cam;
@@ -108,7 +113,7 @@ private:
     std::vector<Eigen::Vector3f> m_points;
     std::vector<Eigen::Vector3f> m_trajectory;
     std::vector<Eigen::Matrix4f> m_keyframe_poses;  // Store full poses for frustum drawing
-    std::vector<Eigen::Vector3f> m_gt_trajectory;
+    std::vector<Eigen::Matrix4f> m_gt_trajectory;
     Eigen::Matrix4f m_current_pose;
     Eigen::Matrix4f m_current_camera_pose;  // Store current frame camera pose (T_wc)
     
@@ -127,7 +132,7 @@ private:
     std::vector<Eigen::Vector3f> m_current_map_points;  // Red - current frame tracking points (legacy style)
     
     // Thread safety
-    std::mutex m_data_mutex;
+    mutable std::mutex m_data_mutex;
     
     // Image data
     pangolin::GlTexture m_tracking_image;
@@ -164,6 +169,10 @@ private:
     pangolin::Var<bool> m_finish_button;
     mutable bool m_step_forward_pressed;
     mutable bool m_finish_pressed;
+    
+    // Gravity frame transformation
+    Eigen::Matrix4f m_Tgw;                  // World-to-Gravity transformation matrix (SE(3))
+    bool m_has_gravity_transformation;      // Flag to check if transformation is set
     
     // Input state
     bool m_space_pressed;

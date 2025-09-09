@@ -78,6 +78,13 @@ public:
     static size_t get_matched_count();
 
     /**
+     * @brief Get matched image timestamp at given index
+     * @param index Index of the matched timestamp
+     * @return Timestamp in nanoseconds, or 0 if invalid index
+     */
+    static long long get_matched_timestamp(size_t index);
+
+    /**
      * @brief Print statistics about loaded ground truth data
      */
     static void print_ground_truth_stats();
@@ -99,6 +106,17 @@ public:
      * @return True if loaded successfully
      */
     static bool load_imu_data(const std::string& dataset_root_path);
+
+    /**
+     * @brief Load IMU data from EuRoC dataset with time range filtering
+     * @param dataset_root_path Root path of the EuRoC dataset (e.g., /path/to/V1_01_easy)
+     * @param start_timestamp_ns Start timestamp in nanoseconds (inclusive)
+     * @param end_timestamp_ns End timestamp in nanoseconds (inclusive)
+     * @return True if loaded successfully
+     */
+    static bool load_imu_data_in_range(const std::string& dataset_root_path, 
+                                       long long start_timestamp_ns, 
+                                       long long end_timestamp_ns);
 
     /**
      * @brief Get IMU measurements between two timestamps

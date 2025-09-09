@@ -68,7 +68,7 @@ After the build is complete, you can run the VO with a EuRoC dataset. You need t
 
 **Example:**
 ```bash
-./build/euroc_stereo_vo config/euroc.yaml /home/dataset/EuRoC/MH_01_easy
+./build/euroc_stereo_vo /home/lightweight_vo/config/euroc.yaml /home/dataset/EuRoC/MH_01_easy
 ```
 
 ---

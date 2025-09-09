@@ -13,6 +13,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
+#include <sophus/se3.hpp>
 #include <vector>
 #include <map>
 #include <memory>
@@ -24,6 +25,7 @@ namespace lightweight_vio {
 
 class Feature; // Forward declaration
 class MapPoint;
+struct IMUPreintegration; // Forward declaration for IMU preintegration
 
 // IMU measurement structure
 struct IMUData {
@@ -69,16 +71,35 @@ public:
     bool is_keyframe() const { return m_is_keyframe; }
     bool is_stereo() const { return true; } // Always stereo
 
-    // Stereo input only
-    void set_stereo_images(const cv::Mat& left_image, const cv::Mat& right_image);
+    // Pose management
     void set_pose(const Eigen::Matrix3f& rotation, const Eigen::Vector3f& translation);
     void set_Twb(const Eigen::Matrix4f& T_wb);
     Eigen::Matrix4f get_Twb() const;
     Eigen::Matrix4f get_Twc() const;  // World to camera transform
+    
+    // VIO-specific getters (for optimization)
+    Sophus::SE3f get_world_pose() const;  // Get SE3 world pose
+    void set_world_pose(const Sophus::SE3f& pose);  // Set SE3 world pose
+    Eigen::Vector3f get_velocity() const { return m_velocity; }  // Get velocity
+    void set_velocity(const Eigen::Vector3f& velocity) { m_velocity = velocity; }  // Set velocity
+    
+    // Auto velocity initialization from preintegration
+    void initialize_velocity_from_preintegration();  // Initialize velocity from stored preintegration data
+    
+    // IMU bias management
+    Eigen::Vector3f get_accel_bias() const { return m_accel_bias; }  // Get accelerometer bias
+    void set_accel_bias(const Eigen::Vector3f& accel_bias) { m_accel_bias = accel_bias; }  // Set accelerometer bias
+    Eigen::Vector3f get_gyro_bias() const { return m_gyro_bias; }  // Get gyroscope bias
+    void set_gyro_bias(const Eigen::Vector3f& gyro_bias) { m_gyro_bias = gyro_bias; }  // Set gyroscope bias
+    
+    // IMU time difference from last keyframe
+    double get_dt_from_last_keyframe() const { return m_dt_from_last_keyframe; }
+    void set_dt_from_last_keyframe(double dt) { m_dt_from_last_keyframe = dt; }
+    
     void set_keyframe(bool is_keyframe) { m_is_keyframe = is_keyframe; }
     
     // Reference keyframe management
-    void set_reference_keyframe(std::shared_ptr<Frame> reference_kf, const Eigen::Matrix4f& T_relative);
+    void set_reference_keyframe(std::shared_ptr<Frame> reference_kf);
     std::shared_ptr<Frame> get_reference_keyframe() const;
     const Eigen::Matrix4f& get_relative_transform() const { return m_T_relative_from_ref; }
     void set_relative_transform(const Eigen::Matrix4f& T_relative) { m_T_relative_from_ref = T_relative; }
@@ -142,6 +163,21 @@ public:
     std::vector<IMUData>& get_imu_data_from_last_frame_mutable() { return m_imu_vec_from_last_frame; }
     bool has_imu_data() const { return !m_imu_vec_from_last_frame.empty(); }
     size_t get_imu_data_count() const { return m_imu_vec_from_last_frame.size(); }
+    
+    // Keyframe IMU data management
+    void set_imu_data_since_last_keyframe(const std::vector<IMUData>& imu_data);
+    const std::vector<IMUData>& get_imu_data_since_last_keyframe() const { return m_imu_vec_since_last_keyframe; }
+    bool has_keyframe_imu_data() const { return !m_imu_vec_since_last_keyframe.empty(); }
+    size_t get_keyframe_imu_data_count() const { return m_imu_vec_since_last_keyframe.size(); }
+    
+    // IMU preintegration management
+    void set_imu_preintegration_from_last_keyframe(std::shared_ptr<IMUPreintegration> preintegration);
+    std::shared_ptr<IMUPreintegration> get_imu_preintegration_from_last_keyframe() const { return m_imu_preintegration_from_last_keyframe; }
+    bool has_imu_preintegration_from_last_keyframe() const { return m_imu_preintegration_from_last_keyframe != nullptr; }
+    
+    void set_imu_preintegration_from_last_frame(std::shared_ptr<IMUPreintegration> preintegration);
+    std::shared_ptr<IMUPreintegration> get_imu_preintegration_from_last_frame() const { return m_imu_preintegration_from_last_frame; }
+    bool has_imu_preintegration_from_last_frame() const { return m_imu_preintegration_from_last_frame != nullptr; }
 
 private:
     // Frame information
@@ -177,6 +213,15 @@ private:
     Eigen::Vector3f m_translation; // Translation vector (DEPRECATED - use reference keyframe approach)
     bool m_is_keyframe;           // Whether this is a keyframe
     
+    // VIO-specific members for optimization
+    Sophus::SE3f m_world_pose;     // SE3 world pose for optimization
+    Eigen::Vector3f m_velocity;    // Velocity in world frame
+    Eigen::Vector3f m_accel_bias;  // Accelerometer bias
+    Eigen::Vector3f m_gyro_bias;   // Gyroscope bias
+    
+    // IMU time management
+    double m_dt_from_last_keyframe; // Time difference from last keyframe to this keyframe (seconds)
+    
     // Reference keyframe approach for pose management
     std::weak_ptr<Frame> m_reference_keyframe;  // Reference keyframe (weak_ptr to avoid cycles)
     Eigen::Matrix4f m_T_relative_from_ref;      // Transform from reference keyframe to this frame
@@ -191,6 +236,15 @@ private:
 
     // IMU data from last frame to current frame
     std::vector<IMUData> m_imu_vec_from_last_frame;
+    
+    // IMU data accumulated since last keyframe
+    std::vector<IMUData> m_imu_vec_since_last_keyframe;
+    
+    // Preintegrated IMU measurements from last keyframe to current frame
+    std::shared_ptr<IMUPreintegration> m_imu_preintegration_from_last_keyframe;
+    
+    // Preintegrated IMU measurements from last frame to current frame
+    std::shared_ptr<IMUPreintegration> m_imu_preintegration_from_last_frame;
 
     // Helper functions
     void update_feature_index();

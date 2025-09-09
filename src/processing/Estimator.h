@@ -28,7 +28,10 @@ namespace lightweight_vio {
     class Frame;
     class MapPoint;
     class FeatureTracker;
-    struct IMUData; 
+    class IMUHandler;
+    class InertialOptimizer;
+    struct IMUData;
+    struct IMUPreintegration;
 }
 
 
@@ -158,15 +161,30 @@ public:
      */
     std::shared_ptr<Frame> get_current_frame() const { return m_current_frame; }
 
+    /**
+     * @brief Get the World-to-Gravity transformation matrix for initial setup
+     * @return 4x4 SE(3) transformation matrix (Identity if not initialized)
+     */
+    Eigen::Matrix4f get_Tgw_init() const { return m_Tgw_init; }
+
+    /**
+     * @brief Check if gravity has been initialized
+     * @return True if gravity initialization is complete
+     */
+    bool is_gravity_initialized() const { return m_gravity_initialized; }
+
 private:
     // System components
     std::unique_ptr<FeatureTracker> m_feature_tracker;
     std::unique_ptr<PnPOptimizer> m_pose_optimizer;
     std::unique_ptr<SlidingWindowOptimizer> m_sliding_window_optimizer;
+    std::unique_ptr<IMUHandler> m_imu_handler;  // IMU processing and preintegration
+    std::unique_ptr<InertialOptimizer> m_inertial_optimizer;  // VIO optimization
     
     // State
     std::shared_ptr<Frame> m_current_frame;
     std::shared_ptr<Frame> m_previous_frame;
+    std::shared_ptr<Frame> m_last_keyframe;  // Track the last keyframe separately
     std::vector<std::shared_ptr<Frame>> m_keyframes;
     std::vector<std::shared_ptr<Frame>> m_all_frames;  // All processed frames for trajectory export
     std::vector<std::shared_ptr<MapPoint>> m_map_points;
@@ -174,6 +192,13 @@ private:
     // Frame management
     int m_frame_id_counter;
     int m_frames_since_last_keyframe;
+    
+    // IMU data management
+    std::vector<IMUData> m_imu_vec_from_last_keyframe;  // Accumulate IMU data between keyframes
+    
+    // IMU initialization state
+    bool m_gravity_initialized = false;  // Flag indicating if gravity has been estimated
+    int m_frame_count_since_start = 0;   // Counter for frames processed since start
     
     // Keyframe management state
     double m_last_keyframe_grid_coverage = 0.0;  // Grid coverage of the last keyframe
@@ -187,6 +212,9 @@ private:
     // Ground truth initialization
     bool m_has_initial_gt_pose;
     Eigen::Matrix4f m_initial_gt_pose;
+    
+    // Gravity transformation matrix for viewer
+    Eigen::Matrix4f m_Tgw_init;  // World-to-Gravity transformation matrix (Identity if not initialized)
     
     // Sliding window optimization thread
     std::unique_ptr<std::thread> m_sliding_window_thread;
@@ -260,6 +288,42 @@ private:
      * @param frame Frame to convert to keyframe
      */
     void create_keyframe(std::shared_ptr<Frame> frame);
+    
+    /**
+     * @brief Transfer accumulated IMU data to keyframe and clear buffer
+     * @param keyframe Keyframe to receive IMU data
+     */
+    void transfer_imu_data_to_keyframe(std::shared_ptr<Frame> keyframe);
+    
+    /**
+     * @brief Check if IMU initialization is possible
+     * @return True if conditions are met for IMU initialization
+     */
+    bool can_initialize_imu() const;
+    
+    /**
+     * @brief Initialize IMU system (bias, gravity, scale)
+     * @return True if initialization successful
+     */
+    bool initialize_imu_system();
+    
+    /**
+     * @brief Attempt IMU initialization with gravity estimation and bias optimization
+     * @return True if IMU initialization successful
+     */
+    bool try_initialize_imu();
+    
+    /**
+     * @brief Perform visual-inertial optimization on current keyframe window
+     * @return True if optimization successful
+     */
+    bool perform_inertial_optimization();
+    
+    /**
+     * @brief Estimate initial IMU bias from static period
+     * @param static_imu_data Static IMU measurements
+     */
+    void estimate_initial_imu_bias(const std::vector<IMUData>& static_imu_data);
     
     /**
      * @brief Notify sliding window thread about keyframe updates

@@ -13,6 +13,7 @@
 #include "database/Feature.h" // Include Feature header
 #include "database/MapPoint.h"
 #include "util/Config.h"
+#include "processing/IMUHandler.h" // Include for IMUPreintegration
 #include <opencv2/features2d.hpp>
 #include <spdlog/spdlog.h>
 #include <iostream>
@@ -33,6 +34,11 @@ Frame::Frame(long long timestamp, int frame_id)
     , m_rotation(Eigen::Matrix3f::Identity())
     , m_translation(Eigen::Vector3f::Zero())
     , m_is_keyframe(false)
+    , m_world_pose(Sophus::SE3f())  // Initialize as identity
+    , m_velocity(Eigen::Vector3f::Zero())  // Initialize velocity as zero
+    , m_accel_bias(Eigen::Vector3f::Zero())  // Initialize accel bias as zero
+    , m_gyro_bias(Eigen::Vector3f::Zero())   // Initialize gyro bias as zero
+    , m_dt_from_last_keyframe(0.0)          // Initialize dt as zero
     , m_T_relative_from_ref(Eigen::Matrix4f::Identity())
     , m_fx(500.0), m_fy(500.0)  // Default focal lengths
     , m_cx(320.0), m_cy(240.0)  // Default principal point
@@ -67,6 +73,11 @@ Frame::Frame(long long timestamp, int frame_id,
     , m_rotation(Eigen::Matrix3f::Identity())
     , m_translation(Eigen::Vector3f::Zero())
     , m_is_keyframe(false)
+    , m_world_pose(Sophus::SE3f())  // Initialize as identity
+    , m_velocity(Eigen::Vector3f::Zero())  // Initialize velocity as zero
+    , m_accel_bias(Eigen::Vector3f::Zero())  // Initialize accel bias as zero
+    , m_gyro_bias(Eigen::Vector3f::Zero())   // Initialize gyro bias as zero
+    , m_dt_from_last_keyframe(0.0)          // Initialize dt as zero
     , m_T_relative_from_ref(Eigen::Matrix4f::Identity())
     , m_fx(fx), m_fy(fy)
     , m_cx(cx), m_cy(cy)
@@ -101,6 +112,11 @@ Frame::Frame(long long timestamp, int frame_id,
     , m_rotation(Eigen::Matrix3f::Identity())
     , m_translation(Eigen::Vector3f::Zero())
     , m_is_keyframe(false)
+    , m_world_pose(Sophus::SE3f())  // Initialize as identity
+    , m_velocity(Eigen::Vector3f::Zero())  // Initialize velocity as zero
+    , m_accel_bias(Eigen::Vector3f::Zero())  // Initialize accel bias as zero
+    , m_gyro_bias(Eigen::Vector3f::Zero())   // Initialize gyro bias as zero
+    , m_dt_from_last_keyframe(0.0)          // Initialize dt as zero
     , m_T_relative_from_ref(Eigen::Matrix4f::Identity())
     , m_fx(fx), m_fy(fy)
     , m_cx(cx), m_cy(cy)
@@ -134,6 +150,8 @@ Frame::Frame(long long timestamp, int frame_id,
     , m_translation(Eigen::Vector3f::Zero())
     , m_is_keyframe(false)
     , m_T_relative_from_ref(Eigen::Matrix4f::Identity())
+    , m_accel_bias(Eigen::Vector3f::Zero())
+    , m_gyro_bias(Eigen::Vector3f::Zero())
 {
     // Get camera parameters from Config
     const Config& config = Config::getInstance();
@@ -211,11 +229,13 @@ Eigen::Matrix4f Frame::get_Twb() const {
     // For non-keyframes, try to get pose from reference keyframe
     auto ref_kf = m_reference_keyframe.lock();
     if (ref_kf) {
-        // Calculate pose from reference keyframe: T_wb = T_wb_ref * T_relative_from_ref
-        Eigen::Matrix4f T_wb_ref = ref_kf->get_Twb(); // Recursive call, but ref_kf should be a keyframe
+        // Get reference keyframe pose (could be gravity-transformed)
+        Eigen::Matrix4f T_wb_ref = ref_kf->get_Twb();
+        
+        // Apply fixed relative transformation: T_wb = T_wb_ref * T_relative
         Eigen::Matrix4f T_wb = T_wb_ref * m_T_relative_from_ref;
         
-        // Update internal pose storage for compatibility (but don't rely on it)
+        // Update internal pose storage for compatibility
         const_cast<Frame*>(this)->m_rotation = T_wb.block<3, 3>(0, 0);
         const_cast<Frame*>(this)->m_translation = T_wb.block<3, 1>(0, 3);
         
@@ -243,10 +263,26 @@ Eigen::Matrix4f Frame::get_Twc() const {
     return T_wc;
 }
 
-void Frame::set_reference_keyframe(std::shared_ptr<Frame> reference_kf, const Eigen::Matrix4f& T_relative) {
+void Frame::set_reference_keyframe(std::shared_ptr<Frame> reference_kf) {
     std::lock_guard<std::mutex> lock(m_pose_mutex);
     m_reference_keyframe = reference_kf;
-    m_T_relative_from_ref = T_relative;
+    
+    // Calculate relative transformation at the time of setting reference keyframe
+    if (reference_kf) {
+        // Current frame pose
+        Eigen::Matrix4f T_wb_current = Eigen::Matrix4f::Identity();
+        T_wb_current.block<3, 3>(0, 0) = m_rotation;
+        T_wb_current.block<3, 1>(0, 3) = m_translation;
+        
+        // Reference keyframe pose
+        Eigen::Matrix4f T_wb_ref = reference_kf->get_Twb();
+        
+        // Calculate relative transformation: T_rel = T_ref^-1 * T_current
+        m_T_relative_from_ref = T_wb_ref.inverse() * T_wb_current;
+    } else {
+        // No reference keyframe, set to identity
+        m_T_relative_from_ref = Eigen::Matrix4f::Identity();
+    }
 }
 
 std::shared_ptr<Frame> Frame::get_reference_keyframe() const {
@@ -1260,6 +1296,117 @@ double Frame::compute_disparity_at_point(const cv::Point2f& pixel_coord) const {
 // IMU data management methods
 void Frame::set_imu_data_from_last_frame(const std::vector<IMUData>& imu_data) {
     m_imu_vec_from_last_frame = imu_data;
+}
+
+void Frame::set_imu_data_since_last_keyframe(const std::vector<IMUData>& imu_data) {
+    m_imu_vec_since_last_keyframe = imu_data;
+}
+
+void Frame::set_imu_preintegration_from_last_keyframe(std::shared_ptr<IMUPreintegration> preintegration) {
+    m_imu_preintegration_from_last_keyframe = preintegration;
+}
+
+void Frame::set_imu_preintegration_from_last_frame(std::shared_ptr<IMUPreintegration> preintegration) {
+    m_imu_preintegration_from_last_frame = preintegration;
+}
+
+// VIO-specific pose and velocity methods
+Sophus::SE3f Frame::get_world_pose() const {
+    return m_world_pose;
+}
+
+void Frame::set_world_pose(const Sophus::SE3f& pose) {
+    m_world_pose = pose;
+}
+
+void Frame::initialize_velocity_from_preintegration() {
+    // If we already have non-zero velocity, keep it
+    if (m_velocity.norm() > 1e-6) {
+        return;
+    }
+
+
+    // spdlog::warn("Check this function call - Frame::initialize_velocity_from_preintegration()");
+    
+    std::vector<Eigen::Vector3f> velocity_candidates;
+    std::vector<std::string> velocity_sources;
+    
+    // ===============================================================================
+    // METHOD 1: From last keyframe preintegration
+    // ===============================================================================
+    auto preint_from_keyframe = get_imu_preintegration_from_last_keyframe();
+    double dt_from_keyframe = get_dt_from_last_keyframe();
+    
+    if (preint_from_keyframe && dt_from_keyframe > 0.001 && dt_from_keyframe < 1.0) {
+        auto last_keyframe = get_last_keyframe();
+        if (last_keyframe) {
+            // Transform preintegrated velocity to world frame using last keyframe rotation
+            Eigen::Matrix4f T_wb_last = last_keyframe->get_Twb();
+            Eigen::Matrix3f R_wb_last = T_wb_last.block<3,3>(0,0);
+            
+            // Compute velocity in world frame from keyframe preintegration (delta_V is velocity, don't divide by time!)
+            Eigen::Vector3f velocity_from_keyframe = R_wb_last * preint_from_keyframe->delta_V;
+            
+            velocity_candidates.push_back(velocity_from_keyframe);
+            velocity_sources.push_back("from_keyframe");
+            
+            spdlog::debug("🔄 [FRAME_INIT] Frame[{}]: Keyframe velocity=({:.4f}, {:.4f}, {:.4f}) [dt={:.4f}s]", 
+                         get_frame_id(), velocity_from_keyframe.x(), velocity_from_keyframe.y(), velocity_from_keyframe.z(), dt_from_keyframe);
+        }
+    }
+    
+    // ===============================================================================
+    // METHOD 2: From last frame preintegration (if available)
+    // ===============================================================================
+    auto preint_from_frame = get_imu_preintegration_from_last_frame();
+    
+    if (preint_from_frame && preint_from_frame->dt_total > 0.001 && preint_from_frame->dt_total < 1.0) {
+        // For frame-to-frame preintegration, we need the previous frame's pose
+        // Since we don't have direct access to previous frame, we can use current frame's pose
+        // as approximation for very short time intervals
+        
+        Eigen::Matrix4f T_wb_current = get_Twb();
+        Eigen::Matrix3f R_wb_current = T_wb_current.block<3,3>(0,0);
+        
+        // Compute velocity from frame preintegration (delta_V is already velocity, don't divide by time!)
+        Eigen::Vector3f velocity_from_frame = R_wb_current * preint_from_frame->delta_V;
+        
+        velocity_candidates.push_back(velocity_from_frame);
+        velocity_sources.push_back("from_frame");
+        
+        spdlog::debug("🔄 [FRAME_INIT] Frame[{}]: Frame velocity=({:.4f}, {:.4f}, {:.4f}) [dt={:.4f}s]", 
+                     get_frame_id(), velocity_from_frame.x(), velocity_from_frame.y(), velocity_from_frame.z(), preint_from_frame->dt_total);
+    }
+    
+    // ===============================================================================
+    // COMPUTE AVERAGE VELOCITY AND SET
+    // ===============================================================================
+    if (velocity_candidates.empty()) {
+        // No preintegration data available, keep zero velocity
+        spdlog::debug("⚪ [FRAME_INIT] Frame[{}]: No preintegration data available, keeping zero velocity", get_frame_id());
+        return;
+    }
+    
+    // Compute average velocity from all available sources
+    Eigen::Vector3f average_velocity = Eigen::Vector3f::Zero();
+    for (const auto& vel : velocity_candidates) {
+        average_velocity += vel;
+    }
+    average_velocity /= static_cast<float>(velocity_candidates.size());
+    
+    // Set the averaged velocity
+    set_velocity(average_velocity);
+    
+    // Create sources string for logging
+    std::string sources_str = "";
+    for (size_t i = 0; i < velocity_sources.size(); ++i) {
+        sources_str += velocity_sources[i];
+        if (i < velocity_sources.size() - 1) sources_str += "+";
+    }
+    
+    spdlog::info("🚀 [FRAME_INIT] Frame[{}]: Auto-initialized velocity=({:.4f}, {:.4f}, {:.4f}) [avg of {} sources: {}]", 
+                 get_frame_id(), average_velocity.x(), average_velocity.y(), average_velocity.z(), 
+                 velocity_candidates.size(), sources_str);
 }
 
 } // namespace lightweight_vio

@@ -48,6 +48,15 @@ std::string trim(const std::string& str) {
     return str.substr(first, (last - first + 1));
 }
 
+// Helper function to extract positions from poses for legacy trajectory update
+std::vector<Eigen::Vector3f> extract_positions_from_poses(const std::vector<Eigen::Matrix4f>& poses) {
+    std::vector<Eigen::Vector3f> positions;
+    for (const auto& pose : poses) {
+        positions.push_back(pose.block<3, 1>(0, 3));
+    }
+    return positions;
+}
+
 std::vector<ImageData> load_image_timestamps(const std::string& dataset_path) {
     std::vector<ImageData> image_data;
     std::string data_file = dataset_path + "/mav0/cam0/data.csv";
@@ -131,23 +140,17 @@ std::vector<Eigen::Vector3f> extract_current_frame_map_points(const Estimator& e
     
     auto current_frame = estimator.get_current_frame();
     if (!current_frame) {
-        spdlog::warn("[MAP_POINTS] No current frame available");
         return points;
     }
     
     const auto& frame_map_points = current_frame->get_map_points();
-    // spdlog::info("[MAP_POINTS] Current frame has {} map point slots", frame_map_points.size());
     
-    int valid_count = 0;
     for (const auto& mp : frame_map_points) {
         if (mp && !mp->is_bad()) {
             Eigen::Vector3f position = mp->get_position();
             points.push_back(position);
-            valid_count++;
         }
     }
-    
-    // spdlog::info("[MAP_POINTS] Found {} valid map points in current frame", valid_count);
     
     return points;
 }
@@ -204,7 +207,10 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     
-    // Pre-match image timestamps with ground truth
+    // Pre-match image timestamps with ground truth and get valid range
+    size_t start_frame_idx = 0;
+    size_t end_frame_idx = image_data.size();
+    
     if (lightweight_vio::EurocUtils::has_ground_truth()) {
         std::vector<long long> image_timestamps;
         image_timestamps.reserve(image_data.size());
@@ -213,8 +219,32 @@ int main(int argc, char* argv[]) {
         }
         
         if (lightweight_vio::EurocUtils::match_image_timestamps(image_timestamps)) {
-            spdlog::info("[EuRoC] Successfully pre-matched {} image timestamps with ground truth", 
-                        lightweight_vio::EurocUtils::get_matched_count());
+            size_t matched_count = lightweight_vio::EurocUtils::get_matched_count();
+            spdlog::info("[EuRoC] Successfully pre-matched {} image timestamps with ground truth", matched_count);
+            
+            // Find the valid frame range based on matched timestamps
+            if (matched_count > 0) {
+                // Get the first and last matched image timestamps
+                long long first_matched_ts = lightweight_vio::EurocUtils::get_matched_timestamp(0);
+                long long last_matched_ts = lightweight_vio::EurocUtils::get_matched_timestamp(matched_count - 1);
+                
+                // Find corresponding indices in original image_data
+                for (size_t i = 0; i < image_data.size(); ++i) {
+                    if (image_data[i].timestamp == first_matched_ts) {
+                        start_frame_idx = i;
+                        break;
+                    }
+                }
+                
+                for (size_t i = image_data.size(); i > 0; --i) {
+                    if (image_data[i-1].timestamp == last_matched_ts) {
+                        end_frame_idx = i;
+                        break;
+                    }
+                }
+                
+                spdlog::info("[EuRoC] Processing frame range: {} to {} (total: {} frames)", start_frame_idx, end_frame_idx - 1, end_frame_idx - start_frame_idx);
+            }
         }
     }
     
@@ -258,11 +288,13 @@ int main(int argc, char* argv[]) {
     
     // Vector to store frame processing times for statistics
     std::vector<double> frame_processing_times;
+
+    spdlog::info("[VO] Starting VIO processing from frame {} to frame {} (GT-matched range)", start_frame_idx, end_frame_idx);
     
-    // Process all frames
-    size_t current_idx = 0;
+    // Process frames in the valid GT range
+    size_t current_idx = start_frame_idx;
     size_t processed_frames = 0;
-    while (current_idx < image_data.size()) {
+    while (current_idx < end_frame_idx) {
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {
             spdlog::info("[Viewer] User requested exit");
@@ -326,8 +358,13 @@ int main(int argc, char* argv[]) {
         Estimator::EstimationResult result = estimator.process_frame(
             processed_left_image, processed_right_image, 
             image_data[current_idx].timestamp);
+        
+
+
+     
             
         // Handle ground truth pose for comparison
+        // processed_frames는 GT 매칭에서의 인덱스와 직접 대응됨
         if (lightweight_vio::EurocUtils::get_matched_count() > processed_frames) {
             auto gt_pose_opt = lightweight_vio::EurocUtils::get_matched_pose(processed_frames);
             if (gt_pose_opt.has_value()) {
@@ -336,13 +373,11 @@ int main(int argc, char* argv[]) {
                 // Store ground truth pose for trajectory export
                 gt_poses.push_back(gt_pose);
                 
-                // For the first frame only: apply GT pose to initialize VIO with same starting point
-                // TEMPORARILY DISABLED: Let VIO start from identity to avoid coordinate conflicts
-                if (false && processed_frames == 0) {
-                    estimator.apply_gt_pose_to_current_frame(gt_pose);
-                    // spdlog::info("[GT_INIT] First frame initialized with GT pose for fair comparison");
-                } else if (processed_frames == 0) {
-                    // spdlog::info("[VIO_INIT] First frame initialized with identity pose (no GT applied)");
+                // Debug first few GT poses
+                if (processed_frames < 3) {
+                    long long matched_ts = lightweight_vio::EurocUtils::get_matched_timestamp(processed_frames);
+                    spdlog::info("[GT_DEBUG] processed_frames={}, matched_ts={}, gt_pos=({:.6f},{:.6f},{:.6f})", 
+                                processed_frames, matched_ts, gt_pose(0,3), gt_pose(1,3), gt_pose(2,3));
                 }
                 
                 // Always add GT pose to viewer trajectory for comparison
@@ -350,9 +385,9 @@ int main(int argc, char* argv[]) {
                     viewer->add_ground_truth_pose(gt_pose);
                 }
                 
-                // Log comparison between VIO estimation and GT
+                // Log comparison between VIO estimation and GT (reduced frequency)
                 auto current_frame = estimator.get_current_frame();
-                if (current_frame) {
+                if (current_frame && processed_frames % 10 == 0) {
                     Eigen::Matrix4f vio_estimated_pose = current_frame->get_Twb();
                     
                     // Extract positions for comparison
@@ -360,9 +395,15 @@ int main(int argc, char* argv[]) {
                     Eigen::Vector3f vio_position = vio_estimated_pose.block<3,1>(0,3);
                     
                     float position_error = (gt_position - vio_position).norm();
-            }
+                    spdlog::info("[GT_COMP] Frame {}: VIO_pos=({:.3f},{:.3f},{:.3f}), GT_pos=({:.3f},{:.3f},{:.3f}), ERROR={:.3f}m", 
+                                processed_frames, 
+                                vio_position.x(), vio_position.y(), vio_position.z(),
+                                gt_position.x(), gt_position.y(), gt_position.z(),
+                                position_error);
+                }
             }
         }
+        
             
         auto frame_end = std::chrono::high_resolution_clock::now();
         
@@ -383,11 +424,28 @@ int main(int argc, char* argv[]) {
                 Eigen::Matrix4f current_camera_pose = current_frame->get_Twc();
                 viewer->update_camera_pose(current_camera_pose);
                 
-                // Update trajectory
-                Eigen::Vector3f current_position = current_pose.block<3, 1>(0, 3);
-                static std::vector<Eigen::Vector3f> trajectory_points;
-                trajectory_points.push_back(current_position);
-                viewer->update_trajectory(trajectory_points);
+                // Update trajectory with both estimated and ground truth
+                static std::vector<Eigen::Matrix4f> trajectory_poses;  // Changed to Matrix4f for debug
+                static std::vector<Eigen::Matrix4f> gt_trajectory_poses;  // Changed to Matrix4f
+                trajectory_poses.push_back(current_pose);  // Store full pose instead of just position
+                
+                // Add ground truth point if available
+                if (lightweight_vio::EurocUtils::get_matched_count() > processed_frames) {
+                    auto gt_pose_opt = lightweight_vio::EurocUtils::get_matched_pose(processed_frames);
+                    if (gt_pose_opt.has_value()) {
+                        Eigen::Matrix4f gt_pose = gt_pose_opt.value();
+                        gt_trajectory_poses.push_back(gt_pose);  // Store full pose matrix
+                        
+                        // Update viewer with both trajectories (prints comparison inside)
+                        viewer->update_trajectory_with_gt(trajectory_poses, gt_trajectory_poses);
+                    } else {
+                        // Only estimated trajectory available
+                        viewer->update_trajectory(extract_positions_from_poses(trajectory_poses));
+                    }
+                } else {
+                    // Only estimated trajectory available
+                    viewer->update_trajectory(extract_positions_from_poses(trajectory_poses));
+                }
                 
                 // Add current frame to viewer for sliding window management
                 viewer->add_frame(current_frame);
@@ -562,13 +620,14 @@ int main(int argc, char* argv[]) {
     spdlog::info("[TRAJECTORY] Saving trajectories to TUM format...");
     
     // 1. Save estimated trajectory
-    std::string estimated_traj_file = dataset_path + "estimated_trajectory.txt";
+    std::string estimated_traj_file = dataset_path + "/estimated_trajectory.txt";
     std::ofstream est_file(estimated_traj_file);
     if (est_file.is_open()) {
         const auto& all_frames = estimator.get_all_frames();
         spdlog::info("[TRAJECTORY] Saving {} frames to estimated trajectory", all_frames.size());
         
-        for (const auto& frame : all_frames) {
+        for (size_t i = 0; i < all_frames.size(); ++i) {
+            const auto& frame = all_frames[i];
             if (!frame) continue;
             
             // Get pose from frame
@@ -581,14 +640,17 @@ int main(int argc, char* argv[]) {
             // Convert rotation matrix to quaternion (w, x, y, z)
             Eigen::Quaternionf quat(rotation);
             
-            // Convert timestamp from nanoseconds to seconds
-            double timestamp_sec = static_cast<double>(frame->get_timestamp()) / 1e9;
-            
-            // TUM format: timestamp tx ty tz qx qy qz qw
-            est_file << std::fixed << std::setprecision(6) << timestamp_sec << " "
-                     << std::setprecision(8)
-                     << translation.x() << " " << translation.y() << " " << translation.z() << " "
-                     << quat.x() << " " << quat.y() << " " << quat.z() << " " << quat.w() << std::endl;
+            // Use matched timestamp for consistency with GT
+            if (i < lightweight_vio::EurocUtils::get_matched_count()) {
+                long long matched_timestamp = lightweight_vio::EurocUtils::get_matched_timestamp(i);
+                double timestamp_sec = static_cast<double>(matched_timestamp) / 1e9;
+                
+                // TUM format: timestamp tx ty tz qx qy qz qw
+                est_file << std::fixed << std::setprecision(6) << timestamp_sec << " "
+                         << std::setprecision(8)
+                         << translation.x() << " " << translation.y() << " " << translation.z() << " "
+                         << quat.x() << " " << quat.y() << " " << quat.z() << " " << quat.w() << std::endl;
+            }
         }
         est_file.close();
         spdlog::info("[TRAJECTORY] Saved estimated trajectory to: {}", estimated_traj_file);
@@ -597,12 +659,12 @@ int main(int argc, char* argv[]) {
     }
     
     // 2. Save ground truth trajectory
-    std::string gt_traj_file = dataset_path + "ground_truth.txt";
+    std::string gt_traj_file = dataset_path + "/ground_truth.txt";
     std::ofstream gt_file(gt_traj_file);
     if (gt_file.is_open()) {
         spdlog::info("[TRAJECTORY] Saving {} ground truth poses", gt_poses.size());
         
-        for (size_t i = 0; i < gt_poses.size() && i < image_data.size(); ++i) {
+        for (size_t i = 0; i < gt_poses.size(); ++i) {
             const auto& gt_pose = gt_poses[i];
             
             // Extract translation and rotation from ground truth
@@ -612,8 +674,9 @@ int main(int argc, char* argv[]) {
             // Convert rotation matrix to quaternion (w, x, y, z)
             Eigen::Quaternionf quat(rotation);
             
-            // Convert timestamp from nanoseconds to seconds
-            double timestamp_sec = static_cast<double>(image_data[i].timestamp) / 1e9;
+            // Use same timestamp logic as estimated trajectory  
+            long long matched_timestamp = lightweight_vio::EurocUtils::get_matched_timestamp(i);
+            double timestamp_sec = static_cast<double>(matched_timestamp) / 1e9;
             
             // TUM format: timestamp tx ty tz qx qy qz qw
             gt_file << std::fixed << std::setprecision(6) << timestamp_sec << " "
@@ -652,6 +715,43 @@ int main(int argc, char* argv[]) {
             // Calculate transform error: T_error = T_gt^-1 * T_est
             Eigen::Matrix4f T_error = T_gt_transform.inverse() * T_est_transform;
             
+            // Debug: Print detailed info for first few pairs
+            if (i <= 3) {
+                spdlog::info("=== FRAME PAIR {} -> {} DEBUG (VO) ===", i-1, i);
+                spdlog::info("GT_prev position: ({:.6f}, {:.6f}, {:.6f})", 
+                            T_gt_prev(0,3), T_gt_prev(1,3), T_gt_prev(2,3));
+                spdlog::info("GT_curr position: ({:.6f}, {:.6f}, {:.6f})", 
+                            T_gt_curr(0,3), T_gt_curr(1,3), T_gt_curr(2,3));
+                spdlog::info("GT_rel translation: ({:.6f}, {:.6f}, {:.6f})", 
+                            T_gt_transform(0,3), T_gt_transform(1,3), T_gt_transform(2,3));
+                spdlog::info("Est_prev position: ({:.6f}, {:.6f}, {:.6f})", 
+                            T_est_prev(0,3), T_est_prev(1,3), T_est_prev(2,3));
+                spdlog::info("Est_curr position: ({:.6f}, {:.6f}, {:.6f})", 
+                            T_est_curr(0,3), T_est_curr(1,3), T_est_curr(2,3));
+                spdlog::info("Est_rel translation: ({:.6f}, {:.6f}, {:.6f})", 
+                            T_est_transform(0,3), T_est_transform(1,3), T_est_transform(2,3));
+                spdlog::info("Error translation: ({:.6f}, {:.6f}, {:.6f})", 
+                            T_error(0,3), T_error(1,3), T_error(2,3));
+                spdlog::info("Error magnitude: {:.8f}m", T_error.block<3,1>(0,3).norm());
+                spdlog::info("========================================");
+            }
+            
+            // Alternative calculation matching EVO exactly
+            // EVO: E_i = (Q_i^-1 * Q_{i+1})^-1 * (P_i^-1 * P_{i+1})
+            Eigen::Matrix4f Q_rel = T_gt_prev.inverse() * T_gt_curr;  // GT relative
+            Eigen::Matrix4f P_rel = T_est_prev.inverse() * T_est_curr; // Est relative
+            Eigen::Matrix4f E_evo = Q_rel.inverse() * P_rel;          // EVO-style error
+            
+            // Compare our method vs EVO method
+            float our_error = T_error.block<3,1>(0,3).norm();
+            float evo_error = E_evo.block<3,1>(0,3).norm();
+            
+            if (i <= 20) {
+                spdlog::info("Our method error: {:.8f}m", our_error);
+                spdlog::info("EVO method error: {:.8f}m", evo_error);
+                spdlog::info("Difference: {:.8f}m", std::abs(our_error - evo_error));
+            }
+            
             // Extract rotation error (angle in degrees)
             Eigen::Matrix3f R_error = T_error.block<3,3>(0,0);
             Eigen::AngleAxisf angle_axis(R_error);
@@ -659,6 +759,12 @@ int main(int argc, char* argv[]) {
             
             // Extract translation error (magnitude in meters)
             Eigen::Vector3f t_error = T_error.block<3,1>(0,3);
+
+            // spdlog::debug("Frame {} -> {}: GT_rel=({:.3f},{:.3f},{:.3f}), Est_rel=({:.3f},{:.3f},{:.3f}), Error={:.6f}m", 
+            //              i-1, i, 
+            //              T_gt_transform(0,3), T_gt_transform(1,3), T_gt_transform(2,3),
+            //              T_est_transform(0,3), T_est_transform(1,3), T_est_transform(2,3),
+            //              t_error.norm());
             double translation_error_m = t_error.norm();
             
             rotation_errors.push_back(rotation_error_deg);
@@ -690,9 +796,12 @@ int main(int argc, char* argv[]) {
             
             // Beautiful statistics output
             spdlog::info("══════════════════════════════════════════════════════════════════");
-            spdlog::info("            FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS              ");
+            spdlog::info("      FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS (VO) - DEBUG       ");
             spdlog::info("══════════════════════════════════════════════════════════════════");
-            spdlog::info(" Total Frame Pairs Analyzed: {}", rotation_errors.size());
+            spdlog::info(" Total Frame Pairs Analyzed: {} (all_frames: {}, gt_poses: {})", 
+                        rotation_errors.size(), all_frames.size(), gt_poses.size());
+            spdlog::info(" Frame precision: {} bit floats", sizeof(float) * 8);
+            spdlog::info("══════════════════════════════════════════════════════════════════");
             spdlog::info("══════════════════════════════════════════════════════════════════");
             spdlog::info("                    ROTATION ERROR STATISTICS                     ");
             spdlog::info(" Mean      : {:>10.4f}°", rot_mean);

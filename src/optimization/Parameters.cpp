@@ -104,5 +104,79 @@ bool MapPointParameterization::ComputeJacobian(const double* x,
     return true;
 }
 
+// ===============================================================================
+// VELOCITY PARAMETERIZATION IMPLEMENTATION
+// ===============================================================================
+
+bool VelocityParameterization::Plus(const double* x,
+                                   const double* delta,
+                                   double* x_plus_delta) const {
+    try {
+        // If parameter is fixed, don't apply any updates
+        if (m_is_fixed) {
+            // Copy original parameters without applying delta
+            for (int i = 0; i < 3; ++i) {
+                x_plus_delta[i] = x[i];
+            }
+            return true;
+        }
+        
+        // Simple addition for Euclidean velocity parameters
+        for (int i = 0; i < 3; ++i) {
+            x_plus_delta[i] = x[i] + delta[i];
+        }
+        
+        return true;
+    } catch (const std::exception& e) {
+        return false;
+    }
+}
+
+bool VelocityParameterization::ComputeJacobian(const double* x,
+                                              double* jacobian) const {
+    // For Euclidean 3D velocity, the Jacobian of Plus operation w.r.t delta is Identity
+    // d(x + delta)/d(delta) = I (3x3 identity matrix)
+    Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>> jac(jacobian);
+    jac.setIdentity();
+    return true;
+}
+
+// ===============================================================================
+// BIAS PARAMETERIZATION IMPLEMENTATION
+// ===============================================================================
+
+bool BiasParameterization::Plus(const double* x,
+                               const double* delta,
+                               double* x_plus_delta) const {
+    try {
+        // If parameter is fixed, don't apply any updates
+        if (m_is_fixed) {
+            // Copy original parameters without applying delta
+            for (int i = 0; i < 3; ++i) {
+                x_plus_delta[i] = x[i];
+            }
+            return true;
+        }
+        
+        // Simple addition for Euclidean bias parameters
+        for (int i = 0; i < 3; ++i) {
+            x_plus_delta[i] = x[i] + delta[i];
+        }
+        
+        return true;
+    } catch (const std::exception& e) {
+        return false;
+    }
+}
+
+bool BiasParameterization::ComputeJacobian(const double* x,
+                                          double* jacobian) const {
+    // For Euclidean 3D bias, the Jacobian of Plus operation w.r.t delta is Identity
+    // d(x + delta)/d(delta) = I (3x3 identity matrix)
+    Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>> jac(jacobian);
+    jac.setIdentity();
+    return true;
+}
+
 } // namespace factor
 } // namespace lightweight_vio

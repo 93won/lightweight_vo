@@ -81,10 +81,11 @@ file(GLOB_RECURSE SOURCES
 add_executable(euroc_stereo_vo app/euroc_stereo_vo.cpp 
     src/database/Frame.cpp
     src/database/Feature.cpp
-    src/database/MapPoint.cpp  
+    src/database/MapPoint.cpp
     src/processing/FeatureTracker.cpp
     src/processing/Optimizer.cpp
     src/processing/Estimator.cpp
+    src/processing/IMUHandler.cpp
     src/optimization/Factors.cpp
     src/optimization/Parameters.cpp
     src/util/Config.cpp
@@ -95,19 +96,18 @@ add_executable(euroc_stereo_vo app/euroc_stereo_vo.cpp
 # Add VIO with IMU and Pangolin viewer
 add_executable(euroc_stereo_vio app/euroc_stereo_vio.cpp 
     src/database/Frame.cpp
-    src/database/Feature.cpp
-    src/database/MapPoint.cpp  
+    src/database/Feature.cpp  
+    src/database/MapPoint.cpp
     src/processing/FeatureTracker.cpp
     src/processing/Optimizer.cpp
     src/processing/Estimator.cpp
+    src/processing/IMUHandler.cpp
     src/optimization/Factors.cpp
     src/optimization/Parameters.cpp
     src/util/Config.cpp
     src/util/EurocUtils.cpp
     src/viewer/PangolinViewer.cpp
-)
-
-# Link libraries
+)# Link libraries
 target_link_libraries(euroc_stereo_vo 
     ${OpenCV_LIBS} 
     yaml-cpp 

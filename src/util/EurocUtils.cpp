@@ -262,18 +262,41 @@ bool EurocUtils::match_image_timestamps(const std::vector<long long>& image_time
         return false;
     }
     
+    // Define GT time range with buffer (5ms = 5,000,000 ns)
+    long long gt_start_time = s_ground_truth_data.front().timestamp;
+    long long gt_end_time = s_ground_truth_data.back().timestamp;
+    const long long time_threshold_ns = 5000000; // 5ms in nanoseconds
+    
     spdlog::info("[EurocUtils] Matching {} image timestamps with ground truth data", image_timestamps.size());
+    spdlog::info("[EurocUtils] GT time range: {:.6f}s to {:.6f}s", 
+                 gt_start_time / 1e9, gt_end_time / 1e9);
     
     s_matched_poses.clear();
     s_image_timestamps.clear();
     s_timestamp_errors.clear();
     
+    // Reserve space for maximum possible matches
     s_matched_poses.reserve(image_timestamps.size());
     s_image_timestamps.reserve(image_timestamps.size());
     s_timestamp_errors.reserve(image_timestamps.size());
     
+    int skipped_before_gt = 0;
+    int skipped_after_gt = 0;
+    int skipped_large_error = 0;
+    int matched_count = 0;
+    
     for (size_t i = 0; i < image_timestamps.size(); ++i) {
         long long image_ts = image_timestamps[i];
+        
+        // Skip images that are outside GT time range
+        if (image_ts < gt_start_time - time_threshold_ns) {
+            skipped_before_gt++;
+            continue;
+        }
+        if (image_ts > gt_end_time + time_threshold_ns) {
+            skipped_after_gt++;
+            continue;
+        }
         
         // Find closest GT timestamp using binary search
         auto compare = [](const GroundTruthPose& pose, long long ts) {
@@ -298,24 +321,66 @@ bool EurocUtils::match_image_timestamps(const std::vector<long long>& image_time
             index = (curr_diff < prev_diff) ? curr_idx : prev_idx;
         }
         
+        // Check if the match is within acceptable threshold
+        long long time_diff_ns = std::abs(s_ground_truth_data[index].timestamp - image_ts);
+        if (time_diff_ns > time_threshold_ns) {
+            skipped_large_error++;
+            continue;
+        }
+        
         // Store matched data
         s_matched_poses.push_back(s_ground_truth_data[index].pose);
         s_image_timestamps.push_back(image_ts);
         
-        double time_error_sec = std::abs(s_ground_truth_data[index].timestamp - image_ts) / 1e9;
+        double time_error_sec = time_diff_ns / 1e9;
         s_timestamp_errors.push_back(time_error_sec);
+        
+        // Log matching details for first few matches
+        double image_time_sec = image_ts / 1e9;
+        double gt_time_sec = s_ground_truth_data[index].timestamp / 1e9;
+        
+        if (matched_count < 5) {
+            spdlog::info("[EurocUtils] Match[{}]: IMG={:.6f}s, GT={:.6f}s, DIFF={:.6f}s ({:.2f}ms)", 
+                        matched_count, image_time_sec, gt_time_sec, time_error_sec, time_error_sec * 1000.0);
+        } else if (matched_count < 10) {
+            spdlog::debug("[EurocUtils] Match[{}]: IMG={:.6f}s, GT={:.6f}s, DIFF={:.6f}s ({:.2f}ms)", 
+                         matched_count, image_time_sec, gt_time_sec, time_error_sec, time_error_sec * 1000.0);
+        }
+        
+        matched_count++;
     }
     
     // Print statistics
+    if (s_timestamp_errors.empty()) {
+        spdlog::warn("[EurocUtils] No valid matches found within time threshold");
+        return false;
+    }
+    
     double max_error = *std::max_element(s_timestamp_errors.begin(), s_timestamp_errors.end());
     double avg_error = 0.0;
     for (double err : s_timestamp_errors) avg_error += err;
     avg_error /= s_timestamp_errors.size();
     
+    // Count errors by threshold
+    int errors_under_1ms = 0, errors_under_5ms = 0, errors_under_10ms = 0, errors_over_10ms = 0;
+    for (double err : s_timestamp_errors) {
+        double err_ms = err * 1000.0;
+        if (err_ms < 1.0) errors_under_1ms++;
+        else if (err_ms < 5.0) errors_under_5ms++;
+        else if (err_ms < 10.0) errors_under_10ms++;
+        else errors_over_10ms++;
+    }
+    
     spdlog::info("[EurocUtils] Timestamp matching completed:");
-    spdlog::info("[EurocUtils]   Matched {} poses", s_matched_poses.size());
-    spdlog::info("[EurocUtils]   Average error: {:.6f} sec ({:.1f} ms)", avg_error, avg_error * 1000);
-    spdlog::info("[EurocUtils]   Maximum error: {:.6f} sec ({:.1f} ms)", max_error, max_error * 1000);
+    spdlog::info("[EurocUtils]   Total input images: {}", image_timestamps.size());
+    spdlog::info("[EurocUtils]   Skipped (before GT): {}", skipped_before_gt);
+    spdlog::info("[EurocUtils]   Skipped (after GT): {}", skipped_after_gt);
+    spdlog::info("[EurocUtils]   Skipped (>5ms error): {}", skipped_large_error);
+    spdlog::info("[EurocUtils]   Successfully matched: {}", s_matched_poses.size());
+    spdlog::info("[EurocUtils]   Average error: {:.6f} sec ({:.2f} ms)", avg_error, avg_error * 1000);
+    spdlog::info("[EurocUtils]   Maximum error: {:.6f} sec ({:.2f} ms)", max_error, max_error * 1000);
+    spdlog::info("[EurocUtils]   Error distribution: <1ms:{}, 1-5ms:{}, 5-10ms:{}, >10ms:{}", 
+                 errors_under_1ms, errors_under_5ms, errors_under_10ms, errors_over_10ms);
     
     return true;
 }
@@ -331,6 +396,13 @@ std::optional<Eigen::Matrix4f> EurocUtils::get_matched_pose(size_t image_index) 
 
 size_t EurocUtils::get_matched_count() {
     return s_matched_poses.size();
+}
+
+long long EurocUtils::get_matched_timestamp(size_t index) {
+    if (index >= s_image_timestamps.size()) {
+        return 0;
+    }
+    return s_image_timestamps[index];
 }
 
 // Helper function to trim whitespace
@@ -424,8 +496,112 @@ bool EurocUtils::load_imu_data(const std::string& dataset_root_path) {
     s_imu_data_loaded = true;
     
     spdlog::info("[EurocUtils] Loaded {} IMU measurements", s_imu_data.size());
-    spdlog::info("[EurocUtils] IMU time range: {:.6f}s to {:.6f}s", 
-                s_imu_data.front().timestamp, s_imu_data.back().timestamp);
+    // spdlog::info("[EurocUtils] IMU time range: {:.6f}s to {:.6f}s", s_imu_data.front().timestamp, s_imu_data.back().timestamp);
+    
+    return true;
+}
+
+bool EurocUtils::load_imu_data_in_range(const std::string& dataset_root_path, 
+                                        long long start_timestamp_ns, 
+                                        long long end_timestamp_ns) {
+    std::string imu_file_path = dataset_root_path + "/mav0/imu0/data.csv";
+    
+    std::ifstream file(imu_file_path);
+    if (!file.is_open()) {
+        spdlog::error("[EurocUtils] Failed to open IMU file: {}", imu_file_path);
+        return false;
+    }
+    
+    spdlog::info("[EurocUtils] Loading IMU data from: {} (range filtered)", imu_file_path);
+    spdlog::info("[EurocUtils] IMU time range filter: {:.6f}s to {:.6f}s", 
+                 start_timestamp_ns / 1e9, end_timestamp_ns / 1e9);
+    
+    std::string line;
+    // Skip header line
+    if (!std::getline(file, line)) {
+        spdlog::error("[EurocUtils] IMU file is empty");
+        return false;
+    }
+    
+    s_imu_data.clear();
+    
+    int total_count = 0;
+    int filtered_count = 0;
+    
+    while (std::getline(file, line)) {
+        if (line.empty() || line[0] == '#') {
+            continue;  // Skip empty lines or comments
+        }
+        
+        total_count++;
+        
+        std::stringstream ss(line);
+        std::string cell;
+        std::vector<std::string> row;
+        
+        // Parse CSV line
+        while (std::getline(ss, cell, ',')) {
+            row.push_back(trim(cell));
+        }
+        
+        // EuRoC IMU format: timestamp,w_RS_S_x,w_RS_S_y,w_RS_S_z,a_RS_S_x,a_RS_S_y,a_RS_S_z
+        if (row.size() >= 7) {
+            try {
+                long long timestamp_ns = std::stoll(row[0]);
+                
+                // Skip if outside range
+                if (timestamp_ns < start_timestamp_ns || timestamp_ns > end_timestamp_ns) {
+                    continue;
+                }
+                
+                filtered_count++;
+                
+                double timestamp_sec = static_cast<double>(timestamp_ns) / 1e9;
+                
+                // Parse angular velocity [rad/s]
+                double gyro_x = std::stod(row[1]);
+                double gyro_y = std::stod(row[2]);
+                double gyro_z = std::stod(row[3]);
+                
+                // Parse linear acceleration [m/s^2]
+                double accel_x = std::stod(row[4]);
+                double accel_y = std::stod(row[5]);
+                double accel_z = std::stod(row[6]);
+                
+                // Create IMU data
+                IMUData imu_data;
+                imu_data.timestamp = timestamp_sec;
+                imu_data.angular_vel = Eigen::Vector3d(gyro_x, gyro_y, gyro_z);
+                imu_data.linear_accel = Eigen::Vector3d(accel_x, accel_y, accel_z);
+                
+                s_imu_data.push_back(imu_data);
+                
+            } catch (const std::exception& e) {
+                spdlog::warn("[EurocUtils] Failed to parse IMU line: {} - {}", line, e.what());
+                continue;
+            }
+        }
+    }
+    
+    file.close();
+    
+    if (s_imu_data.empty()) {
+        spdlog::error("[EurocUtils] No valid IMU data loaded");
+        s_imu_data_loaded = false;
+        return false;
+    }
+    
+    // Sort by timestamp (should already be sorted, but just in case)
+    std::sort(s_imu_data.begin(), s_imu_data.end(), 
+              [](const IMUData& a, const IMUData& b) {
+                  return a.timestamp < b.timestamp;
+              });
+    
+    s_imu_data_loaded = true;
+    
+    spdlog::info("[EurocUtils] Loaded {} IMU measurements (filtered from {} total, {:.1f}% within GT range)", 
+                 s_imu_data.size(), total_count, 
+                 total_count > 0 ? (100.0 * filtered_count / total_count) : 0.0);
     
     return true;
 }

@@ -22,10 +22,13 @@
 namespace lightweight_vio {
     class Frame;
     class MapPoint;
+    class IMUHandler;
+    struct IMUPreintegration;
     
     namespace factor {
         class PnPFactor;
         class BAFactor;
+        class IMUFactor;
         struct CameraParameters;
     }
 }
@@ -47,6 +50,36 @@ struct OptimizationResult {
     
     OptimizationResult() : success(false), num_inliers(0), num_outliers(0), 
                           initial_cost(0.0), final_cost(0.0), num_iterations(0) {}
+};
+
+/**
+ * @brief Inertial optimization result
+ */
+struct InertialOptimizationResult {
+    bool success;
+    int num_iterations;
+    double initial_cost;
+    double final_cost;
+    double cost_reduction;
+    
+    // Detailed cost breakdown
+    double visual_cost;
+    double imu_cost;
+    double bias_cost;
+    
+    // Optimization statistics
+    int num_visual_residuals;
+    int num_imu_residuals;
+    int num_outliers_removed;
+    
+    // Gravity transformation matrix (World-to-Gravity, SE(3))
+    Eigen::Matrix4f Tgw_init;
+    
+    InertialOptimizationResult() 
+        : success(false), num_iterations(0), initial_cost(0.0), final_cost(0.0),
+          cost_reduction(0.0), visual_cost(0.0), imu_cost(0.0), bias_cost(0.0),
+          num_visual_residuals(0), num_imu_residuals(0), num_outliers_removed(0),
+          Tgw_init(Eigen::Matrix4f::Identity()) {}
 };
 
 /**
@@ -399,5 +432,118 @@ private:
     static std::mutex s_mappoint_mutex;
     static std::mutex s_keyframe_mutex;
 };
+
+/**
+ * @brief Inertial optimizer for VIO system
+ */
+class InertialOptimizer {
+public:
+    /**
+     * @brief Constructor
+     */
+    InertialOptimizer();
+    
+    /**
+     * @brief Destructor
+     */
+    ~InertialOptimizer() = default;
+    
+    /**
+     * @brief IMU initialization optimization using InertialGravityFactor
+     * @param frames Frames to optimize (poses fixed, velocities and biases optimized)
+     * @param imu_handler IMU handler with preintegration data
+     * @return Optimization result
+     */
+    InertialOptimizationResult optimize_imu_initialization(
+        std::vector<Frame*>& frames,
+        std::shared_ptr<IMUHandler> imu_handler);
+    
+    /**
+     * @brief Inertial optimization for VIO system
+     * @param frames Frames to optimize
+     * @param imu_handler IMU handler with preintegration data
+     * @param gravity Gravity vector
+     * @return Optimization result
+     */
+    InertialOptimizationResult optimize_sliding_window(
+        std::vector<Frame*>& frames,
+        std::shared_ptr<IMUHandler> imu_handler,
+        const Eigen::Vector3f& gravity);
+
+private:
+    struct OptimizationParams {
+        int max_iterations = 200;
+        double function_tolerance = 1e-6;
+        double gradient_tolerance = 1e-10;
+        double parameter_tolerance = 1e-8;
+        bool use_robust_kernel = true;
+        double huber_delta = 1.0;
+    } m_params;
+    
+    // Helper functions
+    // IMU initialization helper methods
+    void setup_imu_init_vertices(
+        const std::vector<Frame*>& frames,
+        std::shared_ptr<IMUHandler> imu_handler,
+        std::vector<std::vector<double>>& pose_params_vec,
+        std::vector<std::vector<double>>& velocity_bias_params_vec,
+        std::vector<double>& gravity_dir_params);
+    
+    int add_inertial_gravity_factors(
+        ceres::Problem& problem,
+        const std::vector<Frame*>& frames,
+        std::shared_ptr<IMUHandler> imu_handler,
+        const std::vector<std::vector<double>>& pose_params_vec,
+        const std::vector<std::vector<double>>& velocity_bias_params_vec,
+        const std::vector<double>& gravity_dir_params);
+    
+    void add_imu_init_priors(
+        ceres::Problem& problem,
+        const std::vector<Frame*>& frames,
+        const std::vector<std::vector<double>>& velocity_bias_params_vec);
+    
+    void recover_imu_init_states(
+        const std::vector<Frame*>& frames,
+        std::shared_ptr<IMUHandler> imu_handler,
+        const std::vector<std::vector<double>>& pose_params_vec,
+        const std::vector<std::vector<double>>& velocity_bias_params_vec,
+        const std::vector<double>& gravity_dir_params,
+        Eigen::Matrix4f& T_gw);
+    
+    // Optimization setup and execution methods
+    void setup_params(
+        const std::vector<Frame*>& frames,
+        std::vector<std::vector<double>>& pose_params_vec,
+        std::vector<std::vector<double>>& velocity_params_vec,
+        std::vector<double>& gyro_bias_params,
+        std::vector<double>& accel_bias_params);
+    
+    void add_bias_priors(
+        ceres::Problem& problem,
+        double* gyro_bias_params,
+        double* accel_bias_params);
+    
+    int add_inertial_factors(
+        ceres::Problem& problem,
+        const std::vector<Frame*>& frames,
+        std::shared_ptr<IMUHandler> imu_handler,
+        const Eigen::Vector3d& gravity,
+        const std::vector<std::vector<double>>& pose_params_vec,
+        const std::vector<std::vector<double>>& velocity_params_vec,
+        double* gyro_bias_params,
+        double* accel_bias_params);
+    
+    void recover_optimized_states(
+        const std::vector<Frame*>& frames,
+        const std::vector<std::vector<double>>& pose_params_vec,
+        const std::vector<std::vector<double>>& velocity_params_vec,
+        const double* gyro_bias_params,
+        const double* accel_bias_params);
+    
+    void cleanup_vertices(
+        std::vector<std::vector<double>>& pose_params_vec,
+        std::vector<std::vector<double>>& velocity_params_vec);
+};
+
 
 } // namespace lightweight_vio

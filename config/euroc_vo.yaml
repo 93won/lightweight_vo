@@ -5,16 +5,16 @@
 # System Mode Configuration
 # Controls whether to run as VO (Visual Odometry) or VIO (Visual-Inertial Odometry)
 system_mode:
-  mode: "VIO"                    # Options: "VO" or "VIO"
+  mode: "VO"                    # Options: "VO" or "VIO"
   
 
 # Keyframe and Windowing Parameters
 # Controls keyframe selection and sliding window management
 keyframe_management:
   keyframe_window_size: 5
-  grid_coverage_ratio: 0.7  # Add keyframe when coverage drops to 70% of last keyframe's coverage
-  time_threshold: 0.5       # Force keyframe creation if time since last keyframe exceeds this (seconds)
-
+  grid_coverage_ratio: 0.7  # Add keyframe when coverage drops to 80% of last keyframe's coverage
+  time_threshold: 0.5   
+  
 # Feature Detection Parameters
 # Controls how corner features are detected using goodFeaturesToTrack
 feature_detection:
@@ -115,27 +115,6 @@ optimization:
   # Information weighting parameters
   pnp_max_observation_weight: 3.0          # Maximum weight multiplier for PnP optimization
   sliding_window_max_observation_weight: 1.0  # Maximum weight multiplier for sliding window
-
-
-
-# Gravity Estimation Parameters (VIO mode only)
-# Controls initial gravity direction estimation from visual-IMU alignment
-gravity_estimation:
-  enable: true                   # Enable gravity estimation in VIO mode
-  min_frames_for_estimation: 10  # Minimum number of frames before attempting gravity estimation
-  gravity_magnitude: 9.81        # Expected gravity magnitude (m/s²)
-
-# IMU Noise Model Parameters
-# Inertial sensor noise characteristics for preintegration
-imu_noise:
-  gyroscope_noise_density: 1.6968e-04     # [ rad / s / sqrt(Hz) ]   ( gyro "white noise" )
-  gyroscope_random_walk: 1.9393e-05       # [ rad / s^2 / sqrt(Hz) ] ( gyro bias diffusion )
-  accelerometer_noise_density: 2.0000e-3  # [ m / s^2 / sqrt(Hz) ]   ( accel "white noise" )
-  accelerometer_random_walk: 3.0000e-3    # [ m / s^3 / sqrt(Hz) ]   ( accel bias diffusion )
-
-
-
-
 
 # Performance Parameters
 # Debug and timing control flags

@@ -157,5 +157,117 @@ private:
     bool m_is_fixed;  // Flag to prevent parameter updates when true
 };
 
+/**
+ * @brief Velocity Parameterization for Ceres optimization
+ * Parameterizes 3D velocity in world frame using standard Euclidean parameterization
+ * Parameters: [vx, vy, vz] (world frame velocity)
+ */
+class VelocityParameterization : public ceres::LocalParameterization {
+public:
+    VelocityParameterization() : m_is_fixed(false) {}
+    virtual ~VelocityParameterization() = default;
+
+    /**
+     * @brief Set parameter as fixed (prevents updates during optimization)
+     * @param is_fixed If true, parameters will not be updated
+     */
+    void set_fixed(bool is_fixed) { m_is_fixed = is_fixed; }
+    
+    /**
+     * @brief Check if parameter is fixed
+     * @return true if parameter is fixed
+     */
+    bool is_fixed() const { return m_is_fixed; }
+
+    /**
+     * @brief Plus operation: x_plus_delta = x + delta
+     * @param x Current velocity [3]
+     * @param delta Update vector [3] 
+     * @param x_plus_delta Updated velocity [3]
+     * @return true if successful
+     */
+    virtual bool Plus(const double* x,
+                     const double* delta,
+                     double* x_plus_delta) const override;
+    
+    /**
+     * @brief Compute Jacobian of Plus operation w.r.t delta
+     * @param x Current parameters [3]
+     * @param jacobian Output jacobian matrix [3x3] in row-major order
+     * @return true if successful
+     */
+    virtual bool ComputeJacobian(const double* x,
+                                double* jacobian) const override;
+    
+    /**
+     * @brief Global size of the parameter (3D velocity dimension)
+     */
+    virtual int GlobalSize() const override { return 3; }
+    
+    /**
+     * @brief Local size of the perturbation (3D velocity dimension)
+     */
+    virtual int LocalSize() const override { return 3; }
+
+private:
+    bool m_is_fixed;  // Flag to prevent parameter updates when true
+};
+
+/**
+ * @brief Bias Parameterization for Ceres optimization
+ * Parameterizes IMU bias (gyro/accel) in sensor frame using standard Euclidean parameterization
+ * Parameters: [bx, by, bz] (sensor frame bias)
+ */
+class BiasParameterization : public ceres::LocalParameterization {
+public:
+    BiasParameterization() : m_is_fixed(false) {}
+    virtual ~BiasParameterization() = default;
+
+    /**
+     * @brief Set parameter as fixed (prevents updates during optimization)
+     * @param is_fixed If true, parameters will not be updated
+     */
+    void set_fixed(bool is_fixed) { m_is_fixed = is_fixed; }
+    
+    /**
+     * @brief Check if parameter is fixed
+     * @return true if parameter is fixed
+     */
+    bool is_fixed() const { return m_is_fixed; }
+
+    /**
+     * @brief Plus operation: x_plus_delta = x + delta
+     * @param x Current bias [3]
+     * @param delta Update vector [3] 
+     * @param x_plus_delta Updated bias [3]
+     * @return true if successful
+     */
+    virtual bool Plus(const double* x,
+                     const double* delta,
+                     double* x_plus_delta) const override;
+    
+    /**
+     * @brief Compute Jacobian of Plus operation w.r.t delta
+     * @param x Current parameters [3]
+     * @param jacobian Output jacobian matrix [3x3] in row-major order
+     * @return true if successful
+     */
+    virtual bool ComputeJacobian(const double* x,
+                                double* jacobian) const override;
+    
+    /**
+     * @brief Global size of the parameter (3D bias dimension)
+     */
+    virtual int GlobalSize() const override { return 3; }
+    
+    /**
+     * @brief Local size of the perturbation (3D bias dimension)
+     */
+    virtual int LocalSize() const override { return 3; }
+
+private:
+    bool m_is_fixed;  // Flag to prevent parameter updates when true
+};
+
 } // namespace factor
 } // namespace lightweight_vio
