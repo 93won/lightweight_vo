@@ -23,6 +23,7 @@
 #include <Eigen/Dense>
 #include <spdlog/spdlog.h>
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <numeric>
 #include <algorithm>
@@ -34,6 +35,7 @@ Estimator::Estimator()
     , m_frames_since_last_keyframe(0)
     , m_last_keyframe_grid_coverage(0.0)
     , m_current_pose(Eigen::Matrix4f::Identity())
+    , m_predicted_pose(Eigen::Matrix4f::Identity())
     , m_transform_from_last(Eigen::Matrix4f::Identity())
     , m_has_initial_gt_pose(false)
     , m_initial_gt_pose(Eigen::Matrix4f::Identity())
@@ -134,6 +136,58 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
                 if (opt_result.success) {
                     m_current_pose = opt_result.optimized_pose;
                     m_current_frame->set_Twb(m_current_pose);
+                    
+                    // Log comparison between predicted and optimized pose
+                    if (!m_predicted_pose.isApprox(Eigen::Matrix4f::Identity())) {
+                        Eigen::Matrix4f pose_diff = m_current_pose.inverse() * m_predicted_pose;
+                        Eigen::Vector3f translation_diff = pose_diff.block<3,1>(0,3);
+                        Eigen::Matrix3f rotation_diff = pose_diff.block<3,3>(0,0);
+                        
+                        // Compute rotation angle difference
+                        float rotation_angle = std::acos(std::min(1.0f, (rotation_diff.trace() - 1.0f) / 2.0f));
+                        rotation_angle = rotation_angle * 180.0f / M_PI;  // Convert to degrees
+                        
+                        spdlog::info("[POSE_COMPARE] Frame {}: Translation diff=({:.3f}, {:.3f}, {:.3f})m, Rotation diff={:.2f}°", 
+                                   m_current_frame->get_frame_id(),
+                                   translation_diff.x(), translation_diff.y(), translation_diff.z(),
+                                   rotation_angle);
+                    }
+                    
+                    // 🎯 Compare frame-to-frame transformations: VO vs IMU prediction
+                    if (m_previous_frame) {
+                        // 1. VO-based frame-to-frame transform (optimized result)
+                        Eigen::Matrix4f T_vo_prev = m_previous_frame->get_Twb();
+                        Eigen::Matrix4f T_vo_curr = m_current_frame->get_Twb();
+                        Eigen::Matrix4f delta_T_vo = T_vo_prev.inverse() * T_vo_curr;
+                        
+                        // 2. IMU-based frame-to-frame transform (predicted)
+                        Eigen::Matrix4f delta_T_imu = T_vo_prev.inverse() * m_predicted_pose;
+                        
+                        // 3. Extract relative translations and rotations
+                        Eigen::Vector3f delta_t_vo = delta_T_vo.block<3,1>(0,3);
+                        Eigen::Vector3f delta_t_imu = delta_T_imu.block<3,1>(0,3);
+                        
+                        Eigen::Matrix3f delta_R_vo = delta_T_vo.block<3,3>(0,0);
+                        Eigen::Matrix3f delta_R_imu = delta_T_imu.block<3,3>(0,0);
+                        
+                        // Compute translation differences
+                        Eigen::Vector3f translation_diff_vo_imu = delta_t_vo - delta_t_imu;
+                        
+                        // Compute rotation differences (angle between rotations)
+                        Eigen::Matrix3f R_diff = delta_R_vo.transpose() * delta_R_imu;
+                        float angle_diff = std::acos(std::min(1.0f, std::max(-1.0f, (R_diff.trace() - 1.0f) / 2.0f)));
+                        float angle_diff_deg = angle_diff * 180.0f / M_PI;
+                        
+                        spdlog::info("[FRAME_TRANSFORM] Frame {}: VO_delta_t=({:.4f}, {:.4f}, {:.4f})m, IMU_delta_t=({:.4f}, {:.4f}, {:.4f})m", 
+                                    m_current_frame->get_frame_id(),
+                                    delta_t_vo.x(), delta_t_vo.y(), delta_t_vo.z(),
+                                    delta_t_imu.x(), delta_t_imu.y(), delta_t_imu.z());
+                        
+                        spdlog::info("[FRAME_TRANSFORM] Frame {}: Translation diff=({:.4f}, {:.4f}, {:.4f})m, Rotation diff={:.2f}°", 
+                                    m_current_frame->get_frame_id(),
+                                    translation_diff_vo_imu.x(), translation_diff_vo_imu.y(), translation_diff_vo_imu.z(),
+                                    angle_diff_deg);
+                    }
                     
                     // Update transform from last frame for velocity estimation
                     update_transform_from_last();
@@ -291,7 +345,13 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         result.success = false;
         return result;
     }
-    
+
+    if(m_last_keyframe){
+        frame->set_accel_bias(m_last_keyframe->get_accel_bias());
+        frame->set_gyro_bias(m_last_keyframe->get_gyro_bias());
+    }
+
+
     // Set IMU data to the frame (frame-to-frame data)
     frame->set_imu_data_from_last_frame(imu_data_from_last_frame);
     
@@ -378,6 +438,59 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
                 if (opt_result.success) {
                     m_current_pose = opt_result.optimized_pose;
                     m_current_frame->set_Twb(m_current_pose);
+                    
+                    // Log comparison between predicted and optimized pose
+                    if (!m_predicted_pose.isApprox(Eigen::Matrix4f::Identity())) {
+                        Eigen::Matrix4f pose_diff = m_current_pose.inverse() * m_predicted_pose;
+                        Eigen::Vector3f translation_diff = pose_diff.block<3,1>(0,3);
+                        Eigen::Matrix3f rotation_diff = pose_diff.block<3,3>(0,0);
+                        
+                        // Compute rotation angle difference
+                        float rotation_angle = std::acos(std::min(1.0f, (rotation_diff.trace() - 1.0f) / 2.0f));
+                        rotation_angle = rotation_angle * 180.0f / M_PI;  // Convert to degrees
+                        
+                        spdlog::info("[POSE_COMPARE] Frame {}: Translation diff=({:.3f}, {:.3f}, {:.3f})m, Rotation diff={:.2f}°", 
+                                   m_current_frame->get_frame_id(),
+                                   translation_diff.x(), translation_diff.y(), translation_diff.z(),
+                                   rotation_angle);
+                    }
+                    
+                    // 🎯 Compare frame-to-frame transformations: VO vs IMU prediction
+                    if (m_previous_frame) {
+                        // 1. VO-based frame-to-frame transform (optimized result)
+                        Eigen::Matrix4f T_vo_prev = m_previous_frame->get_Twb();
+                        Eigen::Matrix4f T_vo_curr = m_current_frame->get_Twb();
+                        Eigen::Matrix4f delta_T_vo = T_vo_prev.inverse() * T_vo_curr;
+                        
+                        // 2. IMU-based frame-to-frame transform (predicted)
+                        Eigen::Matrix4f delta_T_imu = T_vo_prev.inverse() * m_predicted_pose;
+                        
+                        // 3. Extract relative translations and rotations
+                        Eigen::Vector3f delta_t_vo = delta_T_vo.block<3,1>(0,3);
+                        Eigen::Vector3f delta_t_imu = delta_T_imu.block<3,1>(0,3);
+                        
+                        Eigen::Matrix3f delta_R_vo = delta_T_vo.block<3,3>(0,0);
+                        Eigen::Matrix3f delta_R_imu = delta_T_imu.block<3,3>(0,0);
+                        
+                        // Compute translation differences
+                        Eigen::Vector3f translation_diff_vo_imu = delta_t_vo - delta_t_imu;
+                        
+                        // Compute rotation differences (angle between rotations)
+                        Eigen::Matrix3f R_diff = delta_R_vo.transpose() * delta_R_imu;
+                        float angle_diff = std::acos(std::min(1.0f, std::max(-1.0f, (R_diff.trace() - 1.0f) / 2.0f)));
+                        float angle_diff_deg = angle_diff * 180.0f / M_PI;
+                        std::cout<<"\n\n";
+                        spdlog::error("[FRAME_TRANSFORM] Frame {}: VO_delta_t=({:.4f}, {:.4f}, {:.4f})m, IMU_delta_t=({:.4f}, {:.4f}, {:.4f})m", 
+                                    m_current_frame->get_frame_id(),
+                                    delta_t_vo.x(), delta_t_vo.y(), delta_t_vo.z(),
+                                    delta_t_imu.x(), delta_t_imu.y(), delta_t_imu.z());
+                        
+                        spdlog::error("[FRAME_TRANSFORM] Frame {}: Translation diff=({:.4f}, {:.4f}, {:.4f})m, Rotation diff={:.2f}°", 
+                                    m_current_frame->get_frame_id(),
+                                    translation_diff_vo_imu.x(), translation_diff_vo_imu.y(), translation_diff_vo_imu.z(),
+                                    angle_diff_deg);
+                        std::cout<<"\n\n";
+                    }
                     
                     // Update transform from last frame for velocity estimation
                     update_transform_from_last();
@@ -527,9 +640,9 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         m_keyframes.size() >= 5) {  // Unified condition: keyframes >= 5
 
         spdlog::info("[GRAVITY_EST] Attempting gravity estimation with {} keyframes", m_keyframes.size());
-        bool success_imu_init = try_initialize_imu();
+        m_success_imu_init = try_initialize_imu();
 
-        if (success_imu_init) {
+        if (m_success_imu_init) {
             m_gravity_initialized = true;
             spdlog::info("✅ [IMU_INIT] IMU initialization successful!");
            
@@ -1132,9 +1245,161 @@ void lightweight_vio::Estimator::compute_reprojection_error_statistics(std::shar
 }
 
 void Estimator::predict_state() {
-    if (m_current_frame && m_previous_frame) {
+    if (!m_current_frame || !m_previous_frame) {
+        return;
+    }
+    
+    const auto& config = Config::getInstance();
+    
+    // Check system mode from config
+    if (config.m_system_mode == "VIO" && m_success_imu_init) {
+        // VIO Mode: Use IMU preintegration for state prediction
+        // Only use IMU prediction when IMU is properly initialized
+
+        spdlog::warn("Using IMU prediction for frame {}", m_current_frame->get_frame_id());
+        
+        // Get frame-to-frame IMU preintegration
+        auto frame_to_frame_preint = m_current_frame->get_imu_preintegration_from_last_frame();
+        
+        if (frame_to_frame_preint && frame_to_frame_preint->is_valid()) {
+            // Use IMU preintegration from last frame
+            
+
+            // 🔍 DETAILED IMU DEBUG LOGGING
+            spdlog::debug("[IMU_DEBUG] Frame {}: === IMU PREDICTION DETAILED DEBUG ===", m_current_frame->get_frame_id());
+            
+            // Get gravity vector from IMU handler (gravity-aligned coordinate system)
+            Eigen::Vector3f Gz = m_imu_handler->get_gravity();
+            
+            // Log raw IMU measurements if available
+            auto imu_data = m_current_frame->get_imu_data_from_last_frame();
+            if (!imu_data.empty()) {
+                spdlog::debug("[IMU_DEBUG] === RAW IMU MEASUREMENTS ({} measurements) ===", imu_data.size());
+                for (size_t i = 0; i < imu_data.size(); ++i) {
+                    const auto& imu = imu_data[i];
+
+                    // 🔍 DEBUG: Print raw IMU values first
+                    spdlog::debug("[IMU_RAW] IMU[{}]: timestamp={:.6f}, accel=({:.6f}, {:.6f}, {:.6f})", 
+                                 i, imu.timestamp, imu.linear_accel.x(), imu.linear_accel.y(), imu.linear_accel.z());
+                    
+                    // 🔍 DEBUG: Print bias values
+                    auto bias = m_previous_frame->get_accel_bias();
+                    spdlog::debug("[IMU_BIAS] Accel bias: ({:.6f}, {:.6f}, {:.6f})", bias.x(), bias.y(), bias.z());
+                    
+                    // 🔍 DEBUG: Check if IMU data is corrupted (abnormally large values)
+                    float accel_magnitude = imu.linear_accel.norm();
+                    if (accel_magnitude > 100.0f) {
+                        spdlog::error("[IMU_CORRUPT] CORRUPTED IMU DATA DETECTED! Magnitude: {:.3f}, Raw: ({:.6f}, {:.6f}, {:.6f})", 
+                                     accel_magnitude, imu.linear_accel.x(), imu.linear_accel.y(), imu.linear_accel.z());
+                        continue; // Skip corrupted data
+                    }
+
+                    // Bias-corrected acceleration in body frame
+                    auto raw_bias = m_previous_frame->get_accel_bias();
+                    
+                    // 🔍 CRITICAL DEBUG: Check bias values in detail
+                    spdlog::error("[BIAS_DEBUG] Raw bias values: x={:.15f}, y={:.15f}, z={:.15f}", 
+                                 raw_bias.x(), raw_bias.y(), raw_bias.z());
+                    // spdlog::error("[BIAS_DEBUG] Raw bias magnitude: {:.15f}", raw_bias.norm());
+                    
+                    // // Check for corrupted bias values
+                    // if (std::abs(raw_bias.x()) > 10.0f || std::abs(raw_bias.y()) > 10.0f || std::abs(raw_bias.z()) > 10.0f) {
+                    //     spdlog::error("[BIAS_CORRUPT] CORRUPTED BIAS DETECTED! Using zero bias instead");
+                    //     raw_bias = Eigen::Vector3f::Zero();
+                    // }
+                    
+                    auto acc_body = imu.linear_accel - raw_bias;
+                    
+                    // 🔍 DEBUG: Verify acc_body calculation step by step
+                    spdlog::error("[ACC_CALC] imu.linear_accel: ({:.6f}, {:.6f}, {:.6f})", 
+                                 imu.linear_accel.x(), imu.linear_accel.y(), imu.linear_accel.z());
+                    spdlog::error("[ACC_CALC] corrected_bias: ({:.6f}, {:.6f}, {:.6f})", 
+                                 raw_bias.x(), raw_bias.y(), raw_bias.z());
+                    spdlog::error("[ACC_CALC] acc_body: ({:.6f}, {:.6f}, {:.6f})", 
+                                 acc_body.x(), acc_body.y(), acc_body.z());
+                    
+                    // // 🔍 DEBUG: Check rotation matrix before transformation
+                    auto R_wb = m_previous_frame->get_Twb().block<3,3>(0,0);
+                    // spdlog::debug("[IMU_DEBUG_MATRIX] R_wb matrix determinant: {:.6f}", R_wb.determinant());
+                    // spdlog::debug("[IMU_DEBUG_MATRIX] R_wb matrix norm: {:.6f}", R_wb.norm());
+                    // spdlog::debug("[IMU_DEBUG_MATRIX] acc_body: ({:.6f}, {:.6f}, {:.6f})", acc_body.x(), acc_body.y(), acc_body.z());
+                    
+                    // // Check if rotation matrix is valid (determinant should be ~1, norm should be reasonable)
+                    // if (std::abs(R_wb.determinant() - 1.0f) > 0.1f || R_wb.norm() > 10.0f) {
+                    //     spdlog::error("[IMU_CORRUPT_MATRIX] CORRUPTED ROTATION MATRIX DETECTED!");
+                    //     spdlog::error("  Determinant: {:.6f} (should be ~1.0)", R_wb.determinant());
+                    //     spdlog::error("  Norm: {:.6f} (should be ~1.732)", R_wb.norm());
+                    //     spdlog::error("  R_wb matrix:");
+                    //     for (int row = 0; row < 3; ++row) {
+                    //         spdlog::error("    [{:.6f}, {:.6f}, {:.6f}]", R_wb(row,0), R_wb(row,1), R_wb(row,2));
+                    //     }
+                    //     continue; // Skip this IMU measurement
+                    // }
+                    
+                    // Transform to world frame (gravity-aligned)
+                    auto acc_w = R_wb * acc_body;
+                    
+                    // Note: In gravity-aligned coordinate system, we don't add gravity here
+                    // because it's already (0, 0, -9.81) and preintegration handles gravity compensation
+                    spdlog::warn("Acc world: ({:.3f}, {:.3f}, {:.3f})", acc_w.x(), acc_w.y(), acc_w.z());
+                }
+            }
+
+            // Get previous frame state
+            const Eigen::Vector3f twb1 = m_previous_frame->get_Twb().block<3,1>(0,3);     // Position
+            const Eigen::Matrix3f Rwb1 = m_previous_frame->get_Twb().block<3,3>(0,0);     // Rotation  
+            const Eigen::Vector3f Vwb1 = m_previous_frame->get_velocity();                // Velocity
+            
+            // Get preintegration data and time interval
+            const float t12 = frame_to_frame_preint->dt_total;
+            
+            // Get IMU bias from previous frame
+            const Eigen::Vector3f gyro_bias = m_previous_frame->get_gyro_bias();
+            const Eigen::Vector3f accel_bias = m_previous_frame->get_accel_bias();
+
+            // ORB-SLAM3 PredictStateIMU formulas with raw preintegration + separate gravity
+            Eigen::Matrix3f Rwb2 = Rwb1 * frame_to_frame_preint->delta_R;  // No normalization for now
+            Eigen::Vector3f twb2 = twb1 + Vwb1*t12 + 0.5f*t12*t12*Gz + Rwb1*frame_to_frame_preint->delta_P;
+            Eigen::Vector3f Vwb2 = Vwb1 + t12*Gz + Rwb1*frame_to_frame_preint->delta_V;
+            
+            // Set predicted state
+            Eigen::Matrix4f predicted_pose = Eigen::Matrix4f::Identity();
+            predicted_pose.block<3,3>(0,0) = Rwb2;
+            predicted_pose.block<3,1>(0,3) = twb2;
+            
+            // Store predicted pose for comparison logging (don't set it yet)
+            m_predicted_pose = predicted_pose;
+            spdlog::warn("Predicted pose for frame {}: position=({:.3f}, {:.3f}, {:.3f})", 
+                         m_current_frame->get_frame_id(), twb2.x(), twb2.y(), twb2.z());
+            // m_current_frame->set_Twb(predicted_pose);
+            m_current_frame->set_velocity(Vwb2);
+            
+          
+            
+            spdlog::debug("[VIO_PREDICT] Frame {}: IMU prediction successful, dt={:.3f}s",  m_current_frame->get_frame_id(), t12);
+            
+        } else {
+            // Fallback to constant velocity model if no valid preintegration
+            spdlog::debug("[VIO_PREDICT] Frame {}: No valid preintegration, using constant velocity", 
+                         m_current_frame->get_frame_id());
+            
+            // VO Mode fallback: Use visual motion model
+            Eigen::Matrix4f predicted_pose = m_previous_frame->get_Twb() * m_transform_from_last;
+            m_predicted_pose = predicted_pose; // Store for comparison
+            
+            // Keep velocity zero in fallback mode
+            m_current_frame->set_velocity(Eigen::Vector3f::Zero());
+        }
+        
+    } else {
+        // VO Mode: Use visual odometry motion model
         Eigen::Matrix4f predicted_pose = m_previous_frame->get_Twb() * m_transform_from_last;
-        m_current_frame->set_Twb(predicted_pose);
+        m_predicted_pose = predicted_pose; // Store for comparison
+        
+        // Keep velocity zero in VO mode
+        m_current_frame->set_velocity(Eigen::Vector3f::Zero());
+        
+        spdlog::debug("[VO_PREDICT] Frame {}: Visual prediction applied", m_current_frame->get_frame_id());
     }
 }
 

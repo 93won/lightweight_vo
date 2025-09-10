@@ -30,11 +30,11 @@ struct IMUPreintegration; // Forward declaration for IMU preintegration
 // IMU measurement structure
 struct IMUData {
     double timestamp;              // timestamp in seconds
-    Eigen::Vector3d linear_accel;  // linear acceleration [m/s^2]
-    Eigen::Vector3d angular_vel;   // angular velocity [rad/s]
+    Eigen::Vector3f linear_accel;  // linear acceleration [m/s^2]
+    Eigen::Vector3f angular_vel;   // angular velocity [rad/s]
     
     IMUData() = default;
-    IMUData(double ts, const Eigen::Vector3d& accel, const Eigen::Vector3d& gyro)
+    IMUData(double ts, const Eigen::Vector3f& accel, const Eigen::Vector3f& gyro)
         : timestamp(ts), linear_accel(accel), angular_vel(gyro) {}
 };
 

@@ -1323,6 +1323,7 @@ InertialOptimizationResult InertialOptimizer::optimize_imu_initialization(
     
     // Add gravity direction parameter block
     problem.AddParameterBlock(gravity_dir_params.data(), 2);
+    // problem.SetParameterBlockConstant(gravity_dir_params.data()); // Fix gravity direction during IMU init
     
     // ===============================================================================
     // STEP 4: Add InertialGravityFactor factors

@@ -59,7 +59,7 @@ PangolinViewer::PangolinViewer()
     , m_trajectory_width(2.0f)
     , m_frame_id("ui.Frame ID", 0)
     , m_successful_matches("ui.Num Tracked Map Points", 0, 0, get_max_features_from_config())
-    , m_auto_mode_checkbox("ui.1. Auto Mode", false, true)
+    , m_auto_mode_checkbox("ui.1. Auto Mode", true, true)
     , m_show_map_point_indices("ui.2. Show Map Point IDs", true, true)
     , m_show_accumulated_map_points("ui.3. Show Local Map Points", true, true)
     , m_show_current_map_points("ui.4. Show Current Map Points", true, true)
@@ -772,11 +772,11 @@ void PangolinViewer::update_trajectory_with_gt(const std::vector<Eigen::Matrix4f
             Eigen::Vector3f current_gt = m_gt_trajectory[current_idx].block<3,1>(0,3);
             float position_error = (current_gt - current_est).norm();
             
-            spdlog::info("[VIEWER_TRAJ] Frame {}: EST=({:.3f}, {:.3f}, {:.3f}) GT=({:.3f}, {:.3f}, {:.3f}) ERROR={:.4f}m", 
-                        current_idx, 
-                        current_est.x(), current_est.y(), current_est.z(),
-                        current_gt.x(), current_gt.y(), current_gt.z(),
-                        position_error);
+            // spdlog::info("[VIEWER_TRAJ] Frame {}: EST=({:.3f}, {:.3f}, {:.3f}) GT=({:.3f}, {:.3f}, {:.3f}) ERROR={:.4f}m", 
+            //             current_idx, 
+            //             current_est.x(), current_est.y(), current_est.z(),
+            //             current_gt.x(), current_gt.y(), current_gt.z(),
+            //             position_error);
         }
     }
 }

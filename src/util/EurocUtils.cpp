@@ -455,20 +455,20 @@ bool EurocUtils::load_imu_data(const std::string& dataset_root_path) {
                 double timestamp_sec = static_cast<double>(timestamp_ns) / 1e9;
                 
                 // Parse angular velocity [rad/s]
-                double gyro_x = std::stod(row[1]);
-                double gyro_y = std::stod(row[2]);
-                double gyro_z = std::stod(row[3]);
-                
+                float gyro_x = std::stof(row[1]);
+                float gyro_y = std::stof(row[2]);
+                float gyro_z = std::stof(row[3]);
+
                 // Parse linear acceleration [m/s^2]
-                double accel_x = std::stod(row[4]);
-                double accel_y = std::stod(row[5]);
-                double accel_z = std::stod(row[6]);
+                float accel_x = std::stof(row[4]);
+                float accel_y = std::stof(row[5]);
+                float accel_z = std::stof(row[6]);
                 
                 // Create IMU data
                 IMUData imu_data;
                 imu_data.timestamp = timestamp_sec;
-                imu_data.angular_vel = Eigen::Vector3d(gyro_x, gyro_y, gyro_z);
-                imu_data.linear_accel = Eigen::Vector3d(accel_x, accel_y, accel_z);
+                imu_data.angular_vel = Eigen::Vector3f(gyro_x, gyro_y, gyro_z);
+                imu_data.linear_accel = Eigen::Vector3f(accel_x, accel_y, accel_z);
                 
                 s_imu_data.push_back(imu_data);
                 
@@ -559,20 +559,36 @@ bool EurocUtils::load_imu_data_in_range(const std::string& dataset_root_path,
                 double timestamp_sec = static_cast<double>(timestamp_ns) / 1e9;
                 
                 // Parse angular velocity [rad/s]
-                double gyro_x = std::stod(row[1]);
-                double gyro_y = std::stod(row[2]);
-                double gyro_z = std::stod(row[3]);
+                float gyro_x = std::stof(row[1]);
+                float gyro_y = std::stof(row[2]);
+                float gyro_z = std::stof(row[3]);
                 
                 // Parse linear acceleration [m/s^2]
-                double accel_x = std::stod(row[4]);
-                double accel_y = std::stod(row[5]);
-                double accel_z = std::stod(row[6]);
+                float accel_x = std::stof(row[4]);
+                float accel_y = std::stof(row[5]);
+                float accel_z = std::stof(row[6]);
+                
+                // 🔍 SAFETY: Validate parsed IMU values (reject abnormally large values)
+                if (!std::isfinite(gyro_x) || !std::isfinite(gyro_y) || !std::isfinite(gyro_z) ||
+                    !std::isfinite(accel_x) || !std::isfinite(accel_y) || !std::isfinite(accel_z)) {
+                    spdlog::warn("[EurocUtils] Invalid (non-finite) IMU values in line: {}", line);
+                    continue;
+                }
+                
+                float gyro_magnitude = std::sqrt(gyro_x*gyro_x + gyro_y*gyro_y + gyro_z*gyro_z);
+                float accel_magnitude = std::sqrt(accel_x*accel_x + accel_y*accel_y + accel_z*accel_z);
+                
+                if (gyro_magnitude > 50.0f || accel_magnitude > 100.0f) {
+                    spdlog::warn("[EurocUtils] Abnormally large IMU values - gyro_mag: {:.3f}, accel_mag: {:.3f} in line: {}", 
+                                gyro_magnitude, accel_magnitude, line);
+                    continue;
+                }
                 
                 // Create IMU data
                 IMUData imu_data;
                 imu_data.timestamp = timestamp_sec;
-                imu_data.angular_vel = Eigen::Vector3d(gyro_x, gyro_y, gyro_z);
-                imu_data.linear_accel = Eigen::Vector3d(accel_x, accel_y, accel_z);
+                imu_data.angular_vel = Eigen::Vector3f(gyro_x, gyro_y, gyro_z);
+                imu_data.linear_accel = Eigen::Vector3f(accel_x, accel_y, accel_z);
                 
                 s_imu_data.push_back(imu_data);
                 
@@ -651,16 +667,16 @@ void EurocUtils::print_imu_stats() {
     spdlog::info("Average frequency: {:.1f}Hz", avg_frequency);
     
     // Calculate some basic statistics
-    Eigen::Vector3d accel_sum = Eigen::Vector3d::Zero();
-    Eigen::Vector3d gyro_sum = Eigen::Vector3d::Zero();
-    
+    Eigen::Vector3f accel_sum = Eigen::Vector3f::Zero();
+    Eigen::Vector3f gyro_sum = Eigen::Vector3f::Zero();
+
     for (const auto& imu : s_imu_data) {
         accel_sum += imu.linear_accel;
         gyro_sum += imu.angular_vel;
     }
     
-    Eigen::Vector3d accel_mean = accel_sum / s_imu_data.size();
-    Eigen::Vector3d gyro_mean = gyro_sum / s_imu_data.size();
+    Eigen::Vector3f accel_mean = accel_sum / s_imu_data.size();
+    Eigen::Vector3f gyro_mean = gyro_sum / s_imu_data.size();
     
     spdlog::info("Mean acceleration: [{:.3f}, {:.3f}, {:.3f}] m/s²", 
                 accel_mean.x(), accel_mean.y(), accel_mean.z());

@@ -321,8 +321,7 @@ int main(int argc, char* argv[]) {
         bool has_valid_imu_data = false;
         
         if (processed_frames > 0) { // Not the first frame
-            imu_data_from_last_frame = lightweight_vio::EurocUtils::get_imu_between_timestamps(
-                previous_frame_timestamp, image_data[current_idx].timestamp);
+            imu_data_from_last_frame = lightweight_vio::EurocUtils::get_imu_between_timestamps(previous_frame_timestamp, image_data[current_idx].timestamp);
             
             // Check if we have valid IMU data
             has_valid_imu_data = !imu_data_from_last_frame.empty();

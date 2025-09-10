@@ -206,6 +206,9 @@ private:
     // Current pose
     Eigen::Matrix4f m_current_pose;
     
+    // Predicted pose for comparison logging
+    Eigen::Matrix4f m_predicted_pose;
+    
     // Constant velocity model for pose prediction
     Eigen::Matrix4f m_transform_from_last;  // Transformation from last frame to current frame
     
@@ -222,6 +225,9 @@ private:
     mutable std::mutex m_keyframes_mutex;
     std::condition_variable m_keyframes_cv;
     std::atomic<bool> m_keyframes_updated;
+
+
+    bool m_success_imu_init = false;
     
     /**
      * @brief Sliding window optimization thread function
@@ -238,7 +244,7 @@ private:
     std::shared_ptr<Frame> create_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp);
     
     /**
-     * @brief Predict current frame pose using constant velocity model
+     * @brief Predict current frame pose using motion model
      */
     void predict_state();
     

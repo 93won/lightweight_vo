@@ -14,8 +14,11 @@
 #include <memory>
 #include <vector>
 #include <Eigen/Dense>
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 #include <sophus/se3.hpp>
-#include "../database/Frame.h"
+#include "database/Frame.h"
+#include "util/EurocUtils.h"
 
 namespace lightweight_vio {
 
@@ -318,6 +321,13 @@ public:
         const std::vector<std::pair<Eigen::Vector3f, Eigen::Vector3f>>& optimized_biases
     );
 
+    /**
+     * @brief Rodrigues formula for rotation
+     * @param omega Rotation vector
+     * @return Rotation matrix
+     */
+    Eigen::Matrix3f rodrigues(const Eigen::Vector3f& omega) const;
+
 private:
     // Current bias estimates
     Eigen::Vector3f m_gyro_bias;
@@ -381,13 +391,6 @@ private:
      * @return Skew-symmetric matrix
      */
     Eigen::Matrix3f skew_symmetric(const Eigen::Vector3f& v) const;
-    
-    /**
-     * @brief Rodrigues formula for rotation
-     * @param omega Rotation vector
-     * @return Rotation matrix
-     */
-    Eigen::Matrix3f rodrigues(const Eigen::Vector3f& omega) const;
     
     /**
      * @brief Right Jacobian for SO(3)

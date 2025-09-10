@@ -134,9 +134,9 @@ std::shared_ptr<IMUPreintegration> IMUHandler::preintegrate(
         float dt;
         if (i == 0) {
             dt = (filtered_measurements.size() > 1) ? 
-                 (filtered_measurements[1].timestamp - filtered_measurements[0].timestamp) : 0.005f;
+                 static_cast<float>(filtered_measurements[1].timestamp - filtered_measurements[0].timestamp) : 0.005f;
         } else {
-            dt = filtered_measurements[i].timestamp - filtered_measurements[i-1].timestamp;
+            dt = static_cast<float>(filtered_measurements[i].timestamp - filtered_measurements[i-1].timestamp);
         }
         dt = std::max(0.001f, std::min(dt, 0.02f));
         
@@ -156,8 +156,8 @@ void IMUHandler::integrate_measurement(
     float dt) {
     
     // Bias-corrected measurements
-    Eigen::Vector3f gyro = imu.angular_vel.cast<float>() - preint->gyro_bias;
-    Eigen::Vector3f accel = imu.linear_accel.cast<float>() - preint->accel_bias;
+    Eigen::Vector3f gyro = imu.angular_vel - preint->gyro_bias;
+    Eigen::Vector3f accel = imu.linear_accel - preint->accel_bias;
     
     // Current state
     Eigen::Matrix3f R = preint->delta_R;
@@ -195,8 +195,8 @@ void IMUHandler::integrate_measurement_with_gravity(
     const Eigen::Matrix3f& R_wb) {
     
     // Remove bias from measurements  
-    Eigen::Vector3f gyro = imu.angular_vel.cast<float>() - preint->gyro_bias;
-    Eigen::Vector3f accel = imu.linear_accel.cast<float>() - preint->accel_bias;
+    Eigen::Vector3f gyro = imu.angular_vel - preint->gyro_bias;
+    Eigen::Vector3f accel = imu.linear_accel - preint->accel_bias;
     
     // 🎯 중력 보상: body frame에서 중력 제거
     // 방정식: v_j_w - v_i_w = g_w*dt + R_wb*∫(a_compensated)dt
@@ -302,8 +302,8 @@ void IMUHandler::estimate_initial_bias(
     Eigen::Vector3f accel_sum = Eigen::Vector3f::Zero();
     
     for (const auto& imu : imu_measurements) {
-        gyro_sum += imu.angular_vel.cast<float>();
-        accel_sum += imu.linear_accel.cast<float>();
+        gyro_sum += imu.angular_vel;
+        accel_sum += imu.linear_accel;
     }
     
     // Average as bias estimate
