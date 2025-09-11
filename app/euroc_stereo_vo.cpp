@@ -294,6 +294,8 @@ int main(int argc, char* argv[]) {
     // Process frames in the valid GT range
     size_t current_idx = start_frame_idx;
     size_t processed_frames = 0;
+
+    end_frame_idx = 500;
     while (current_idx < end_frame_idx) {
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {

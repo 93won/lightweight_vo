@@ -13,7 +13,7 @@ system_mode:
 keyframe_management:
   keyframe_window_size: 5
   grid_coverage_ratio: 0.7  # Add keyframe when coverage drops to 80% of last keyframe's coverage
-  time_threshold: 0.5   
+  time_threshold: 0.05   
   
 # Feature Detection Parameters
 # Controls how corner features are detected using goodFeaturesToTrack
@@ -53,7 +53,7 @@ stereo_matching:
   error_threshold: 50.0       # Maximum optical flow error for stereo matches (pixels)
   min_disparity: 0.1          # Minimum disparity (pixels) - filters out very far points
   max_disparity: 300.0        # Maximum disparity (pixels) - filters out very close points  
-  max_y_difference: 100.0      # Maximum Y-coordinate difference for stereo pairs (pixels)
+  max_y_difference: 30.0      # Maximum Y-coordinate difference for stereo pairs (pixels)
   epipolar_threshold: 1.0     # Maximum distance from epipolar line using estimated F matrix (pixels)
 
 # Global Depth Parameters

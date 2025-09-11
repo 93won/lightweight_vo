@@ -458,18 +458,7 @@ public:
         std::vector<Frame*>& frames,
         std::shared_ptr<IMUHandler> imu_handler);
     
-    /**
-     * @brief Inertial optimization for VIO system
-     * @param frames Frames to optimize
-     * @param imu_handler IMU handler with preintegration data
-     * @param gravity Gravity vector
-     * @return Optimization result
-     */
-    InertialOptimizationResult optimize_sliding_window(
-        std::vector<Frame*>& frames,
-        std::shared_ptr<IMUHandler> imu_handler,
-        const Eigen::Vector3f& gravity);
-
+ 
 private:
     struct OptimizationParams {
         int max_iterations = 200;
@@ -486,7 +475,9 @@ private:
         const std::vector<Frame*>& frames,
         std::shared_ptr<IMUHandler> imu_handler,
         std::vector<std::vector<double>>& pose_params_vec,
-        std::vector<std::vector<double>>& velocity_bias_params_vec,
+        std::vector<std::vector<double>>& velocity_params_vec,
+        std::vector<std::vector<double>>& accel_bias_params_vec,
+        std::vector<std::vector<double>>& gyro_bias_params_vec,
         std::vector<double>& gravity_dir_params);
     
     int add_inertial_gravity_factors(
@@ -494,19 +485,25 @@ private:
         const std::vector<Frame*>& frames,
         std::shared_ptr<IMUHandler> imu_handler,
         const std::vector<std::vector<double>>& pose_params_vec,
-        const std::vector<std::vector<double>>& velocity_bias_params_vec,
+        const std::vector<std::vector<double>>& velocity_params_vec,
+        const std::vector<std::vector<double>>& accel_bias_params_vec,
+        const std::vector<std::vector<double>>& gyro_bias_params_vec,
         const std::vector<double>& gravity_dir_params);
     
     void add_imu_init_priors(
         ceres::Problem& problem,
         const std::vector<Frame*>& frames,
-        const std::vector<std::vector<double>>& velocity_bias_params_vec);
+        const std::vector<std::vector<double>>& velocity_params_vec,
+        const std::vector<std::vector<double>>& accel_bias_params_vec,
+        const std::vector<std::vector<double>>& gyro_bias_params_vec);
     
     void recover_imu_init_states(
         const std::vector<Frame*>& frames,
         std::shared_ptr<IMUHandler> imu_handler,
         const std::vector<std::vector<double>>& pose_params_vec,
-        const std::vector<std::vector<double>>& velocity_bias_params_vec,
+        const std::vector<std::vector<double>>& velocity_params_vec,
+        const std::vector<std::vector<double>>& accel_bias_params_vec,
+        const std::vector<std::vector<double>>& gyro_bias_params_vec,
         const std::vector<double>& gravity_dir_params,
         Eigen::Matrix4f& T_gw);
     

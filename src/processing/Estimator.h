@@ -137,6 +137,8 @@ public:
      */
     const std::vector<std::shared_ptr<Frame>>& get_keyframes() const { return m_keyframes; }
     
+
+   
     /**
      * @brief Get all keyframes (thread-safe copy)
      * @return Copy of keyframes vector
@@ -154,6 +156,12 @@ public:
      * @return Vector of map points
      */
     const std::vector<std::shared_ptr<MapPoint>>& get_map_points() const { return m_map_points; }
+
+    /**
+     * @brief Get all map points (thread-safe copy)
+     * @return Copy of map points vector
+     */
+    std::vector<std::shared_ptr<MapPoint>> get_map_points_safe() const;
 
     /**
      * @brief Get current frame
@@ -217,12 +225,14 @@ private:
     Eigen::Matrix4f m_initial_gt_pose;
     
     // Gravity transformation matrix for viewer
-    Eigen::Matrix4f m_Tgw_init;  // World-to-Gravity transformation matrix (Identity if not initialized)
-    
+    Eigen::Matrix4f m_Tgw_init = Eigen::Matrix4f::Identity();  // World-to-Gravity transformation matrix (Identity if not initialized)
+    Eigen::Matrix3f m_Rgw_init = Eigen::Matrix3f::Identity();  // Gravity rotation matrix (Identity if not initialized)
+
     // Sliding window optimization thread
     std::unique_ptr<std::thread> m_sliding_window_thread;
     std::atomic<bool> m_sliding_window_thread_running;
     mutable std::mutex m_keyframes_mutex;
+    mutable std::mutex m_map_points_mutex;
     std::condition_variable m_keyframes_cv;
     std::atomic<bool> m_keyframes_updated;
 
@@ -319,12 +329,7 @@ private:
      */
     bool try_initialize_imu();
     
-    /**
-     * @brief Perform visual-inertial optimization on current keyframe window
-     * @return True if optimization successful
-     */
-    bool perform_inertial_optimization();
-    
+   
     /**
      * @brief Estimate initial IMU bias from static period
      * @param static_imu_data Static IMU measurements
@@ -335,6 +340,12 @@ private:
      * @brief Notify sliding window thread about keyframe updates
      */
     void notify_sliding_window_thread();
+    
+    /**
+     * @brief Debug keyframe-to-keyframe IMU vs VO pose differences (after IMU init)
+     * @param current_kf Current keyframe to compare with previous keyframe
+     */
+    void debug_keyframe_to_keyframe_comparison();
     
     /**
      * @brief Perform pose optimization

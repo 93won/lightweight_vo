@@ -21,11 +21,8 @@
 #include <ceres/manifold.h>
 #include <ceres/local_parameterization.h>
 #include <sophus/se3.hpp>
-
-// Forward declaration
-namespace lightweight_vio {
-    struct IMUPreintegration;
-}
+#include <spdlog/spdlog.h>
+#include "processing/IMUHandler.h"
 
 // Define Vector6d as it's not available in standard Eigen
 namespace Eigen {
@@ -172,81 +169,7 @@ private:
 // ===============================================================================
 // INERTIAL OPTIMIZATION COST FUNCTIONS
 // ===============================================================================
-
-/**
- * @brief IMU preintegration factor for pose graph optimization
- * 
- * Residual dimension: 15 (position:3, rotation:3, velocity:3, accel_bias:3, gyro_bias:3)
- * Parameter blocks: 4
- *   - pose1: SE(3) tangent space [ρ1, φ1] (6D) 
- *   - speed_bias1: [v1, ba1, bg1] (9D)
- *   - pose2: SE(3) tangent space [ρ2, φ2] (6D)
- *   - speed_bias2: [v2, ba2, bg2] (9D)
- */
-class IMUFactor : public ceres::SizedCostFunction<15, 6, 9, 6, 9> {
-public:
-    /**
-     * @brief Constructor
-     * @param preintegration IMU preintegration measurement
-     * @param gravity Gravity vector in world frame
-     */
-    IMUFactor(std::shared_ptr<IMUPreintegration> preintegration,
-              const Eigen::Vector3d& gravity)
-        : m_preintegration(preintegration), m_gravity(gravity) {}
-
-    /**
-     * @brief Evaluate residuals and Jacobians
-     */
-    virtual bool Evaluate(double const* const* parameters,
-                         double* residuals,
-                         double** jacobians) const override;
-
-private:
-    std::shared_ptr<IMUPreintegration> m_preintegration;
-    Eigen::Vector3d m_gravity;
-
-    /**
-     * @brief Convert SE(3) tangent vector to transformation matrix
-     * @param tangent 6D tangent vector [ρ, φ] (translation, rotation)
-     * @return 4x4 transformation matrix
-     */
-    Eigen::Matrix4d tangent_to_matrix(const Sophus::SE3d::Tangent& tangent) const;
-
-    /**
-     * @brief Skew-symmetric matrix
-     */
-    Eigen::Matrix3d skew_symmetric(const Eigen::Vector3d& v) const;
-
-    /**
-     * @brief Right Jacobian of SO(3)
-     */
-    Eigen::Matrix3d right_jacobian_SO3(const Eigen::Vector3d& phi) const;
-
-    /**
-     * @brief Left Jacobian of SO(3)  
-     */
-    Eigen::Matrix3d left_jacobian_SO3(const Eigen::Vector3d& phi) const;
-
-    /**
-     * @brief Logarithm map of SO(3) (rotation matrix to axis-angle)
-     */
-    Eigen::Vector3d log_SO3(const Eigen::Matrix3d& R) const;
-};
-
-/**
- * @brief Inertial factor with gravity direction optimization
- * 
- * This factor connects two poses with velocity and bias parameters, and optimizes
- * gravity direction using body frame residuals for better numerical stability.
- * 
- * Parameter blocks:
- * - pose1: SE3 pose (6 DoF) [t, rotation]
- * - velocity_bias1: [v1, ba1, bg1] (9 DoF)
- * - pose2: SE3 pose (6 DoF) [t, rotation]
- * - velocity_bias2: [v2, ba2, bg2] (9 DoF)
- * - gravity_dir: 2D parameterization of gravity direction
- */
-class InertialGravityFactor : public ceres::SizedCostFunction<9, 6, 9, 6, 9, 2> {
+class InertialGravityFactor : public ceres::SizedCostFunction<9, 6, 3, 3, 3, 6, 3, 2> {
 public:
     /**
      * @brief Constructor
@@ -255,18 +178,57 @@ public:
      */
     InertialGravityFactor(std::shared_ptr<IMUPreintegration> preintegration,
                           double gravity_magnitude = 9.81)
-        : m_preintegration(preintegration), m_gravity_magnitude(gravity_magnitude) {}
+        : m_preintegration(preintegration), m_gravity_magnitude(gravity_magnitude) {
+        // Extract covariance for rotation, velocity, and position (9x9 block)
+        Eigen::Matrix<double, 9, 9> covariance_9x9 = m_preintegration->covariance.block<9, 9>(0, 0).cast<double>();
+        
+        // Compute information matrix (covariance inverse) with numerical stability check
+        Eigen::JacobiSVD<Eigen::Matrix<double, 9, 9>> svd(covariance_9x9, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        
+        // Apply regularization for numerical stability
+        const double min_singular_value = 1e-6;
+        Eigen::Matrix<double, 9, 1> singular_values = svd.singularValues();
+        for (int i = 0; i < 9; ++i) {
+            if (singular_values(i) < min_singular_value) {
+                singular_values(i) = min_singular_value;
+            }
+        }
+        
+        // Compute regularized inverse: A^(-1) = V * S^(-1) * U^T
+        Eigen::Matrix<double, 9, 9> information = svd.matrixV() * singular_values.cwiseInverse().asDiagonal() * svd.matrixU().transpose();
+        
+        // Compute square root information matrix using Cholesky decomposition
+        Eigen::LLT<Eigen::Matrix<double, 9, 9>> llt(information);
+        if (llt.info() == Eigen::Success) {
+            m_sqrt_information = llt.matrixL().transpose(); // Upper triangular
+        } else {
+            // Fallback to identity if decomposition fails
+            m_sqrt_information = Eigen::Matrix<double, 9, 9>::Identity();
+            spdlog::warn("[InertialGravityFactor] Cholesky decomposition failed, using identity weighting");
+        }
+    }
 
     /**
      * @brief Evaluate residual and Jacobians 
      * Residual: [rotation_error, velocity_error, position_error] (9D)
      * Body frame approach for better numerical stability
+     * 
+     * @param parameters[0] SE3 pose1 in tangent space [6]
+     * @param parameters[1] velocity1 [3]
+     * @param parameters[2] shared gyro bias [3]
+     * @param parameters[3] shared accel bias [3]
+     * @param parameters[4] SE3 pose2 in tangent space [6]
+     * @param parameters[5] velocity2 [3]
+     * @param parameters[6] gravity direction [2]
      */
     virtual bool Evaluate(double const* const* parameters,
                          double* residuals,
-                         double** jacobians) const override;private:
+                         double** jacobians) const override;
+
+private:
     std::shared_ptr<IMUPreintegration> m_preintegration;
     double m_gravity_magnitude;
+    Eigen::Matrix<double, 9, 9> m_sqrt_information;  // Square root information matrix for weighting
 
     /**
      * @brief Skew-symmetric matrix
@@ -297,144 +259,51 @@ public:
 };
 
 /**
- * @brief Simple bias prior factor
- * 
- * Applies a zero-mean Gaussian prior on IMU biases:
- * cost = 0.5 * weight * ||bias - prior||^2
+ * @brief Generic vector prior factor template
+ * @tparam N Dimension of the vector
  */
-class BiasPriorFactor : public ceres::SizedCostFunction<3, 3> {
+template<int N>
+class VectorPriorFactor : public ceres::SizedCostFunction<N, N> {
 public:
-    BiasPriorFactor(const Eigen::Vector3d& prior, double weight)
-        : prior_(prior), weight_(weight) {}
-
-    virtual bool Evaluate(double const* const* parameters,
-                         double* residuals,
-                         double** jacobians) const override {
-        const double* bias = parameters[0];
-        
-        // Residual: r = weight * (bias - prior)
-        for (int i = 0; i < 3; ++i) {
-            residuals[i] = weight_ * (bias[i] - prior_[i]);
-        }
-        
-        // Jacobian w.r.t bias: dr/dbias = weight * I
-        if (jacobians != nullptr && jacobians[0] != nullptr) {
-            for (int i = 0; i < 3; ++i) {
-                for (int j = 0; j < 3; ++j) {
-                    jacobians[0][i * 3 + j] = (i == j) ? weight_ : 0.0;
-                }
-            }
-        }
-        
-        return true;
-    }
-
-private:
-    Eigen::Vector3d prior_;
-    double weight_;
-};
-
-/**
- * @brief Velocity prior factor for IMU initialization
- */
-class VelocityPriorFactor : public ceres::SizedCostFunction<3, 3> {
-public:
-    VelocityPriorFactor(const Eigen::Vector3d& prior, double weight)
-        : prior_(prior), weight_(weight) {}
+    VectorPriorFactor(const Eigen::Matrix<double, N, 1>& prior, 
+                     const Eigen::Matrix<double, N, N>& information)
+        : prior_(prior), information_(information) {}
 
     virtual bool Evaluate(double const* const* parameters,
                          double* residuals,
                          double** jacobians) const override {
         
-        // Extract velocity parameters
-        Eigen::Map<const Eigen::Vector3d> velocity(parameters[0]);
+        // Extract parameters
+        Eigen::Map<const Eigen::Matrix<double, N, 1>> param(parameters[0]);
         
-        // Compute residual: sqrt(weight) * (velocity - prior)
-        Eigen::Vector3d error = velocity - prior_;
-        Eigen::Map<Eigen::Vector3d> residual(residuals);
-        residual = sqrt(weight_) * error;
+        // Compute residual: sqrt_info * (param - prior)
+        Eigen::Matrix<double, N, 1> error = param - prior_;
+        
+        // Apply square root information matrix
+        Eigen::LLT<Eigen::Matrix<double, N, N>> llt(information_);
+        Eigen::Matrix<double, N, N> sqrt_info = llt.matrixL().transpose();
+        
+        Eigen::Map<Eigen::Matrix<double, N, 1>> residual(residuals);
+        residual = sqrt_info * error;
         
         // Compute Jacobian if requested
         if (jacobians != nullptr && jacobians[0] != nullptr) {
-            Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>> jacobian(jacobians[0]);
-            jacobian = sqrt(weight_) * Eigen::Matrix3d::Identity();
+            Eigen::Map<Eigen::Matrix<double, N, N, Eigen::RowMajor>> jacobian(jacobians[0]);
+            jacobian = sqrt_info;
         }
         
         return true;
     }
 
 private:
-    Eigen::Vector3d prior_;
-    double weight_;
+    Eigen::Matrix<double, N, 1> prior_;
+    Eigen::Matrix<double, N, N> information_;
 };
 
-/**
- * @brief Accelerometer bias prior factor
- */
-class AccelBiasPriorFactor : public ceres::SizedCostFunction<3, 3> {
-public:
-    AccelBiasPriorFactor(const Eigen::Vector3d& prior, double weight)
-        : prior_(prior), weight_(weight) {}
-
-    virtual bool Evaluate(double const* const* parameters,
-                         double* residuals,
-                         double** jacobians) const override {
-        
-        // Extract accel bias parameters
-        Eigen::Map<const Eigen::Vector3d> accel_bias(parameters[0]);
-        
-        // Compute residual: sqrt(weight) * (bias - prior)
-        Eigen::Vector3d error = accel_bias - prior_;
-        Eigen::Map<Eigen::Vector3d> residual(residuals);
-        residual = sqrt(weight_) * error;
-        
-        // Compute Jacobian if requested
-        if (jacobians != nullptr && jacobians[0] != nullptr) {
-            Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>> jacobian(jacobians[0]);
-            jacobian = sqrt(weight_) * Eigen::Matrix3d::Identity();
-        }
-        
-        return true;
-    }
-
-private:
-    Eigen::Vector3d prior_;
-    double weight_;
-};
-
-/**
- * @brief Gyroscope bias prior factor
- */
-class GyroBiasPriorFactor : public ceres::SizedCostFunction<3, 3> {
-public:
-    GyroBiasPriorFactor(const Eigen::Vector3d& prior, double weight)
-        : prior_(prior), weight_(weight) {}
-
-    virtual bool Evaluate(double const* const* parameters,
-                         double* residuals,
-                         double** jacobians) const override {
-        
-        // Extract gyro bias parameters
-        Eigen::Map<const Eigen::Vector3d> gyro_bias(parameters[0]);
-        
-        // Compute residual: sqrt(weight) * (bias - prior)
-        Eigen::Vector3d error = gyro_bias - prior_;
-        Eigen::Map<Eigen::Vector3d> residual(residuals);
-        residual = sqrt(weight_) * error;
-        
-        // Compute Jacobian if requested
-        if (jacobians != nullptr && jacobians[0] != nullptr) {
-            Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>> jacobian(jacobians[0]);
-            jacobian = sqrt(weight_) * Eigen::Matrix3d::Identity();
-        }
-        
-        return true;
-    }
-
-private:
-    Eigen::Vector3d prior_;
-    double weight_;
-};
+// Type aliases for common prior factors (after template definition)
+using BiasPriorFactor = VectorPriorFactor<3>;           // 3D bias prior
+using VelocityPriorFactor = VectorPriorFactor<3>;       // 3D velocity prior  
+using PosePriorFactor = VectorPriorFactor<6>;           // 6D SE3 pose prior
 
 /**
  * @brief Combined velocity and bias prior factor for IMU initialization

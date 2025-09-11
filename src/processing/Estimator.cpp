@@ -633,11 +633,12 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
     // Increment frame counter for gravity estimation
     m_frame_count_since_start++;
     
+
+    std::cout<<"Rwb:"<<m_current_frame->get_Twb().block<3,3>(0,0)<<"\n";
+
     // 🎯 Attempt gravity estimation if conditions are met (already in VIO mode since IMU data is available)
     const auto& config = Config::getInstance();
-    if (config.m_gravity_estimation_enable && 
-        !m_gravity_initialized && 
-        m_keyframes.size() >= 5) {  // Unified condition: keyframes >= 5
+    if (!m_success_imu_init && m_keyframes.size() >= 5) {  // Unified condition: keyframes >= 5
 
         spdlog::info("[GRAVITY_EST] Attempting gravity estimation with {} keyframes", m_keyframes.size());
         m_success_imu_init = try_initialize_imu();
@@ -689,6 +690,11 @@ Eigen::Matrix4f Estimator::get_current_pose() const {
 std::vector<std::shared_ptr<Frame>> Estimator::get_keyframes_safe() const {
     std::lock_guard<std::mutex> lock(m_keyframes_mutex);
     return m_keyframes;  // Return a copy
+}
+
+std::vector<std::shared_ptr<MapPoint>> Estimator::get_map_points_safe() const {
+    std::lock_guard<std::mutex> lock(m_map_points_mutex);  // Use same mutex as keyframes since they're related
+    return m_map_points;  // Return a copy
 }
 
 std::shared_ptr<Frame> Estimator::create_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp) {
@@ -1092,6 +1098,8 @@ void lightweight_vio::Estimator::create_keyframe(std::shared_ptr<Frame> frame) {
     // Store grid coverage of this keyframe for future relative comparisons
     m_last_keyframe_grid_coverage = calculate_grid_coverage_with_map_points(frame);
     
+
+    
     // Update last keyframe reference
     m_last_keyframe = frame;
     
@@ -1265,86 +1273,9 @@ void Estimator::predict_state() {
             // Use IMU preintegration from last frame
             
 
-            // 🔍 DETAILED IMU DEBUG LOGGING
-            spdlog::debug("[IMU_DEBUG] Frame {}: === IMU PREDICTION DETAILED DEBUG ===", m_current_frame->get_frame_id());
-            
             // Get gravity vector from IMU handler (gravity-aligned coordinate system)
             Eigen::Vector3f Gz = m_imu_handler->get_gravity();
             
-            // Log raw IMU measurements if available
-            auto imu_data = m_current_frame->get_imu_data_from_last_frame();
-            if (!imu_data.empty()) {
-                spdlog::debug("[IMU_DEBUG] === RAW IMU MEASUREMENTS ({} measurements) ===", imu_data.size());
-                for (size_t i = 0; i < imu_data.size(); ++i) {
-                    const auto& imu = imu_data[i];
-
-                    // 🔍 DEBUG: Print raw IMU values first
-                    spdlog::debug("[IMU_RAW] IMU[{}]: timestamp={:.6f}, accel=({:.6f}, {:.6f}, {:.6f})", 
-                                 i, imu.timestamp, imu.linear_accel.x(), imu.linear_accel.y(), imu.linear_accel.z());
-                    
-                    // 🔍 DEBUG: Print bias values
-                    auto bias = m_previous_frame->get_accel_bias();
-                    spdlog::debug("[IMU_BIAS] Accel bias: ({:.6f}, {:.6f}, {:.6f})", bias.x(), bias.y(), bias.z());
-                    
-                    // 🔍 DEBUG: Check if IMU data is corrupted (abnormally large values)
-                    float accel_magnitude = imu.linear_accel.norm();
-                    if (accel_magnitude > 100.0f) {
-                        spdlog::error("[IMU_CORRUPT] CORRUPTED IMU DATA DETECTED! Magnitude: {:.3f}, Raw: ({:.6f}, {:.6f}, {:.6f})", 
-                                     accel_magnitude, imu.linear_accel.x(), imu.linear_accel.y(), imu.linear_accel.z());
-                        continue; // Skip corrupted data
-                    }
-
-                    // Bias-corrected acceleration in body frame
-                    auto raw_bias = m_previous_frame->get_accel_bias();
-                    
-                    // 🔍 CRITICAL DEBUG: Check bias values in detail
-                    spdlog::error("[BIAS_DEBUG] Raw bias values: x={:.15f}, y={:.15f}, z={:.15f}", 
-                                 raw_bias.x(), raw_bias.y(), raw_bias.z());
-                    // spdlog::error("[BIAS_DEBUG] Raw bias magnitude: {:.15f}", raw_bias.norm());
-                    
-                    // // Check for corrupted bias values
-                    // if (std::abs(raw_bias.x()) > 10.0f || std::abs(raw_bias.y()) > 10.0f || std::abs(raw_bias.z()) > 10.0f) {
-                    //     spdlog::error("[BIAS_CORRUPT] CORRUPTED BIAS DETECTED! Using zero bias instead");
-                    //     raw_bias = Eigen::Vector3f::Zero();
-                    // }
-                    
-                    auto acc_body = imu.linear_accel - raw_bias;
-                    
-                    // 🔍 DEBUG: Verify acc_body calculation step by step
-                    spdlog::error("[ACC_CALC] imu.linear_accel: ({:.6f}, {:.6f}, {:.6f})", 
-                                 imu.linear_accel.x(), imu.linear_accel.y(), imu.linear_accel.z());
-                    spdlog::error("[ACC_CALC] corrected_bias: ({:.6f}, {:.6f}, {:.6f})", 
-                                 raw_bias.x(), raw_bias.y(), raw_bias.z());
-                    spdlog::error("[ACC_CALC] acc_body: ({:.6f}, {:.6f}, {:.6f})", 
-                                 acc_body.x(), acc_body.y(), acc_body.z());
-                    
-                    // // 🔍 DEBUG: Check rotation matrix before transformation
-                    auto R_wb = m_previous_frame->get_Twb().block<3,3>(0,0);
-                    // spdlog::debug("[IMU_DEBUG_MATRIX] R_wb matrix determinant: {:.6f}", R_wb.determinant());
-                    // spdlog::debug("[IMU_DEBUG_MATRIX] R_wb matrix norm: {:.6f}", R_wb.norm());
-                    // spdlog::debug("[IMU_DEBUG_MATRIX] acc_body: ({:.6f}, {:.6f}, {:.6f})", acc_body.x(), acc_body.y(), acc_body.z());
-                    
-                    // // Check if rotation matrix is valid (determinant should be ~1, norm should be reasonable)
-                    // if (std::abs(R_wb.determinant() - 1.0f) > 0.1f || R_wb.norm() > 10.0f) {
-                    //     spdlog::error("[IMU_CORRUPT_MATRIX] CORRUPTED ROTATION MATRIX DETECTED!");
-                    //     spdlog::error("  Determinant: {:.6f} (should be ~1.0)", R_wb.determinant());
-                    //     spdlog::error("  Norm: {:.6f} (should be ~1.732)", R_wb.norm());
-                    //     spdlog::error("  R_wb matrix:");
-                    //     for (int row = 0; row < 3; ++row) {
-                    //         spdlog::error("    [{:.6f}, {:.6f}, {:.6f}]", R_wb(row,0), R_wb(row,1), R_wb(row,2));
-                    //     }
-                    //     continue; // Skip this IMU measurement
-                    // }
-                    
-                    // Transform to world frame (gravity-aligned)
-                    auto acc_w = R_wb * acc_body;
-                    
-                    // Note: In gravity-aligned coordinate system, we don't add gravity here
-                    // because it's already (0, 0, -9.81) and preintegration handles gravity compensation
-                    spdlog::warn("Acc world: ({:.3f}, {:.3f}, {:.3f})", acc_w.x(), acc_w.y(), acc_w.z());
-                }
-            }
-
             // Get previous frame state
             const Eigen::Vector3f twb1 = m_previous_frame->get_Twb().block<3,1>(0,3);     // Position
             const Eigen::Matrix3f Rwb1 = m_previous_frame->get_Twb().block<3,3>(0,0);     // Rotation  
@@ -1357,7 +1288,6 @@ void Estimator::predict_state() {
             const Eigen::Vector3f gyro_bias = m_previous_frame->get_gyro_bias();
             const Eigen::Vector3f accel_bias = m_previous_frame->get_accel_bias();
 
-            // ORB-SLAM3 PredictStateIMU formulas with raw preintegration + separate gravity
             Eigen::Matrix3f Rwb2 = Rwb1 * frame_to_frame_preint->delta_R;  // No normalization for now
             Eigen::Vector3f twb2 = twb1 + Vwb1*t12 + 0.5f*t12*t12*Gz + Rwb1*frame_to_frame_preint->delta_P;
             Eigen::Vector3f Vwb2 = Vwb1 + t12*Gz + Rwb1*frame_to_frame_preint->delta_V;
@@ -1369,9 +1299,8 @@ void Estimator::predict_state() {
             
             // Store predicted pose for comparison logging (don't set it yet)
             m_predicted_pose = predicted_pose;
-            spdlog::warn("Predicted pose for frame {}: position=({:.3f}, {:.3f}, {:.3f})", 
-                         m_current_frame->get_frame_id(), twb2.x(), twb2.y(), twb2.z());
-            // m_current_frame->set_Twb(predicted_pose);
+            // spdlog::warn("Predicted pose for frame {}: position=({:.3f}, {:.3f}, {:.3f})", m_current_frame->get_frame_id(), twb2.x(), twb2.y(), twb2.z());
+            m_current_frame->set_Twb(predicted_pose);
             m_current_frame->set_velocity(Vwb2);
             
           
@@ -1663,6 +1592,26 @@ bool lightweight_vio::Estimator::try_initialize_imu() {
     
     // First estimate gravity, then debug velocity comparison
     bool gravity_success = m_imu_handler->estimate_gravity_with_stereo_constraints(keyframe_ptrs, all_imu_data);
+
+    m_Rgw_init = m_imu_handler->get_Rgw();
+
+    std::vector<std::shared_ptr<MapPoint>> all_map_points;
+    std::set<std::shared_ptr<MapPoint>> unique_map_points;
+
+    Eigen::Matrix4f m_Tgw_init = Eigen::Matrix4f::Identity();
+    m_Tgw_init.block<3,3>(0,0) = m_Rgw_init;
+
+    // Get copies for transformation (since function modifies them)
+    auto keyframes_copy = get_keyframes_safe();
+    auto map_points_copy = get_map_points_safe();
+    
+    // m_imu_handler->transform_to_gravity_frame(keyframes_copy, map_points_copy, m_Tgw_init);
+
+    // return true;
+
+
+    // std::cout<<"Estimated initial gravity direction (Rgw):\n"<<m_Rgw_init<<"\n\n\n\n"<<std::endl;
+
     if (gravity_success) {
         m_imu_handler->debug_velocity_comparison(keyframe_ptrs, all_imu_data);
         
@@ -1682,6 +1631,8 @@ bool lightweight_vio::Estimator::try_initialize_imu() {
             m_Tgw_init = imu_init_result.Tgw_init;
             // spdlog::info("  - Stored Tgw_init for viewer\n\n\n\n");
             // std::cout<<m_Tgw_init<<"\n\n\n\n"<<std::endl;
+
+            debug_keyframe_to_keyframe_comparison();
             
             return true;
         } else {
@@ -1689,82 +1640,102 @@ bool lightweight_vio::Estimator::try_initialize_imu() {
             return false;
         }
     }
+
     
+
     return false;
 }
 
-bool lightweight_vio::Estimator::perform_inertial_optimization() {
-    /*
-     * 🎯 VISUAL-INERTIAL OPTIMIZATION WITH IMU CONSTRAINTS
-     * 
-     * OBJECTIVE: Jointly optimize poses, velocities, and biases using both visual and IMU measurements
-     * 
-     * CORE PRINCIPLE:
-     * ===============================================================================
-     * After gravity estimation, we can now use IMU preintegration factors in optimization:
-     * 1. Visual constraints: Feature reprojection errors (existing)
-     * 2. IMU constraints: Preintegration residuals between consecutive keyframes  
-     * 3. Bias constraints: Random walk model for gyro and accel biases
-     * 
-     * This creates a factor graph that jointly optimizes:
-     * - Poses: SE(3) transformations for each keyframe
-     * - Velocities: 3D velocity for each keyframe
-     * - Biases: Gyroscope and accelerometer biases (shared across window)
-     * ===============================================================================
-     */
-    
-    if (!m_gravity_initialized) {
-        spdlog::warn("[VIO_OPT] Cannot perform inertial optimization without gravity initialization");
-        return false;
+
+void lightweight_vio::Estimator::debug_keyframe_to_keyframe_comparison()
+{
+
+    spdlog::info("\n\n\n\n\n\n\n\n🔍 [KF_COMPARE] Comparing VO and IMU preintegration between ALL keyframes...\n");
+    if (m_keyframes.size() < 2)
+    {
+        return;
     }
-    
-    if (!m_imu_handler || !m_imu_handler->is_initialized()) {
-        spdlog::warn("[VIO_OPT] IMU handler not initialized");
-        return false;
+
+    // Compare all consecutive keyframe pairs
+    for (size_t i = 1; i < m_keyframes.size(); ++i)
+    {
+        std::shared_ptr<Frame> prev_kf = m_keyframes[i - 1];
+        std::shared_ptr<Frame> curr_kf = m_keyframes[i];
+
+        if (!prev_kf || !curr_kf)
+        {
+            continue;
+        }
+
+        // Get VO pose change between keyframes
+        Eigen::Matrix4f T_wb_prev = prev_kf->get_Twb();
+        Eigen::Matrix4f T_wb_curr = curr_kf->get_Twb();
+
+        // Calculate relative pose change from VO (previous to current)
+        Eigen::Matrix4f T_rel_vo = T_wb_prev.inverse() * T_wb_curr;
+
+        // Get rotation and translation from VO
+        Eigen::Vector3f t_rel_vo = T_rel_vo.block<3, 1>(0, 3);
+        Eigen::Matrix3f R_rel_vo = T_rel_vo.block<3, 3>(0, 0);
+
+        // Get preintegrated IMU measurements between keyframes
+        if (curr_kf->has_imu_preintegration_from_last_keyframe())
+        {
+            auto preint_imu = curr_kf->get_imu_preintegration_from_last_keyframe();
+
+            // Get IMU bias and gravity estimates
+            Eigen::Vector3f bg, ba;
+            m_imu_handler->get_bias(bg, ba); // Get both biases at once
+            Eigen::Vector3f gravity = m_imu_handler->get_gravity().cast<float>();
+
+            // Get velocities
+            Eigen::Vector3f v_prev = prev_kf->get_velocity();
+
+            // Get time difference
+            double dt = curr_kf->get_dt_from_last_keyframe();
+
+            if (dt > 0.0)
+            {
+                // Compute bias-corrected IMU integration
+                // Position: p_curr = p_prev + v_prev*dt + 0.5*gravity*dt^2 + corrected_delta_p
+                // where corrected_delta_p = delta_p - J_p_ba * ba - J_p_bg * bg
+
+                Eigen::Vector3f delta_p = preint_imu->delta_P; // Use correct member name
+                Eigen::Vector3f delta_v = preint_imu->delta_V; // Use correct member name
+                Eigen::Matrix3f delta_R = preint_imu->delta_R; // Already correct
+
+                // Transform delta_p from body frame to world frame
+                Eigen::Matrix3f R_wb_prev = prev_kf->get_Twb().block<3, 3>(0, 0); // Previous rotation
+                Eigen::Vector3f delta_p_world = R_wb_prev * delta_p;              // Transform to world frame
+
+                // IMU predicted relative position (all in world frame now)
+                Eigen::Vector3f t_rel_imu = v_prev * dt + 0.5 * gravity * dt * dt + delta_p_world;
+
+                // IMU predicted relative rotation (already bias-corrected)
+                Eigen::Matrix3f R_rel_imu = delta_R;
+
+                // Compare translation differences
+                Eigen::Vector3f t_diff = t_rel_vo - t_rel_imu;
+
+                // Compare rotation differences (angle-axis representation)
+                Eigen::Matrix3f R_diff = R_rel_vo * R_rel_imu.transpose();
+                Eigen::AngleAxisf angle_axis(R_diff);
+                float angle_diff_deg = angle_axis.angle() * 180.0f / M_PI;
+
+                spdlog::info("🔍 [KF_COMPARE] Keyframes - Frame({}) to Frame({}) (dt={:.3f}s):",
+                             prev_kf->get_frame_id(), curr_kf->get_frame_id(), dt);
+                spdlog::info("  📐 Translation diff: ({:.4f}, {:.4f}, {:.4f}) m, norm: {:.4f} m",
+                             t_diff.x(), t_diff.y(), t_diff.z(), t_diff.norm());
+                spdlog::info("  🔄 Rotation diff: {:.2f} degrees", angle_diff_deg);
+                spdlog::info("  📊 VO translation: ({:.4f}, {:.4f}, {:.4f}) m",
+                             t_rel_vo.x(), t_rel_vo.y(), t_rel_vo.z());
+                spdlog::info("  📊 IMU translation: ({:.4f}, {:.4f}, {:.4f}) m",
+                             t_rel_imu.x(), t_rel_imu.y(), t_rel_imu.z());
+                spdlog::info("  🔧 Bias applied: ba=({:.10f}, {:.10f}, {:.10f}), bg=({:.10f}, {:.10f}, {:.10f})\n\n\n\n\n\n\n\n",
+                             ba.x(), ba.y(), ba.z(), bg.x(), bg.y(), bg.z());
+            }
+        }
     }
-    
-    // Get current keyframe window for optimization
-    std::vector<Frame*> keyframes_for_opt;
-    const int window_size = 5;  // Optimize last 5 keyframes
-    
-    auto keyframes_copy = get_keyframes_safe();
-    int start_idx = std::max(0, static_cast<int>(keyframes_copy.size()) - window_size);
-    
-    for (int i = start_idx; i < static_cast<int>(keyframes_copy.size()); ++i) {
-        keyframes_for_opt.push_back(keyframes_copy[i].get());
-    }
-    
-    if (keyframes_for_opt.size() < 2) {
-        spdlog::debug("[VIO_OPT] Need at least 2 keyframes for optimization, got {}", keyframes_for_opt.size());
-        return false;
-    }
-    
-    spdlog::info("🎯 [VIO_OPT] Starting Visual-Inertial Bundle Adjustment");
-    spdlog::info("  - Keyframes in window: {}", keyframes_for_opt.size());
-    spdlog::info("  - Gravity magnitude: {:.4f} m/s²", m_imu_handler->get_gravity().norm());
-    
-    // Perform inertial optimization
-    auto result = m_inertial_optimizer->optimize_sliding_window(
-        keyframes_for_opt,
-        std::shared_ptr<IMUHandler>(m_imu_handler.get(), [](IMUHandler*){}), // Non-owning shared_ptr
-        m_imu_handler->get_gravity()
-    );
-    
-    if (result.success) {
-        spdlog::info("✅ [VIO_OPT] Inertial optimization successful!");
-        spdlog::info("  - Cost reduction: {:.6f}", result.cost_reduction);
-        spdlog::info("  - Iterations: {}", result.num_iterations);
-        
-        // Update bias estimates in IMU handler
-        // (In full implementation, this would extract optimized biases and update IMU handler)
-        
-        return true;
-    } else {
-        spdlog::warn("❌ [VIO_OPT] Inertial optimization failed");
-        return false;
-    }
-    
-    return false; // Should not reach here
 }
 
 } // namespace lightweight_vio

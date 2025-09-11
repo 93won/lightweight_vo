@@ -7,6 +7,12 @@
  *
  * @par License
  * This project is released under the MIT License.
+ *
+ * @par Mathematical Foundation
+ * The IMU preintegration theory and mathematical formulations implemented in this file
+ * are based on the work presented in:
+ * "IMU Preintegration on Manifold for Efficient Visual-Inertial Maximum-a-Posteriori Estimation"
+ * by C. Forster, L. Carlone, F. Dellaert, and D. Scaramuzza (RSS 2015)
  */
 
 #pragma once
@@ -107,13 +113,13 @@ public:
     /**
      * @brief Update preintegration result when bias changes (using Jacobians)
      * @param preint Preintegration to update
-     * @param delta_bg Change in gyro bias
-     * @param delta_ba Change in accel bias
+     * @param new_gyro_bias New gyro bias values
+     * @param new_accel_bias New accel bias values
      */
-    void update_preintegration_with_bias(
+    void update_preintegration_with_new_bias(
         std::shared_ptr<IMUPreintegration> preint,
-        const Eigen::Vector3f& delta_bg,
-        const Eigen::Vector3f& delta_ba
+        const Eigen::Vector3f& new_gyro_bias,
+        const Eigen::Vector3f& new_accel_bias
     );
     
     /**
@@ -253,15 +259,17 @@ public:
     /**
      * @brief Transform all keyframe poses and map points to gravity-aligned coordinate frame
      * @param keyframes Vector of keyframes to transform
-     * @param map_points Vector of map points to transform (optional)
+     * @param map_points Vector of map points to transform (positions will be modified)
+     * @param T_gw Output transformation matrix
      * @return Success flag
      */
     bool transform_to_gravity_frame(
-        const std::vector<Frame*>& keyframes,
-        std::vector<std::shared_ptr<MapPoint>>& map_points,
+        const std::vector<std::shared_ptr<Frame>>& keyframes,
+        const std::vector<std::shared_ptr<MapPoint>>& map_points,
         Eigen::Matrix4f& T_gw
     );
 
+  
     /**
      * @brief Apply optimized bias and velocity results to keyframes
      * @param optimized_keyframes Vector of keyframes with optimization results

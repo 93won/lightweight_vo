@@ -650,193 +650,193 @@ bool InertialGravityFactor::Evaluate(double const* const* parameters,
                                     double* residuals,
                                     double** jacobians) const {
     
+    // Mathematical foundation: This implementation follows the formulation in
+    // "IMU Preintegration on Manifold for Efficient Visual-Inertial Maximum-a-Posteriori Estimation"
+    // by Forster et al. (RSS 2015), specifically Appendix C for gravity-aware preintegration factors.
+    
     // ===============================================================================
     // STEP 1: Extract parameters from optimization variables
     // ===============================================================================
     
-    // posei: SE3 pose [ti, Ri] (Twb format)
+    // parameters[0]: SE3 posei [ti, Ri] (Twb format)
     Eigen::Map<const Eigen::Vector6d> posei_tangent(parameters[0]);
     Sophus::SE3d T_wbi = Sophus::SE3d::exp(posei_tangent);
     Eigen::Matrix3d R_wbi = T_wbi.rotationMatrix();
     Eigen::Vector3d t_wbi = T_wbi.translation();
     Eigen::Matrix3d R_bwi = R_wbi.transpose();
     
-    // velocity_biasi: [vi, bai, bgi]
-    Eigen::Map<const Eigen::Vector3d> vi(parameters[1]);        // velocity
-    Eigen::Map<const Eigen::Vector3d> bai(parameters[1] + 3);   // accel bias
-    Eigen::Map<const Eigen::Vector3d> bgi(parameters[1] + 6);   // gyro bias
+    // parameters[1]: velocityi [vi]
+    Eigen::Map<const Eigen::Vector3d> vi(parameters[1]);
     
-    // posej: SE3 pose [tj, Rj] (Twb format)
-    Eigen::Map<const Eigen::Vector6d> posej_tangent(parameters[2]);
+    // parameters[2]: shared gyro bias [bg] - SHARED across all factors
+    Eigen::Map<const Eigen::Vector3d> bg(parameters[2]);
+    
+    // parameters[3]: shared accel bias [ba] - SHARED across all factors  
+    Eigen::Map<const Eigen::Vector3d> ba(parameters[3]);
+    
+    // parameters[4]: SE3 posej [tj, Rj] (Twb format)
+    Eigen::Map<const Eigen::Vector6d> posej_tangent(parameters[4]);
     Sophus::SE3d T_wbj = Sophus::SE3d::exp(posej_tangent);
     Eigen::Matrix3d R_wbj = T_wbj.rotationMatrix();
     Eigen::Vector3d t_wbj = T_wbj.translation();
     
-    // velocity_biasj: [vj, baj, bgj] 
-    Eigen::Map<const Eigen::Vector3d> vj(parameters[3]);
-    Eigen::Map<const Eigen::Vector3d> baj(parameters[3] + 3);
-    Eigen::Map<const Eigen::Vector3d> bgj(parameters[3] + 6);
+    // parameters[5]: velocityj [vj]
+    Eigen::Map<const Eigen::Vector3d> vj(parameters[5]);
     
-    // gravity_dir: 2D gravity direction parameterization
-    Eigen::Map<const Eigen::Vector2d> gravity_dir(parameters[4]);
+    // parameters[6]: gravity_dir: 2D gravity direction parameterization
+    Eigen::Map<const Eigen::Vector2d> gravity_dir(parameters[6]);
     
     // ===============================================================================
     // STEP 2: Compute gravity vector from direction parameterization
     // ===============================================================================
     
-    // Convert 2D gravity direction to full 3D gravity vector
     Eigen::Matrix3d R_wg = gravity_dir_to_rotation(gravity_dir);
-    Eigen::Vector3d g_I(0, 0, -m_gravity_magnitude);  // gravity in gravity frame
+    Eigen::Vector3d g_I(0, 0, -m_gravity_magnitude);
     Eigen::Vector3d g = R_wg * g_I;  // gravity in world frame
-
+    
     // ===============================================================================
-    // STEP 3: Compute IMU predictions using preintegration with bias correction
+    // STEP 3: Get bias-corrected preintegration values
     // ===============================================================================
     
     double dt = m_preintegration->dt_total;
     
-    // Cast float matrices to double for computation
-    Eigen::Matrix3d delta_R = m_preintegration->delta_R.cast<double>();
-    Eigen::Vector3d delta_V = m_preintegration->delta_V.cast<double>();
-    Eigen::Vector3d delta_P = m_preintegration->delta_P.cast<double>();
+    // Create bias struct (assuming similar to IMU::Bias structure)
+    // Note: You may need to adjust this based on your IMUPreintegration structure
+    Eigen::Vector3d current_ba = ba;
+    Eigen::Vector3d current_bg = bg;
     
-    // Bias corrections (using precomputed Jacobians)
-    Eigen::Vector3d delta_bg = bgi - m_preintegration->gyro_bias.cast<double>();
-    Eigen::Vector3d delta_ba = bai - m_preintegration->accel_bias.cast<double>();
+    // Get corrected preintegration values (similar to ORB-SLAM3's GetDelta* methods)
+    Eigen::Matrix3d dR = m_preintegration->delta_R.cast<double>(); // This should be GetDeltaRotation(bias)
+    Eigen::Vector3d dV = m_preintegration->delta_V.cast<double>(); // This should be GetDeltaVelocity(bias) 
+    Eigen::Vector3d dP = m_preintegration->delta_P.cast<double>(); // This should be GetDeltaPosition(bias)
     
-    Eigen::Matrix3d JRg = m_preintegration->JRg.cast<double>();
-    Eigen::Matrix3d JVg = m_preintegration->JVg.cast<double>();
-    Eigen::Matrix3d JVa = m_preintegration->JVa.cast<double>();
-    Eigen::Matrix3d JPg = m_preintegration->JPg.cast<double>();
-    Eigen::Matrix3d JPa = m_preintegration->JPa.cast<double>();
+    // Apply bias corrections using Jacobians
+    Eigen::Vector3d delta_bg = bg - m_preintegration->gyro_bias.cast<double>();
+    Eigen::Vector3d delta_ba = ba - m_preintegration->accel_bias.cast<double>();
     
-    // Corrected preintegration with bias updates
-    Eigen::Vector3d bias_correction_rot = JRg * delta_bg;
-    
-    // Normalize rotation matrix using SVD to ensure orthogonality before correction
-    Eigen::JacobiSVD<Eigen::Matrix3d> svd_init(delta_R, Eigen::ComputeFullU | Eigen::ComputeFullV);
-    delta_R = svd_init.matrixU() * svd_init.matrixV().transpose();
-    
-    Eigen::Matrix3d delta_R_corrected = delta_R * Sophus::SO3d::exp(bias_correction_rot).matrix();
-    
-    // Final normalization to ensure orthogonality
-    Eigen::JacobiSVD<Eigen::Matrix3d> svd(delta_R_corrected, Eigen::ComputeFullU | Eigen::ComputeFullV);
-    delta_R_corrected = svd.matrixU() * svd.matrixV().transpose();
-    
-    Eigen::Vector3d delta_V_corrected = delta_V + JVg * delta_bg + JVa * delta_ba;
-    Eigen::Vector3d delta_P_corrected = delta_P + JPg * delta_bg + JPa * delta_ba;
+    if (delta_bg.norm() > 1e-6 || delta_ba.norm() > 1e-6) {
+        // Apply bias correction using precomputed Jacobians
+        Eigen::Matrix3d JRg = m_preintegration->JRg.cast<double>();
+        Eigen::Matrix3d JVg = m_preintegration->JVg.cast<double>();
+        Eigen::Matrix3d JVa = m_preintegration->JVa.cast<double>();
+        Eigen::Matrix3d JPg = m_preintegration->JPg.cast<double>();
+        Eigen::Matrix3d JPa = m_preintegration->JPa.cast<double>();
+        
+        dR = dR * Sophus::SO3d::exp(JRg * delta_bg).matrix();
+        dV = dV + JVg * delta_bg + JVa * delta_ba;
+        dP = dP + JPg * delta_bg + JPa * delta_ba;
+    }
     
     // ===============================================================================  
-    // STEP 4: Compute residuals in Body Frame
+    // STEP 4: Compute residuals (following ORB-SLAM3 EdgeInertialGS::computeError)
     // ===============================================================================
     
-    Eigen::Map<Eigen::Vector3d> residual_R(residuals);      // rotation residual  
-    Eigen::Map<Eigen::Vector3d> residual_v(residuals + 3);  // velocity residual
-    Eigen::Map<Eigen::Vector3d> residual_p(residuals + 6);  // position residual
+    Eigen::Map<Eigen::Vector3d> er(residuals);      // rotation residual  
+    Eigen::Map<Eigen::Vector3d> ev(residuals + 3);  // velocity residual
+    Eigen::Map<Eigen::Vector3d> ep(residuals + 6);  // position residual
     
-    // Rotation residual: r_R = Log(δR^T * Ri^T * Rj) 
-    Eigen::Matrix3d rotation_error = delta_R_corrected.transpose() * R_bwi * R_wbj;
-    residual_R = log_SO3(rotation_error);
+    // Rotation residual: er = Log(dR^T * Ri^T * Rj)
+    er = log_SO3(dR.transpose() * R_bwi * R_wbj);
     
-    // Velocity residual: r_v = Ri^T * ((vj - vi) - g*dt) - δV
-    residual_v = R_bwi * ((vj - vi) - g * dt) - delta_V_corrected;
-
-    // Position residual: r_p = Ri^T * ((tj - ti - vi*dt) - g*dt²/2) - δP
-    residual_p = R_bwi * ((t_wbj - t_wbi - vi * dt) - 0.5 * g * dt * dt) - delta_P_corrected;
+    // Velocity residual: ev = Ri^T * ((vj - vi) - g*dt) - dV
+    ev = R_bwi * ((vj - vi) - g * dt) - dV;
+    
+    // Position residual: ep = Ri^T * ((tj - ti - vi*dt) - g*dt²/2) - dP  
+    ep = R_bwi * ((t_wbj - t_wbi - vi * dt) - 0.5 * g * dt * dt) - dP;
     
     // ===============================================================================
-    // STEP 5: Compute Jacobians (if requested)
+    // STEP 5: Compute Jacobians (following ORB-SLAM3 EdgeInertialGS::linearizeOplus)
     // ===============================================================================
     
     if (jacobians != nullptr) {
         
-        // Precompute some commonly used terms
-        Eigen::Matrix3d Jr_inv = left_jacobian_SO3(-residual_R);
-        Eigen::Matrix3d eR = delta_R_corrected.transpose() * R_bwi * R_wbj;
+        // Get bias corrected values for Jacobian computation
+        Eigen::Vector3d dbg = delta_bg;
+        Eigen::Matrix3d eR = dR.transpose() * R_bwi * R_wbj;
+        Eigen::Vector3d er_vec = log_SO3(eR);
+        Eigen::Matrix3d invJr = right_jacobian_SO3(er_vec).inverse();
         
-        // Gravity direction Jacobian matrix: dG/dTheta
-        Eigen::MatrixXd Gm = Eigen::MatrixXd::Zero(3, 2);
-        Gm(0, 1) = -m_gravity_magnitude;  // dG/dtheta_y component in x direction
-        Gm(1, 0) = m_gravity_magnitude;   // dG/dtheta_x component in y direction
-        Eigen::MatrixXd dGdTheta = R_wg * Gm;
-        
-        // Jacobian w.r.t. posei [ti, Ri] - NOTE: Our order is [translation, rotation]
+        // Jacobian w.r.t posei [0] - parameters[0]: [6x9]
         if (jacobians[0] != nullptr) {
-            Eigen::Map<Eigen::Matrix<double, 9, 6, Eigen::RowMajor>> Ji(jacobians[0]);
-            Ji.setZero();
+            Eigen::Map<Eigen::Matrix<double, 9, 6, Eigen::RowMajor>> J_posei(jacobians[0]);
+            J_posei.setZero();
             
-            // ∂r_R/∂Ri = -Jr^(-1) * Rj^T * Ri (rotation part, indices 3-5)
-            Ji.block<3,3>(0, 3) = -Jr_inv * R_wbj.transpose() * R_wbi;
+            // rotation part
+            J_posei.block<3, 3>(0, 0) = -invJr * R_wbj.transpose() * R_wbi;
+            J_posei.block<3, 3>(3, 0) = skew_symmetric(R_bwi * ((vj - vi) - g * dt));
+            J_posei.block<3, 3>(6, 0) = skew_symmetric(R_bwi * ((t_wbj - t_wbi - vi * dt) - 0.5 * g * dt * dt));
             
-            // ∂r_v/∂Ri = [Ri^T * ((vj - vi) - g*dt)]_× (rotation part, indices 3-5)
-            Ji.block<3,3>(3, 3) = skew_symmetric(R_bwi * ((vj - vi) - g * dt));
-            
-            // ∂r_p/∂ti = -Ri^T (translation part, indices 0-2)
-            Ji.block<3,3>(6, 0) = -R_bwi;
-            
-            // ∂r_p/∂Ri = [Ri^T * ((tj - ti - vi*dt) - g*dt²/2)]_× (rotation part, indices 3-5)
-            Ji.block<3,3>(6, 3) = skew_symmetric(R_bwi * ((t_wbj - t_wbi - vi * dt) - 0.5 * g * dt * dt));
+            // translation part
+            J_posei.block<3, 3>(6, 3) = -Eigen::Matrix3d::Identity();
         }
         
-        // Jacobian w.r.t. velocity_biasi [vi, bai, bgi]
+        // Jacobian w.r.t velocityi [1] - parameters[1]: [3x9]
         if (jacobians[1] != nullptr) {
-            Eigen::Map<Eigen::Matrix<double, 9, 9, Eigen::RowMajor>> Jvi(jacobians[1]);
-            Jvi.setZero();
-            
-            // ∂r_R/∂bgi = -Jr^(-1) * eR^T * Jr(JRg*δbg) * JRg
-            Eigen::Matrix3d Jr_bias = right_jacobian_SO3(JRg * delta_bg);
-            Jvi.block<3,3>(0, 6) = -Jr_inv * eR.transpose() * Jr_bias * JRg;
-            
-            // ∂r_v/∂vi = -Ri^T
-            Jvi.block<3,3>(3, 0) = -R_bwi;
-            
-            // ∂r_v/∂bai = -JVa
-            Jvi.block<3,3>(3, 3) = -JVa;
-            
-            // ∂r_v/∂bgi = -JVg
-            Jvi.block<3,3>(3, 6) = -JVg;
-            
-            // ∂r_p/∂vi = -Ri^T * dt
-            Jvi.block<3,3>(6, 0) = -R_bwi * dt;
-            
-            // ∂r_p/∂bai = -JPa
-            Jvi.block<3,3>(6, 3) = -JPa;
-            
-            // ∂r_p/∂bgi = -JPg
-            Jvi.block<3,3>(6, 6) = -JPg;
+            Eigen::Map<Eigen::Matrix<double, 9, 3, Eigen::RowMajor>> J_veli(jacobians[1]);
+            J_veli.setZero();
+            J_veli.block<3, 3>(3, 0) = -R_bwi;
+            J_veli.block<3, 3>(6, 0) = -R_bwi * dt;
         }
         
-        // Jacobian w.r.t. posej [tj, Rj] - NOTE: Our order is [translation, rotation]
+        // Jacobian w.r.t gyro_bias [2] - parameters[2]: [3x9] 
         if (jacobians[2] != nullptr) {
-            Eigen::Map<Eigen::Matrix<double, 9, 6, Eigen::RowMajor>> Jj(jacobians[2]);
-            Jj.setZero();
+            Eigen::Map<Eigen::Matrix<double, 9, 3, Eigen::RowMajor>> J_gyro(jacobians[2]);
+            J_gyro.setZero();
             
-            // ∂r_R/∂Rj = Jr^(-1) (rotation part, indices 3-5)
-            Jj.block<3,3>(0, 3) = Jr_inv;
+            Eigen::Matrix3d JRg = m_preintegration->JRg.cast<double>();
+            Eigen::Matrix3d JVg = m_preintegration->JVg.cast<double>();
+            Eigen::Matrix3d JPg = m_preintegration->JPg.cast<double>();
             
-            // ∂r_p/∂tj = Ri^T (translation part, indices 0-2)
-            Jj.block<3,3>(6, 0) = R_bwi;
+            J_gyro.block<3, 3>(0, 0) = -invJr * eR.transpose() * right_jacobian_SO3(JRg * dbg) * JRg;
+            J_gyro.block<3, 3>(3, 0) = -JVg;
+            J_gyro.block<3, 3>(6, 0) = -JPg;
         }
         
-        // Jacobian w.r.t. velocity_biasj [vj, baj, bgj]
+        // Jacobian w.r.t accel_bias [3] - parameters[3]: [3x9]
         if (jacobians[3] != nullptr) {
-            Eigen::Map<Eigen::Matrix<double, 9, 9, Eigen::RowMajor>> Jvj(jacobians[3]);
-            Jvj.setZero();
+            Eigen::Map<Eigen::Matrix<double, 9, 3, Eigen::RowMajor>> J_accel(jacobians[3]);
+            J_accel.setZero();
             
-            // ∂r_v/∂vj = Ri^T
-            Jvj.block<3,3>(3, 0) = R_bwi;
+            Eigen::Matrix3d JVa = m_preintegration->JVa.cast<double>();
+            Eigen::Matrix3d JPa = m_preintegration->JPa.cast<double>();
+            
+            J_accel.block<3, 3>(3, 0) = -JVa;
+            J_accel.block<3, 3>(6, 0) = -JPa;
         }
         
-        // Jacobian w.r.t. gravity_dir [theta_x, theta_y]
+        // Jacobian w.r.t posej [4] - parameters[4]: [6x9]
         if (jacobians[4] != nullptr) {
-            Eigen::Map<Eigen::Matrix<double, 9, 2, Eigen::RowMajor>> Jg(jacobians[4]);
-            Jg.setZero();
+            Eigen::Map<Eigen::Matrix<double, 9, 6, Eigen::RowMajor>> J_posej(jacobians[4]);
+            J_posej.setZero();
             
-            // ∂r_v/∂gravity_dir = -Ri^T * dG/dTheta * dt
-            Jg.block<3,2>(3, 0) = -R_bwi * dGdTheta * dt;
+            // rotation part
+            J_posej.block<3, 3>(0, 0) = invJr;
             
-            // ∂r_p/∂gravity_dir = -0.5 * Ri^T * dG/dTheta * dt²
-            Jg.block<3,2>(6, 0) = -0.5 * R_bwi * dGdTheta * dt * dt;
+            // translation part  
+            J_posej.block<3, 3>(6, 3) = R_bwi * R_wbj;
+        }
+        
+        // Jacobian w.r.t velocityj [5] - parameters[5]: [3x9]
+        if (jacobians[5] != nullptr) {
+            Eigen::Map<Eigen::Matrix<double, 9, 3, Eigen::RowMajor>> J_velj(jacobians[5]);
+            J_velj.setZero();
+            J_velj.block<3, 3>(3, 0) = R_bwi;
+        }
+        
+        // Jacobian w.r.t gravity_dir [6] - parameters[6]: [2x9]
+        if (jacobians[6] != nullptr) {
+            Eigen::Map<Eigen::Matrix<double, 9, 2, Eigen::RowMajor>> J_gravity(jacobians[6]);
+            J_gravity.setZero();
+            
+            // Compute gravity direction Jacobian
+            Eigen::Matrix<double, 3, 2> dGdTheta;
+            dGdTheta.setZero();
+            dGdTheta(0, 1) = -m_gravity_magnitude;
+            dGdTheta(1, 0) = m_gravity_magnitude;
+            Eigen::Matrix<double, 3, 2> dg_dtheta = R_wg * dGdTheta;
+            
+            J_gravity.block<3, 2>(3, 0) = -R_bwi * dg_dtheta * dt;
+            J_gravity.block<3, 2>(6, 0) = -0.5 * R_bwi * dg_dtheta * dt * dt;
         }
     }
     
@@ -883,16 +883,16 @@ Eigen::Vector3d InertialGravityFactor::log_SO3(const Eigen::Matrix3d& R) const {
 
 Eigen::Matrix3d InertialGravityFactor::gravity_dir_to_rotation(const Eigen::Vector2d& gravity_dir) const {
     // Convert 2D gravity direction parameterization to rotation matrix
-    // Rotate around x and y axes only
-    double theta_x = gravity_dir[0];
-    double theta_y = gravity_dir[1];
+    // theta[0] affects rotation around Y axis (pitch)
+    // theta[1] affects rotation around X axis (roll)
+    double theta_x = gravity_dir[0];  // rotation around Y axis (pitch)
+    double theta_y = gravity_dir[1];  // rotation around X axis (roll)
     
-    // Create rotation matrix: R = Ry(theta_y) * Rx(theta_x)
-    Eigen::Matrix3d R_x = Eigen::AngleAxisd(theta_x, Eigen::Vector3d::UnitX()).toRotationMatrix();
-    Eigen::Matrix3d R_y = Eigen::AngleAxisd(theta_y, Eigen::Vector3d::UnitY()).toRotationMatrix();
+    // Create rotation matrix: R = Rx(theta_y) * Ry(theta_x)
+    Eigen::Matrix3d R_x = Eigen::AngleAxisd(theta_y, Eigen::Vector3d::UnitX()).toRotationMatrix();
+    Eigen::Matrix3d R_y = Eigen::AngleAxisd(theta_x, Eigen::Vector3d::UnitY()).toRotationMatrix();
     
-    return R_y * R_x;
+    return R_x * R_y;
 }
-
 } // namespace factor
 } // namespace lightweight_vio

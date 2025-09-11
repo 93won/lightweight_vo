@@ -259,7 +259,7 @@ int main(int argc, char* argv[]) {
     long long previous_frame_timestamp = 0;
     
     spdlog::info("[VIO] Starting VIO processing from frame {} to frame {} (GT-matched range)", start_frame_idx, end_frame_idx - 1);
-    
+    end_frame_idx = 500;
     while (current_idx < end_frame_idx) {
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {
@@ -647,26 +647,7 @@ int main(int argc, char* argv[]) {
             // Calculate transform error: T_error = T_gt^-1 * T_est
             Eigen::Matrix4f T_error = T_gt_transform.inverse() * T_est_transform;
             
-            // Debug: Print detailed info for first few pairs
-            if (i <= 3) {
-                spdlog::info("=== FRAME PAIR {} -> {} DEBUG ===", i-1, i);
-                spdlog::info("GT_prev position: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_gt_prev(0,3), T_gt_prev(1,3), T_gt_prev(2,3));
-                spdlog::info("GT_curr position: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_gt_curr(0,3), T_gt_curr(1,3), T_gt_curr(2,3));
-                spdlog::info("GT_rel translation: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_gt_transform(0,3), T_gt_transform(1,3), T_gt_transform(2,3));
-                spdlog::info("Est_prev position: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_est_prev(0,3), T_est_prev(1,3), T_est_prev(2,3));
-                spdlog::info("Est_curr position: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_est_curr(0,3), T_est_curr(1,3), T_est_curr(2,3));
-                spdlog::info("Est_rel translation: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_est_transform(0,3), T_est_transform(1,3), T_est_transform(2,3));
-                spdlog::info("Error translation: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_error(0,3), T_error(1,3), T_error(2,3));
-                spdlog::info("Error magnitude: {:.8f}m", T_error.block<3,1>(0,3).norm());
-                spdlog::info("========================================");
-            }
+          
             
             // Alternative calculation matching EVO exactly
             // EVO: E_i = (Q_i^-1 * Q_{i+1})^-1 * (P_i^-1 * P_{i+1})
@@ -677,12 +658,7 @@ int main(int argc, char* argv[]) {
             // Compare our method vs EVO method
             float our_error = T_error.block<3,1>(0,3).norm();
             float evo_error = E_evo.block<3,1>(0,3).norm();
-            
-            if (i <= 20) {
-                spdlog::info("Our method error: {:.8f}m", our_error);
-                spdlog::info("EVO method error: {:.8f}m", evo_error);
-                spdlog::info("Difference: {:.8f}m", std::abs(our_error - evo_error));
-            }
+          
             
             // Extract rotation error (angle in degrees)
             Eigen::Matrix3f R_error = T_error.block<3,3>(0,0);
@@ -724,7 +700,7 @@ int main(int argc, char* argv[]) {
             double trans_rmse = std::sqrt(std::accumulate(translation_errors.begin(), translation_errors.end(), 0.0,
                 [](double sum, double err) { return sum + err * err; }) / translation_errors.size());
             
-            // Beautiful statistics output
+            // Statistics output
             spdlog::info("══════════════════════════════════════════════════════════════════");
             spdlog::info("     FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS (VIO) - DEBUG        ");
             spdlog::info("══════════════════════════════════════════════════════════════════");

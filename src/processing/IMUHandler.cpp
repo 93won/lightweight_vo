@@ -7,6 +7,12 @@
  *
  * @par License
  * This project is released under the MIT License.
+ *
+ * @par Mathematical Foundation
+ * The IMU preintegration theory and mathematical formulations implemented in this file
+ * are based on the work presented in:
+ * "IMU Preintegration on Manifold for Efficient Visual-Inertial Maximum-a-Posteriori Estimation"
+ * by C. Forster, L. Carlone, F. Dellaert, and D. Scaramuzza (RSS 2015)
  */
 
 #include "processing/IMUHandler.h"
@@ -235,55 +241,101 @@ void IMUHandler::integrate_measurement_with_gravity(
 }
 
 void IMUHandler::update_covariance(std::shared_ptr<IMUPreintegration> preint, float dt) {
-    // Noise covariance matrix
-    Eigen::Matrix<float, 12, 12> Q = Eigen::Matrix<float, 12, 12>::Zero();
     
-    // Gyroscope noise
-    Q.block<3,3>(0,0) = Eigen::Matrix3f::Identity() * (m_gyro_noise * m_gyro_noise * dt);
-    // Accelerometer noise  
-    Q.block<3,3>(3,3) = Eigen::Matrix3f::Identity() * (m_accel_noise * m_accel_noise * dt);
-    // Gyroscope bias random walk
-    Q.block<3,3>(6,6) = Eigen::Matrix3f::Identity() * (m_gyro_bias_noise * m_gyro_bias_noise * dt);
-    // Accelerometer bias random walk
-    Q.block<3,3>(9,9) = Eigen::Matrix3f::Identity() * (m_accel_bias_noise * m_accel_bias_noise * dt);
+    // Get current bias-corrected measurements for this integration step
+    // Note: This should be called DURING integration, not after
+    // The current implementation assumes bias-corrected accel is available
     
-    // State transition matrix F (simplified version)
-    Eigen::Matrix<float, 15, 15> F = Eigen::Matrix<float, 15, 15>::Identity();
+    // ============================================================================
+    // STEP 1: Construct noise covariance matrices (6x6)
+    // ============================================================================
     
-    // Noise mapping matrix G
-    Eigen::Matrix<float, 15, 12> G = Eigen::Matrix<float, 15, 12>::Zero();
-    G.block<3,3>(0,0) = preint->JRg;      // Rotation noise
-    G.block<3,3>(3,3) = preint->JVa;      // Velocity noise  
-    G.block<3,3>(6,6) = preint->JPa;      // Position noise
-    G.block<3,3>(9,6) = Eigen::Matrix3f::Identity();   // Gyro bias noise
-    G.block<3,3>(12,9) = Eigen::Matrix3f::Identity();  // Accel bias noise
+    // IMU noise covariance (gyro + accel)
+    Eigen::Matrix<float, 6, 6> Nga = Eigen::Matrix<float, 6, 6>::Zero();
+    Nga.block<3,3>(0,0) = Eigen::Matrix3f::Identity() * (m_gyro_noise * m_gyro_noise);  // σ²_g
+    Nga.block<3,3>(3,3) = Eigen::Matrix3f::Identity() * (m_accel_noise * m_accel_noise); // σ²_a
     
-    // Covariance propagation: P = F*P*F' + G*Q*G'
-    preint->covariance = F * preint->covariance * F.transpose() + G * Q * G.transpose();
+    // Random walk noise (bias evolution)
+    Eigen::Matrix<float, 6, 6> NgaWalk = Eigen::Matrix<float, 6, 6>::Zero();  
+    NgaWalk.block<3,3>(0,0) = Eigen::Matrix3f::Identity() * (m_gyro_bias_noise * m_gyro_bias_noise * dt); // σ²_bg * dt
+    NgaWalk.block<3,3>(3,3) = Eigen::Matrix3f::Identity() * (m_accel_bias_noise * m_accel_bias_noise * dt); // σ²_ba * dt
+    
+    // ============================================================================
+    // STEP 2: Construct state transition matrix A (9x9) and noise mapping B (9x6)
+    // ============================================================================
+    // State vector: [δR, δV, δP] (9 DoF for position/orientation/velocity increments)
+    
+    Eigen::Matrix<float, 9, 9> A = Eigen::Matrix<float, 9, 9>::Identity();
+    Eigen::Matrix<float, 9, 6> B = Eigen::Matrix<float, 9, 6>::Zero();
+    
+    // Get current rotation state
+    Eigen::Matrix3f dR = preint->delta_R;
+    
+    // Note: In a complete implementation, we need the bias-corrected acceleration
+    // For this correction, we assume the acceleration used in the integration step
+    // is available. In practice, this should be computed during integrate_measurement()
+    
+    // Approximate coupling terms (simplified - requires acceleration from current integration)
+    // A.block<3,3>(3,0) = -dR * dt * skew_symmetric(accel_corrected); // δV depends on δR  
+    // A.block<3,3>(6,0) = -0.5f * dR * dt * dt * skew_symmetric(accel_corrected); // δP depends on δR
+    A.block<3,3>(6,3) = Eigen::Matrix3f::Identity() * dt; // δP depends on δV
+    
+    // Noise mapping matrix B
+    // Rotation noise (from gyroscope measurements)
+    // B.block<3,3>(0,0) = right_jacobian * dt; // Requires proper right Jacobian computation
+    
+    // Velocity noise (from accelerometer measurements)  
+    B.block<3,3>(3,3) = dR * dt;
+    
+    // Position noise (from accelerometer measurements)
+    B.block<3,3>(6,3) = 0.5f * dR * dt * dt;
+    
+    // ============================================================================
+    // STEP 3: Update covariance for preintegration states (9x9 block)
+    // ============================================================================
+    preint->covariance.block<9,9>(0,0) = A * preint->covariance.block<9,9>(0,0) * A.transpose() + B * Nga * B.transpose();
+    
+    // ============================================================================  
+    // STEP 4: Update bias covariance (6x6 block) - simple random walk
+    // ============================================================================
+    preint->covariance.block<6,6>(9,9) += NgaWalk;
+    
+    // ============================================================================
+    // NOTES for future improvement:
+    // ============================================================================
+    // 1. The acceleration-dependent terms in A matrix are commented out because
+    //    they require the bias-corrected acceleration from the current integration step
+    // 2. The right Jacobian terms in B matrix need proper computation
+    // 3. For full accuracy, integrate this directly into integrate_measurement()
 }
 
-void IMUHandler::update_preintegration_with_bias(
+void IMUHandler::update_preintegration_with_new_bias(
     std::shared_ptr<IMUPreintegration> preint,
-    const Eigen::Vector3f& delta_bg,
-    const Eigen::Vector3f& delta_ba) {
+    const Eigen::Vector3f& new_gyro_bias,
+    const Eigen::Vector3f& new_accel_bias) {
     
     if (!preint || !preint->is_valid()) {
         spdlog::warn("[IMU_HANDLER] Invalid preintegration for bias update");
         return;
     }
     
-    spdlog::debug("[IMU_HANDLER] Updating preintegration with bias change - dBg: ({:.6f}, {:.6f}, {:.6f}), dBa: ({:.6f}, {:.6f}, {:.6f})",
-                 delta_bg.x(), delta_bg.y(), delta_bg.z(),
-                 delta_ba.x(), delta_ba.y(), delta_ba.z());
+    // Calculate bias change (delta)
+    Eigen::Vector3f delta_bg = new_gyro_bias - preint->gyro_bias;
+    Eigen::Vector3f delta_ba = new_accel_bias - preint->accel_bias;
+    
+    spdlog::debug("[IMU_HANDLER] Updating preintegration with new bias - Old gyro: ({:.6f}, {:.6f}, {:.6f}), New gyro: ({:.6f}, {:.6f}, {:.6f}), Delta: ({:.6f}, {:.6f}, {:.6f})",
+                 preint->gyro_bias.x(), preint->gyro_bias.y(), preint->gyro_bias.z(),
+                 new_gyro_bias.x(), new_gyro_bias.y(), new_gyro_bias.z(),
+                 delta_bg.x(), delta_bg.y(), delta_bg.z());
     
     // Update using Jacobians (much faster than re-integration)
     preint->delta_R = preint->delta_R * rodrigues(preint->JRg * delta_bg);
     preint->delta_V = preint->delta_V + preint->JVg * delta_bg + preint->JVa * delta_ba;
     preint->delta_P = preint->delta_P + preint->JPg * delta_bg + preint->JPa * delta_ba;
     
-    // Update bias
-    preint->gyro_bias += delta_bg;
-    preint->accel_bias += delta_ba;
+    // Update bias to new values
+    preint->gyro_bias = new_gyro_bias;
+    preint->accel_bias = new_accel_bias;
 }
 
 void IMUHandler::estimate_initial_bias(
@@ -335,7 +387,6 @@ void IMUHandler::estimate_initial_bias(
     spdlog::info("  - Accel bias: ({:.6f}, {:.6f}, {:.6f})", 
                  m_accel_bias.x(), m_accel_bias.y(), m_accel_bias.z());
 }
-
 bool IMUHandler::estimate_gravity_with_stereo_constraints(
     const std::vector<Frame*>& frames,
     const std::vector<IMUData>& all_imu_data,
@@ -359,9 +410,6 @@ bool IMUHandler::estimate_gravity_with_stereo_constraints(
         preintegrations.push_back(preint);
     }
     
-    // No need to check preintegration count - if we have enough frames, 
-    // we should have enough preintegrations
-    
     const int N = frames.size();
     const int M = preintegrations.size();
     
@@ -374,39 +422,57 @@ bool IMUHandler::estimate_gravity_with_stereo_constraints(
     Eigen::VectorXf b = Eigen::VectorXf::Zero(num_equations);
     int eq_idx = 0;
     
-    // IMU constraints: v_{i+1} - v_i - g*dt = R_wb_i * delta_V / dt
+    // IMU constraints based on the equation: v_{i+1} - v_i - g*dt = R_wb_i * delta_V
     for (int i = 0; i < M; i++) {
         auto preint = preintegrations[i];
         Eigen::Matrix3f R_wb = frames[i]->get_Twb().block<3,3>(0,0);
         float dt = preint->dt_total;
-        Eigen::Vector3f imu_vel = R_wb * preint->delta_V / dt;
+        Eigen::Vector3f imu_vel = R_wb * preint->delta_V;
+
+        std::cout<<"Check IMU Velocity: "<<imu_vel.transpose()<<" // "<<imu_vel.norm()<<std::endl;
         
         for (int axis = 0; axis < 3; axis++) {
-            // Gravity coefficient: -dt
+            // [MODIFIED] The coefficient for the gravity term should be -dt, based on the equation v_{i+1} - v_i - g*dt = ...
             A(eq_idx + axis, axis) = -dt;
             // v_i coefficient: -1
             A(eq_idx + axis, 3 + 3*i + axis) = -1.0f;
             // v_{i+1} coefficient: +1  
             A(eq_idx + axis, 3 + 3*(i+1) + axis) = 1.0f;
-            // RHS: IMU velocity
+            // RHS: IMU velocity change
             b(eq_idx + axis) = imu_vel(axis);
         }
         eq_idx += 3;
     }
     
-    // Stereo visual constraints: smooth velocity assumption
-    const float stereo_weight = 0.1f;  // Weaker constraint
+    // Stereo visual constraints: smooth velocity assumption (regularization)
+    const float stereo_weight = 100000.0f;  // A stronger constraint
     for (int i = 0; i < N; i++) {
         Eigen::Vector3f stereo_vel = Eigen::Vector3f::Zero();
         
         // Estimate velocity from neighboring frames
-        if (i > 0 && i < N-1) {
-            // Central difference
+        if (i > 0 && i < N-1 && i-1 < M && i < M) {
+            // Central difference for intermediate frames
             Eigen::Matrix4f T_prev = frames[i-1]->get_Twb();
             Eigen::Matrix4f T_next = frames[i+1]->get_Twb();
             Eigen::Vector3f pos_diff = T_next.block<3,1>(0,3) - T_prev.block<3,1>(0,3);
-            float dt_total = preintegrations[i-1]->dt_total + preintegrations[i]->dt_total;
-            stereo_vel = pos_diff / dt_total;
+            float dt_total = preintegrations[i-1]->dt_total + (i < M ? preintegrations[i]->dt_total : 0.0f);
+            if (dt_total > 0.0f) {
+                stereo_vel = pos_diff / dt_total;
+            }
+        } else if (i == 0 && N > 1) {
+            // Forward difference for the first frame
+            Eigen::Matrix4f T_curr = frames[0]->get_Twb();
+            Eigen::Matrix4f T_next = frames[1]->get_Twb();
+            Eigen::Vector3f pos_diff = T_next.block<3,1>(0,3) - T_curr.block<3,1>(0,3);
+            if (M > 0) {
+                stereo_vel = pos_diff / preintegrations[0]->dt_total;
+            }
+        } else if (i == N-1 && N > 1 && M > 0) {
+            // Backward difference for the last frame
+            Eigen::Matrix4f T_prev = frames[N-2]->get_Twb();
+            Eigen::Matrix4f T_curr = frames[N-1]->get_Twb();
+            Eigen::Vector3f pos_diff = T_curr.block<3,1>(0,3) - T_prev.block<3,1>(0,3);
+            stereo_vel = pos_diff / preintegrations[M-1]->dt_total;
         }
         
         for (int axis = 0; axis < 3; axis++) {
@@ -416,15 +482,16 @@ bool IMUHandler::estimate_gravity_with_stereo_constraints(
         eq_idx += 3;
     }
     
-    // Step 3: Solve linear system
+    // Step 3: Solve the linear system using least squares
     Eigen::MatrixXf AtA = A.transpose() * A;
     Eigen::VectorXf Atb = A.transpose() * b;
+    // Add damping (Tikhonov regularization) to ensure the matrix is invertible
     AtA += 1e-6f * Eigen::MatrixXf::Identity(num_unknowns, num_unknowns);
     
     Eigen::VectorXf solution = AtA.lu().solve(Atb);
     Eigen::Vector3f estimated_gravity = solution.segment<3>(0);
     
-    // Step 4: Normalize and set gravity
+    // Step 4: Normalize the estimated gravity and apply the known magnitude
     if (estimated_gravity.norm() < 1.0f) {
         spdlog::error("[IMU_HANDLER] Invalid gravity estimation");
         return false;
@@ -434,52 +501,51 @@ bool IMUHandler::estimate_gravity_with_stereo_constraints(
     m_initialized = true;
     
     // 🎯 Calculate Rgw (World-to-Gravity transformation matrix)
-    // =====================================================================
-    // Purpose: Transform World coordinate system to Gravity-aligned coordinate system
-    // Notation: Rab = transformation from frame b to frame a
-    // Rgw = World → Gravity transformation (transforms World frame vectors to Gravity frame)
-    // 
-    // Why this transformation is needed:
-    // 1. IMU optimization stability: In gravity frame, gravity is always [0,0,-9.81] (known constant)
-    // 2. Coordinate standardization: All datasets share same reference frame regardless of initial orientation
-    // 
-    // Algorithm: Calculate rotation matrix that aligns current gravity direction with ideal [0,0,-1]
-    // =====================================================================
+    Eigen::Vector3f gravity_direction = m_gravity.normalized();  // The current estimated gravity direction
+    Eigen::Vector3f gravity_ideal(0.0f, 0.0f, -1.0f);          // The ideal gravity direction (downward Z-axis)
     
-    Eigen::Vector3f gravity_direction = m_gravity.normalized();  // Current estimated gravity direction (normalized)
-    Eigen::Vector3f gravity_ideal(0.0f, 0.0f, -1.0f);          // Ideal gravity direction (downward Z-axis)
-    
-    // Calculate rotation axis and angle for Rodrigues formula
-    Eigen::Vector3f rotation_axis = gravity_ideal.cross(gravity_direction);  // Rotation axis = ideal × current
-    float rotation_axis_norm = rotation_axis.norm();                         // Rotation axis magnitude (proportional to sin(θ))
-    float cos_angle = gravity_ideal.dot(gravity_direction);                  // cos(θ) = dot product of unit vectors
+    // [MODIFIED] The rotation axis must be from the start_vector to the target_vector.
+    // This computes the rotation that transforms `gravity_direction` to align with `gravity_ideal`.
+    Eigen::Vector3f rotation_axis = gravity_direction.cross(gravity_ideal);
+    float rotation_axis_norm = rotation_axis.norm();
+    float cos_angle = gravity_ideal.dot(gravity_direction);
     
     Eigen::Matrix3f Rgw;
     if (rotation_axis_norm < 1e-6f) {
-        // Case 1: Gravity vectors are nearly parallel (aligned or anti-aligned)
+        // Case 1: Vectors are nearly parallel or anti-parallel
         if (cos_angle > 0.0f) {
-            // Gravity already aligned with ideal direction
+            // Already aligned
             Rgw = Eigen::Matrix3f::Identity();
         } else {
-            // 180 degree rotation needed - choose any perpendicular axis
-            Eigen::Vector3f perp_axis(1.0f, 0.0f, 0.0f);  // Default to X-axis
+            // Anti-parallel (180-degree rotation needed). Choose an arbitrary perpendicular axis.
+            Eigen::Vector3f perp_axis(1.0f, 0.0f, 0.0f);
             if (std::abs(gravity_direction.x()) > 0.9f) {
-                perp_axis = Eigen::Vector3f(0.0f, 1.0f, 0.0f);  // Use Y-axis if X is nearly parallel
+                perp_axis = Eigen::Vector3f(0.0f, 1.0f, 0.0f);
             }
-            Rgw = rodrigues(perp_axis * M_PI);  // 180 degree rotation around perpendicular axis
+            Rgw = rodrigues(perp_axis * M_PI);
         }
     } else {
-        // Case 2: General rotation using Rodrigues formula
-        // Calculate rotation angle and apply axis-angle rotation
-        float angle = std::acos(std::clamp(cos_angle, -1.0f, 1.0f));  // Clamp to handle numerical errors
+        // Case 2: General rotation using Rodrigues' formula
+        float angle = std::acos(std::clamp(cos_angle, -1.0f, 1.0f));
         Eigen::Vector3f normalized_axis = rotation_axis / rotation_axis_norm;
         Eigen::Vector3f rotation_vector = normalized_axis * angle;
-        Rgw = rodrigues(rotation_vector);  // Convert axis-angle to rotation matrix
+        Rgw = rodrigues(rotation_vector);
     }
     
-    // Store the transformation matrix for future use
-    m_Rgw = Rgw;
-    m_gravity_aligned = true;  // Mark that we have computed the transformation
+    // 🎯 Normalize the rotation matrix using SVD to ensure it is a proper orthogonal matrix
+    Eigen::JacobiSVD<Eigen::Matrix3f> svd(Rgw, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Eigen::Matrix3f U = svd.matrixU();
+    Eigen::Matrix3f V = svd.matrixV();
+    
+    // Ensure it's a proper rotation matrix (determinant = +1)
+    Eigen::Matrix3f R_candidate = U * V.transpose();
+    if (R_candidate.determinant() < 0) {
+        U.col(2) *= -1.0f;
+        R_candidate = U * V.transpose();
+    }
+    
+    m_Rgw = R_candidate;
+    m_gravity_aligned = true;
     
     spdlog::info("[IMU_HANDLER] ✅ Gravity estimation completed:");
     spdlog::info("  Estimated gravity: ({:.4f}, {:.4f}, {:.4f}) m/s²", 
@@ -489,14 +555,16 @@ bool IMUHandler::estimate_gravity_with_stereo_constraints(
     spdlog::info("  Gravity direction: ({:.4f}, {:.4f}, {:.4f})", 
                  gravity_direction.x(), gravity_direction.y(), gravity_direction.z());
     spdlog::info("  Gravity magnitude: {:.4f} m/s²", m_gravity.norm());
-    spdlog::info("  Rgw (World-to-Gravity rotation matrix):");
-    spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", Rgw(0,0), Rgw(0,1), Rgw(0,2));
-    spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", Rgw(1,0), Rgw(1,1), Rgw(1,2));
-    spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", Rgw(2,0), Rgw(2,1), Rgw(2,2));
+    spdlog::info("  Rgw (SVD-normalized World-to-Gravity rotation matrix):");
+    spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(0,0), m_Rgw(0,1), m_Rgw(0,2));
+    spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(1,0), m_Rgw(1,1), m_Rgw(1,2));
+    spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(2,0), m_Rgw(2,1), m_Rgw(2,2));
+    spdlog::info("  Matrix properties - det(Rgw): {:.6f}, orthogonality error: {:.2e}", 
+                 m_Rgw.determinant(), (m_Rgw * m_Rgw.transpose() - Eigen::Matrix3f::Identity()).norm());
     
-    // Verify the transformation
-    Eigen::Vector3f transformed_gravity = Rgw * gravity_direction;
-    spdlog::info("  Verification - Transformed gravity: ({:.4f}, {:.4f}, {:.4f})", 
+    // Verify the transformation by applying it to the original gravity direction
+    Eigen::Vector3f transformed_gravity = m_Rgw * gravity_direction;
+    spdlog::info("  Verification - Transformed gravity should be close to [0, 0, -1]: ({:.4f}, {:.4f}, {:.4f})", 
                  transformed_gravity.x(), transformed_gravity.y(), transformed_gravity.z());
     
     return true;
@@ -599,8 +667,8 @@ Eigen::Matrix3f IMUHandler::skew_symmetric(const Eigen::Vector3f& v) const {
 }
 
 bool IMUHandler::transform_to_gravity_frame(
-    const std::vector<Frame*>& keyframes,
-    std::vector<std::shared_ptr<MapPoint>>& map_points,
+    const std::vector<std::shared_ptr<Frame>>& keyframes,
+    const std::vector<std::shared_ptr<MapPoint>>& map_points,
     Eigen::Matrix4f& T_gw) {
 
     if (!m_gravity_aligned) {
@@ -613,33 +681,18 @@ bool IMUHandler::transform_to_gravity_frame(
         return false;
     }
     
-    spdlog::info("[IMU_HANDLER] 🌍 Transforming {} keyframes and {} map points to gravity-aligned frame", 
-                 keyframes.size(), map_points.size());
+    spdlog::info("[IMU_HANDLER] 🌍 Transforming {} keyframes and {} map points to gravity-aligned frame", keyframes.size(), map_points.size());
     
     // Transform all keyframe poses
 
-
     int ii =0;
-    for (Frame* frame : keyframes) {
+    for (const auto& frame : keyframes) {
         if (!frame) continue;
         
         // Get current pose T_wb (world-to-body)
         Eigen::Matrix4f T_wb = frame->get_Twb();
-        
-        // Transform pose using SE(3) gravity transformation T_gb = T_gw * T_wb
-        T_gw = Eigen::Matrix4f::Identity();
-        T_gw.block<3,3>(0,0) = m_Rgw;
-        
         Eigen::Matrix4f T_gb = T_gw * T_wb;
 
-        std::cout<<"Check T_gw here!! \n"<<T_gw<<std::endl;
-
-        if(ii == 0)
-        {
-            std::cout<<"Check T_wb original here!! \n"<<T_wb<<std::endl;
-            std::cout<<"Check T_gb transformed here!! \n"<<T_gb<<std::endl;
-            ii++;
-        }
         
         // Set transformed pose
         frame->set_Twb(T_gb);
@@ -654,7 +707,7 @@ bool IMUHandler::transform_to_gravity_frame(
     
     // Transform all map points
     int transformed_count = 0;
-    for (auto& map_point : map_points) {
+    for (const auto& map_point : map_points) {
         if (!map_point) continue;
         
         // Get current 3D position in world frame
@@ -675,6 +728,7 @@ bool IMUHandler::transform_to_gravity_frame(
     
     return true;
 }
+
 
 bool IMUHandler::apply_optimization_results(
     const std::vector<Frame*>& optimized_keyframes,
@@ -891,12 +945,8 @@ bool IMUHandler::update_preintegrations_with_optimized_bias(
         const Eigen::Vector3f& new_gyro_bias = bias_pair.first;
         const Eigen::Vector3f& new_accel_bias = bias_pair.second;
         
-        // Calculate bias change
-        Eigen::Vector3f delta_bg = new_gyro_bias - preint->gyro_bias;
-        Eigen::Vector3f delta_ba = new_accel_bias - preint->accel_bias;
-        
         // Update preintegration with new bias using Jacobians (fast method)
-        update_preintegration_with_bias(preint, delta_bg, delta_ba);
+        update_preintegration_with_new_bias(preint, new_gyro_bias, new_accel_bias);
         
         updated_count++;
         
