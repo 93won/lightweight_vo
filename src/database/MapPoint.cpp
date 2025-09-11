@@ -149,16 +149,6 @@ bool MapPoint::is_multi_view_triangulated() const {
     return m_is_multi_view_triangulated;
 }
 
-void MapPoint::update_position_from_observations() {
-    if (m_observations.size() < 2) {
-        return; // Need at least 2 observations for triangulation
-    }
-    
-    // TODO: Implement bundle adjustment or least squares triangulation
-    // For now, keep the current position
-    std::cout << "MapPoint " << m_id << ": position refinement not implemented yet" << std::endl;
-}
-
 double MapPoint::compute_reprojection_error() const {
     if (m_observations.empty()) {
         return 0.0;

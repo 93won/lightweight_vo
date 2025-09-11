@@ -57,7 +57,6 @@ public:
 
     // Operations
     void increment_track_count() { m_track_count++; }
-    void reset_track_count() { m_track_count = 1; }
     
     // Stereo operations
     void set_stereo_match(const cv::Point2f& right_coord, float disparity) {
@@ -80,9 +79,6 @@ public:
     Eigen::Vector2f get_right_normalized_coord() const {
         return m_right_normalized_coord;
     }
-    
-    // Calculate parallax between two observations
-    float calculate_parallax(const Feature& other) const;
 
 private:
     int m_feature_id;              // Unique feature ID

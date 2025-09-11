@@ -22,7 +22,11 @@
 #include <ceres/local_parameterization.h>
 #include <sophus/se3.hpp>
 #include <spdlog/spdlog.h>
-#include "processing/IMUHandler.h"
+
+// Forward declaration
+namespace lightweight_vio {
+    struct IMUPreintegration;
+}
 
 // Define Vector6d as it's not available in standard Eigen
 namespace Eigen {
@@ -177,36 +181,7 @@ public:
      * @param gravity_magnitude Magnitude of gravity (default: 9.81)
      */
     InertialGravityFactor(std::shared_ptr<IMUPreintegration> preintegration,
-                          double gravity_magnitude = 9.81)
-        : m_preintegration(preintegration), m_gravity_magnitude(gravity_magnitude) {
-        // Extract covariance for rotation, velocity, and position (9x9 block)
-        Eigen::Matrix<double, 9, 9> covariance_9x9 = m_preintegration->covariance.block<9, 9>(0, 0).cast<double>();
-        
-        // Compute information matrix (covariance inverse) with numerical stability check
-        Eigen::JacobiSVD<Eigen::Matrix<double, 9, 9>> svd(covariance_9x9, Eigen::ComputeFullU | Eigen::ComputeFullV);
-        
-        // Apply regularization for numerical stability
-        const double min_singular_value = 1e-6;
-        Eigen::Matrix<double, 9, 1> singular_values = svd.singularValues();
-        for (int i = 0; i < 9; ++i) {
-            if (singular_values(i) < min_singular_value) {
-                singular_values(i) = min_singular_value;
-            }
-        }
-        
-        // Compute regularized inverse: A^(-1) = V * S^(-1) * U^T
-        Eigen::Matrix<double, 9, 9> information = svd.matrixV() * singular_values.cwiseInverse().asDiagonal() * svd.matrixU().transpose();
-        
-        // Compute square root information matrix using Cholesky decomposition
-        Eigen::LLT<Eigen::Matrix<double, 9, 9>> llt(information);
-        if (llt.info() == Eigen::Success) {
-            m_sqrt_information = llt.matrixL().transpose(); // Upper triangular
-        } else {
-            // Fallback to identity if decomposition fails
-            m_sqrt_information = Eigen::Matrix<double, 9, 9>::Identity();
-            spdlog::warn("[InertialGravityFactor] Cholesky decomposition failed, using identity weighting");
-        }
-    }
+                          double gravity_magnitude = 9.81);
 
     /**
      * @brief Evaluate residual and Jacobians 
@@ -259,6 +234,45 @@ private:
 };
 
 /**
+ * @brief Simple bias prior factor
+ * 
+ * Applies a zero-mean Gaussian prior on IMU biases:
+ * cost = 0.5 * weight * ||bias - prior||^2
+ */
+class BiasPriorFactor : public ceres::SizedCostFunction<3, 3> {
+public:
+    BiasPriorFactor(const Eigen::Vector3d& prior, double weight)
+        : prior_(prior), weight_(weight) {}
+
+    virtual bool Evaluate(double const* const* parameters,
+                         double* residuals,
+                         double** jacobians) const override {
+        const double* bias = parameters[0];
+        
+        // Residual: r = weight * (bias - prior)
+        for (int i = 0; i < 3; ++i) {
+            residuals[i] = weight_ * (bias[i] - prior_[i]);
+        }
+        
+        // Jacobian w.r.t bias: dr/dbias = weight * I
+        if (jacobians != nullptr && jacobians[0] != nullptr) {
+            for (int i = 0; i < 3; ++i) {
+                for (int j = 0; j < 3; ++j) {
+                    jacobians[0][i * 3 + j] = (i == j) ? weight_ : 0.0;
+                }
+            }
+        }
+        
+        return true;
+    }
+
+private:
+    Eigen::Vector3d prior_;
+    double weight_;
+};
+
+
+/**
  * @brief Generic vector prior factor template
  * @tparam N Dimension of the vector
  */
@@ -299,11 +313,6 @@ private:
     Eigen::Matrix<double, N, 1> prior_;
     Eigen::Matrix<double, N, N> information_;
 };
-
-// Type aliases for common prior factors (after template definition)
-using BiasPriorFactor = VectorPriorFactor<3>;           // 3D bias prior
-using VelocityPriorFactor = VectorPriorFactor<3>;       // 3D velocity prior  
-using PosePriorFactor = VectorPriorFactor<6>;           // 6D SE3 pose prior
 
 /**
  * @brief Combined velocity and bias prior factor for IMU initialization

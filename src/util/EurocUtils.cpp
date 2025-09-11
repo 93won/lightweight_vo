@@ -239,18 +239,6 @@ bool EurocUtils::has_ground_truth() {
     return s_data_loaded && !s_ground_truth_data.empty();
 }
 
-void EurocUtils::clear_ground_truth() {
-    s_ground_truth_data.clear();
-    s_data_loaded = false;
-    
-    // Clear matched data as well
-    s_matched_poses.clear();
-    s_image_timestamps.clear();
-    s_timestamp_errors.clear();
-    
-    spdlog::info("[EurocUtils] Ground truth data cleared");
-}
-
 bool EurocUtils::match_image_timestamps(const std::vector<long long>& image_timestamps) {
     if (!s_data_loaded || s_ground_truth_data.empty()) {
         spdlog::error("[EurocUtils] No ground truth data loaded for matching");

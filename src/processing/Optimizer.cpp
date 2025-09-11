@@ -1901,8 +1901,7 @@ void InertialOptimizer::add_bias_priors(
     
     // Add gyro bias prior
     Eigen::Vector3d gyro_prior(0.0, 0.0, 0.0);  // Zero prior
-    double gyro_weight = 1.0;  // Information weight
-    Eigen::Matrix3d gyro_info = Eigen::Matrix3d::Identity() * (gyro_weight * gyro_weight);
+    double gyro_info = 1.0;  // Information weight
     
     // Add gyro bias prior - use direct cost function instead of AutoDiff
     auto gyro_prior_cost = new lightweight_vio::factor::BiasPriorFactor(gyro_prior, gyro_info);
@@ -1910,101 +1909,11 @@ void InertialOptimizer::add_bias_priors(
     
     // Add accel bias prior
     Eigen::Vector3d accel_prior(0.0, 0.0, 0.0);  // Zero prior
-    double accel_weight = 1.0;  // Information weight  
-    Eigen::Matrix3d accel_info = Eigen::Matrix3d::Identity() * (accel_weight * accel_weight);
+    double accel_info = 1.0;  // Information weight
     auto accel_prior_cost = new lightweight_vio::factor::BiasPriorFactor(accel_prior, accel_info);
     problem.AddResidualBlock(accel_prior_cost, nullptr, accel_bias_params);
 }
 
-int InertialOptimizer::add_inertial_factors(
-    ceres::Problem& problem,
-    const std::vector<lightweight_vio::Frame*>& frames,
-    std::shared_ptr<lightweight_vio::IMUHandler> imu_handler,
-    const Eigen::Vector3d& gravity,
-    const std::vector<std::vector<double>>& pose_params_vec,
-    const std::vector<std::vector<double>>& velocity_params_vec,
-    double* gyro_bias_params,
-    double* accel_bias_params) {
-    
-    int factors_added = 0;
-    
-    // Add inertial factors between consecutive frames
-    for (size_t i = 0; i < frames.size() - 1; ++i) {
-        Frame* frame1 = frames[i];
-        Frame* frame2 = frames[i + 1];
-        
-        // Get IMU preintegration between frames (simplified)
-        double start_time = static_cast<double>(frame1->get_timestamp()) / 1e9;
-        double end_time = static_cast<double>(frame2->get_timestamp()) / 1e9;
-        
-        // For demo, create a dummy preintegration
-        // In real implementation, this would use actual IMU data
-        auto preintegration = std::make_shared<IMUPreintegration>();
-        preintegration->dt_total = end_time - start_time;
-        
-        // Simple integration (placeholder)
-        preintegration->delta_R = Eigen::Matrix3f::Identity();
-        preintegration->delta_V = Eigen::Vector3f::Zero();
-        preintegration->delta_P = Eigen::Vector3f::Zero();
-        
-        if (preintegration->dt_total < 0.001 || preintegration->dt_total > 1.0) {
-            continue;  // Skip invalid integrations
-        }
-        
-        // TODO: Create IMU factor with preintegration - temporarily disabled
-        // auto imu_factor = new lightweight_vio::factor::IMUFactor(preintegration, gravity);
-        
-        // Create combined parameter blocks for speed+bias
-        double* speed_bias1 = new double[9];  // [v1, ba1, bg1]
-        double* speed_bias2 = new double[9];  // [v2, ba2, bg2]
-        
-        // Initialize speed_bias1
-        speed_bias1[0] = velocity_params_vec[i][0];
-        speed_bias1[1] = velocity_params_vec[i][1]; 
-        speed_bias1[2] = velocity_params_vec[i][2];
-        speed_bias1[3] = accel_bias_params[0];
-        speed_bias1[4] = accel_bias_params[1];
-        speed_bias1[5] = accel_bias_params[2];
-        speed_bias1[6] = gyro_bias_params[0];
-        speed_bias1[7] = gyro_bias_params[1];
-        speed_bias1[8] = gyro_bias_params[2];
-        
-        // Initialize speed_bias2
-        speed_bias2[0] = velocity_params_vec[i+1][0];
-        speed_bias2[1] = velocity_params_vec[i+1][1];
-        speed_bias2[2] = velocity_params_vec[i+1][2]; 
-        speed_bias2[3] = accel_bias_params[0];
-        speed_bias2[4] = accel_bias_params[1];
-        speed_bias2[5] = accel_bias_params[2];
-        speed_bias2[6] = gyro_bias_params[0];
-        speed_bias2[7] = gyro_bias_params[1];
-        speed_bias2[8] = gyro_bias_params[2];
-        
-        // TODO: Add residual block directly - IMUFactor temporarily disabled
-        // problem.AddResidualBlock(imu_factor, nullptr,
-        //                         const_cast<double*>(pose_params_vec[i].data()),
-        //                         speed_bias1,
-        //                         const_cast<double*>(pose_params_vec[i+1].data()), 
-        //                         speed_bias2);
-        
-        // spdlog::debug("[IMU_FACTOR] Added IMU factor between frames {} and {}", 
-        //              frame1->get_frame_id(), frame2->get_frame_id());
-        
-        factors_added++;
-        
-        // Log IMU preintegration details for first few factors
-        if (i < 3) {
-            spdlog::debug("[IMU_FACTOR] Frame {} → {}: dt={:.4f}s, dR_norm={:.6f}, dV_norm={:.6f}, dP_norm={:.6f}",
-                         frame1->get_frame_id(), frame2->get_frame_id(), 
-                         preintegration->dt_total,
-                         preintegration->delta_R.trace(),  // Simple rotation measure
-                         preintegration->delta_V.norm(),
-                         preintegration->delta_P.norm());
-        }
-    }
-    
-    return factors_added;
-}
 
 void InertialOptimizer::recover_optimized_states(
     const std::vector<lightweight_vio::Frame*>& frames,

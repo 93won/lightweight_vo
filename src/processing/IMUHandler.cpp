@@ -41,11 +41,11 @@ void IMUPreintegration::reset() {
     delta_V = Eigen::Vector3f::Zero();
     delta_P = Eigen::Vector3f::Zero();
     
-    JRg = Eigen::Matrix3f::Zero();
-    JVg = Eigen::Matrix3f::Zero();
-    JVa = Eigen::Matrix3f::Zero();
-    JPg = Eigen::Matrix3f::Zero();
-    JPa = Eigen::Matrix3f::Zero();
+    J_Rg = Eigen::Matrix3f::Zero();
+    J_Vg = Eigen::Matrix3f::Zero();
+    J_Va = Eigen::Matrix3f::Zero();
+    J_Pg = Eigen::Matrix3f::Zero();
+    J_Pa = Eigen::Matrix3f::Zero();
     
     covariance = Eigen::Matrix<float, 15, 15>::Zero();
     
@@ -176,9 +176,9 @@ void IMUHandler::integrate_measurement(
     Eigen::Matrix3f Jr = right_jacobian(omega_dt);
     
     // Update Jacobians w.r.t gyro bias
-    preint->JRg = -dR.transpose() * Jr * dt;
-    preint->JVg = preint->JVg + preint->JVa * skew_symmetric(accel) * preint->JRg;
-    preint->JPg = preint->JPg + preint->JPa * skew_symmetric(accel) * preint->JRg + preint->JVg * dt;
+    preint->J_Rg = -dR.transpose() * Jr * dt;
+    preint->J_Vg = preint->J_Vg + preint->J_Va * skew_symmetric(accel) * preint->J_Rg;
+    preint->J_Pg = preint->J_Pg + preint->J_Pa * skew_symmetric(accel) * preint->J_Rg + preint->J_Vg * dt;
     
     // Update rotation
     preint->delta_R = R * dR;
@@ -186,12 +186,12 @@ void IMUHandler::integrate_measurement(
     // Update velocity
     Eigen::Vector3f dV = R * accel * dt;
     preint->delta_V = V + dV;
-    preint->JVa = preint->JVa + R * dt;  // Jacobian w.r.t accel bias
+    preint->J_Va = preint->J_Va + R * dt;  // Jacobian w.r.t accel bias
     
     // Update position  
     Eigen::Vector3f dP = V * dt + 0.5f * R * accel * dt * dt;
     preint->delta_P = P + dP;
-    preint->JPa = preint->JPa + preint->JVa * dt + 0.5f * R * dt * dt;  // Jacobian w.r.t accel bias
+    preint->J_Pa = preint->J_Pa + preint->J_Va * dt + 0.5f * R * dt * dt;  // Jacobian w.r.t accel bias
 }
 
 void IMUHandler::integrate_measurement_with_gravity(
@@ -222,9 +222,9 @@ void IMUHandler::integrate_measurement_with_gravity(
     Eigen::Matrix3f Jr = right_jacobian(omega_dt);
     
     // Update Jacobians w.r.t gyro bias
-    preint->JRg = -dR.transpose() * Jr * dt;
-    preint->JVg = preint->JVg + preint->JVa * skew_symmetric(accel_compensated) * preint->JRg;
-    preint->JPg = preint->JPg + preint->JPa * skew_symmetric(accel_compensated) * preint->JRg + preint->JVg * dt;
+    preint->J_Rg = -dR.transpose() * Jr * dt;
+    preint->J_Vg = preint->J_Vg + preint->J_Va * skew_symmetric(accel_compensated) * preint->J_Rg;
+    preint->J_Pg = preint->J_Pg + preint->J_Pa * skew_symmetric(accel_compensated) * preint->J_Rg + preint->J_Vg * dt;
     
     // Update rotation
     preint->delta_R = R * dR;
@@ -232,12 +232,12 @@ void IMUHandler::integrate_measurement_with_gravity(
     // Update velocity (중력 보상된 가속도 사용)
     Eigen::Vector3f dV = R * accel_compensated * dt;
     preint->delta_V = V + dV;
-    preint->JVa = preint->JVa + R * dt;  // Jacobian w.r.t accel bias
+    preint->J_Va = preint->J_Va + R * dt;  // Jacobian w.r.t accel bias
     
     // Update position (중력 보상된 가속도 사용) 
     Eigen::Vector3f dP = V * dt + 0.5f * R * accel_compensated * dt * dt;
     preint->delta_P = P + dP;
-    preint->JPa = preint->JPa + preint->JVa * dt + 0.5f * R * dt * dt;  // Jacobian w.r.t accel bias
+    preint->J_Pa = preint->J_Pa + preint->J_Va * dt + 0.5f * R * dt * dt;  // Jacobian w.r.t accel bias
 }
 
 void IMUHandler::update_covariance(std::shared_ptr<IMUPreintegration> preint, float dt) {
@@ -329,9 +329,9 @@ void IMUHandler::update_preintegration_with_new_bias(
                  delta_bg.x(), delta_bg.y(), delta_bg.z());
     
     // Update using Jacobians (much faster than re-integration)
-    preint->delta_R = preint->delta_R * rodrigues(preint->JRg * delta_bg);
-    preint->delta_V = preint->delta_V + preint->JVg * delta_bg + preint->JVa * delta_ba;
-    preint->delta_P = preint->delta_P + preint->JPg * delta_bg + preint->JPa * delta_ba;
+    preint->delta_R = preint->delta_R * rodrigues(preint->J_Rg * delta_bg);
+    preint->delta_V = preint->delta_V + preint->J_Vg * delta_bg + preint->J_Va * delta_ba;
+    preint->delta_P = preint->delta_P + preint->J_Pg * delta_bg + preint->J_Pa * delta_ba;
     
     // Update bias to new values
     preint->gyro_bias = new_gyro_bias;

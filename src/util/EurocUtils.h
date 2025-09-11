@@ -95,10 +95,7 @@ public:
      */
     static bool has_ground_truth();
 
-    /**
-     * @brief Clear all loaded ground truth data
-     */
-    static void clear_ground_truth();
+
 
     /**
      * @brief Load IMU data from EuRoC dataset

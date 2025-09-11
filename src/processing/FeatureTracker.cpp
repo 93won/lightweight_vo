@@ -411,17 +411,6 @@ void FeatureTracker::update_feature_track_count(std::shared_ptr<Frame> frame) {
     }
 }
 
-std::vector<cv::Point2f> FeatureTracker::extract_points_from_features(
-    const std::vector<std::shared_ptr<Feature>>& features) {
-    std::vector<cv::Point2f> points;
-    for (const auto& feature : features) {
-        if (feature->is_valid()) {
-            points.push_back(feature->get_pixel_coord());
-        }
-    }
-    return points;
-}
-
 void FeatureTracker::update_features_with_points(
     std::vector<std::shared_ptr<Feature>>& features,
     const std::vector<cv::Point2f>& points,

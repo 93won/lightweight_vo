@@ -39,9 +39,9 @@ struct IMUPreintegration {
     Eigen::Vector3f delta_P;        // Position increment
     
     // Jacobians w.r.t. bias (for efficient updates)
-    Eigen::Matrix3f JRg;            // ∂δR/∂bg (gyro bias)
-    Eigen::Matrix3f JVg, JVa;       // ∂δV/∂bg, ∂δV/∂ba
-    Eigen::Matrix3f JPg, JPa;       // ∂δP/∂bg, ∂δP/∂ba
+    Eigen::Matrix3f J_Rg;            // ∂δR/∂bg (gyro bias)
+    Eigen::Matrix3f J_Vg, J_Va;       // ∂δV/∂bg, ∂δV/∂ba
+    Eigen::Matrix3f J_Pg, J_Pa;       // ∂δP/∂bg, ∂δP/∂ba
     
     // Covariance matrix (15x15: δR,δV,δP,δbg,δba)
     Eigen::Matrix<float, 15, 15> covariance;

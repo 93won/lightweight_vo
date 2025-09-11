@@ -34,9 +34,4 @@ Feature::Feature(int feature_id, const cv::Point2f& pixel_coord)
 {
 }
 
-float Feature::calculate_parallax(const Feature& other) const {
-    Eigen::Vector2f diff = m_normalized_coord - other.m_normalized_coord;
-    return diff.norm();
-}
-
 } // namespace lightweight_vio

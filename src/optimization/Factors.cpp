@@ -396,255 +396,40 @@ double BAFactor::compute_chi_square(double const* const* parameters) const {
 }
 
 // ===============================================================================
-// IMU FACTOR IMPLEMENTATION
-// ===============================================================================
-
-bool IMUFactor::Evaluate(double const* const* parameters,
-                        double* residuals,
-                        double** jacobians) const {
-    
-    // ===============================================================================
-    // STEP 1: Extract parameters from optimization variables
-    // ===============================================================================
-    
-    // pose1: [ρ1, φ1] -> [t1, R1]
-    Eigen::Map<const Eigen::Vector3d> rho1(parameters[0]);     // translation
-    Eigen::Map<const Eigen::Vector3d> phi1(parameters[0] + 3); // rotation (axis-angle)
-    
-    // Check for numerical stability before creating SO3
-    Eigen::Vector3d phi1_clamped = phi1;
-    double phi1_norm = phi1_clamped.norm();
-    if (phi1_norm > M_PI) {
-        phi1_clamped = phi1_clamped * (M_PI / phi1_norm);
-    }
-    
-    Sophus::SO3d SO3_1 = Sophus::SO3d::exp(phi1_clamped);
-    Eigen::Matrix3d R1 = SO3_1.matrix();
-    Eigen::Vector3d t1 = rho1;
-    
-    // speed_bias1: [v1, ba1, bg1]
-    Eigen::Map<const Eigen::Vector3d> v1(parameters[1]);        // velocity
-    Eigen::Map<const Eigen::Vector3d> ba1(parameters[1] + 3);   // accel bias
-    Eigen::Map<const Eigen::Vector3d> bg1(parameters[1] + 6);   // gyro bias
-    
-    // pose2: [ρ2, φ2] -> [t2, R2]  
-    Eigen::Map<const Eigen::Vector3d> rho2(parameters[2]);
-    Eigen::Map<const Eigen::Vector3d> phi2(parameters[2] + 3);
-    
-    // Check for numerical stability before creating SO3
-    Eigen::Vector3d phi2_clamped = phi2;
-    double phi2_norm = phi2_clamped.norm();
-    if (phi2_norm > M_PI) {
-        phi2_clamped = phi2_clamped * (M_PI / phi2_norm);
-    }
-    
-    Sophus::SO3d SO3_2 = Sophus::SO3d::exp(phi2_clamped);
-    Eigen::Matrix3d R2 = SO3_2.matrix();
-    Eigen::Vector3d t2 = rho2;
-    
-    // speed_bias2: [v2, ba2, bg2]
-    Eigen::Map<const Eigen::Vector3d> v2(parameters[3]);
-    Eigen::Map<const Eigen::Vector3d> ba2(parameters[3] + 3);
-    Eigen::Map<const Eigen::Vector3d> bg2(parameters[3] + 6);
-    
-    // ===============================================================================
-    // STEP 2: Compute IMU predictions using preintegration
-    // ===============================================================================
-    
-    double dt = m_preintegration->dt_total;
-    
-    // Cast float matrices to double for computation
-    Eigen::Matrix3d delta_R = m_preintegration->delta_R.cast<double>();
-    Eigen::Vector3d delta_V = m_preintegration->delta_V.cast<double>();
-    Eigen::Vector3d delta_P = m_preintegration->delta_P.cast<double>();
-    
-    // Bias corrections (using precomputed Jacobians)
-    Eigen::Vector3d delta_bg = bg1 - m_preintegration->gyro_bias.cast<double>();
-    Eigen::Vector3d delta_ba = ba1 - m_preintegration->accel_bias.cast<double>();
-    
-    Eigen::Matrix3d JRg = m_preintegration->JRg.cast<double>();
-    Eigen::Matrix3d JVg = m_preintegration->JVg.cast<double>();
-    Eigen::Matrix3d JVa = m_preintegration->JVa.cast<double>();
-    Eigen::Matrix3d JPg = m_preintegration->JPg.cast<double>();
-    Eigen::Matrix3d JPa = m_preintegration->JPa.cast<double>();
-    
-    // Corrected preintegration with bias updates
-    Eigen::Vector3d bias_correction_rot = JRg * delta_bg;
-    
-    // Normalize rotation matrix using SVD to ensure orthogonality before correction
-    Eigen::JacobiSVD<Eigen::Matrix3d> svd_init(delta_R, Eigen::ComputeFullU | Eigen::ComputeFullV);
-    delta_R = svd_init.matrixU() * svd_init.matrixV().transpose();
-    
-    Eigen::Matrix3d delta_R_corrected = delta_R * Sophus::SO3d::exp(bias_correction_rot).matrix();
-    
-    // Final normalization to ensure orthogonality
-    Eigen::JacobiSVD<Eigen::Matrix3d> svd(delta_R_corrected, Eigen::ComputeFullU | Eigen::ComputeFullV);
-    delta_R_corrected = svd.matrixU() * svd.matrixV().transpose();
-    
-    Eigen::Vector3d delta_V_corrected = delta_V + JVg * delta_bg + JVa * delta_ba;
-    Eigen::Vector3d delta_P_corrected = delta_P + JPg * delta_bg + JPa * delta_ba;
-    
-    // ===============================================================================  
-    // STEP 3: Compute residuals
-    // ===============================================================================
-    
-    Eigen::Map<Eigen::Vector3d> residual_p(residuals);      // position residual
-    Eigen::Map<Eigen::Vector3d> residual_R(residuals + 3);  // rotation residual  
-    Eigen::Map<Eigen::Vector3d> residual_v(residuals + 6);  // velocity residual
-    Eigen::Map<Eigen::Vector3d> residual_ba(residuals + 9); // accel bias residual
-    Eigen::Map<Eigen::Vector3d> residual_bg(residuals + 12);// gyro bias residual
-    
-    // Position residual: r_p = (t2 - t1) - (R1 * δP + v1*dt + 0.5*g*dt²)
-    residual_p = (t2 - t1) - (R1 * delta_P_corrected + v1 * dt + 0.5 * m_gravity * dt * dt);
-    
-    // Rotation residual: r_R = Log(δR⁻¹ * R1⁻¹ * R2)
-    Eigen::Matrix3d rotation_error = delta_R_corrected.transpose() * R1.transpose() * R2;
-    residual_R = log_SO3(rotation_error);
-    
-    // Velocity residual: r_v = (v2 - v1) - (R1 * δV + g*dt)  
-    residual_v = (v2 - v1) - (R1 * delta_V_corrected + m_gravity * dt);
-    
-    // Bias residuals (random walk model): Δbias ~ N(0, σ²*dt)
-    residual_ba = ba2 - ba1;
-    residual_bg = bg2 - bg1;
-    
-    // ===============================================================================
-    // STEP 4: Compute Jacobians (if requested)
-    // ===============================================================================
-    
-    if (jacobians != nullptr) {
-        
-        // Jacobian w.r.t. pose1 [ρ1, φ1] (6x15)
-        if (jacobians[0] != nullptr) {
-            Eigen::Map<Eigen::Matrix<double, 15, 6, Eigen::RowMajor>> J1(jacobians[0]);
-            J1.setZero();
-            
-            // ∂r_p/∂ρ1 = -I
-            J1.block<3,3>(0, 0) = -Eigen::Matrix3d::Identity();
-            
-            // ∂r_p/∂φ1 = -[R1*δP]_× (skew-symmetric of R1*δP)
-            J1.block<3,3>(0, 3) = -skew_symmetric(R1 * delta_P_corrected);
-            
-            // ∂r_R/∂φ1 = -Jr⁻¹(r_R) * (δR)ᵀ
-            Eigen::Matrix3d Jr_inv = left_jacobian_SO3(-residual_R);
-            J1.block<3,3>(3, 3) = -Jr_inv * delta_R_corrected.transpose();
-            
-            // ∂r_v/∂φ1 = -[R1*δV]_×
-            J1.block<3,3>(6, 3) = -skew_symmetric(R1 * delta_V_corrected);
-        }
-        
-        // Jacobian w.r.t. speed_bias1 [v1, ba1, bg1] (9x15)
-        if (jacobians[1] != nullptr) {
-            Eigen::Map<Eigen::Matrix<double, 15, 9, Eigen::RowMajor>> J2(jacobians[1]);
-            J2.setZero();
-            
-            // ∂r_p/∂v1 = -dt*I
-            J2.block<3,3>(0, 0) = -dt * Eigen::Matrix3d::Identity();
-            
-            // ∂r_p/∂ba1 = -R1 * JPa
-            J2.block<3,3>(0, 3) = -R1 * JPa;
-            
-            // ∂r_p/∂bg1 = -R1 * JPg  
-            J2.block<3,3>(0, 6) = -R1 * JPg;
-            
-            // ∂r_R/∂bg1 = -Jr⁻¹(r_R) * δRᵀ * Jr(JRg*Δbg) * JRg
-            Eigen::Matrix3d Jr_inv = left_jacobian_SO3(-residual_R);
-            Eigen::Matrix3d Jr_bias = right_jacobian_SO3(JRg * delta_bg);
-            J2.block<3,3>(3, 6) = -Jr_inv * delta_R_corrected.transpose() * Jr_bias * JRg;
-            
-            // ∂r_v/∂v1 = -I
-            J2.block<3,3>(6, 0) = -Eigen::Matrix3d::Identity();
-            
-            // ∂r_v/∂ba1 = -R1 * JVa
-            J2.block<3,3>(6, 3) = -R1 * JVa;
-            
-            // ∂r_v/∂bg1 = -R1 * JVg
-            J2.block<3,3>(6, 6) = -R1 * JVg;
-            
-            // ∂r_ba/∂ba1 = -I
-            J2.block<3,3>(9, 3) = -Eigen::Matrix3d::Identity();
-            
-            // ∂r_bg/∂bg1 = -I  
-            J2.block<3,3>(12, 6) = -Eigen::Matrix3d::Identity();
-        }
-        
-        // Jacobian w.r.t. pose2 [ρ2, φ2] (6x15)
-        if (jacobians[2] != nullptr) {
-            Eigen::Map<Eigen::Matrix<double, 15, 6, Eigen::RowMajor>> J3(jacobians[2]);
-            J3.setZero();
-            
-            // ∂r_p/∂ρ2 = I
-            J3.block<3,3>(0, 0) = Eigen::Matrix3d::Identity();
-            
-            // ∂r_R/∂φ2 = Jr⁻¹(r_R)
-            Eigen::Matrix3d Jr_inv = left_jacobian_SO3(-residual_R);
-            J3.block<3,3>(3, 3) = Jr_inv;
-        }
-        
-        // Jacobian w.r.t. speed_bias2 [v2, ba2, bg2] (9x15)
-        if (jacobians[3] != nullptr) {
-            Eigen::Map<Eigen::Matrix<double, 15, 9, Eigen::RowMajor>> J4(jacobians[3]);
-            J4.setZero();
-            
-            // ∂r_v/∂v2 = I
-            J4.block<3,3>(6, 0) = Eigen::Matrix3d::Identity();
-            
-            // ∂r_ba/∂ba2 = I
-            J4.block<3,3>(9, 3) = Eigen::Matrix3d::Identity();
-            
-            // ∂r_bg/∂bg2 = I
-            J4.block<3,3>(12, 6) = Eigen::Matrix3d::Identity();
-        }
-    }
-    
-    return true;
-}
-
-Eigen::Matrix3d IMUFactor::skew_symmetric(const Eigen::Vector3d& v) const {
-    Eigen::Matrix3d skew = Eigen::Matrix3d::Zero();
-    skew(0, 1) = -v(2);
-    skew(0, 2) =  v(1);
-    skew(1, 0) =  v(2);
-    skew(1, 2) = -v(0);
-    skew(2, 0) = -v(1);
-    skew(2, 1) =  v(0);
-    return skew;
-}
-
-Eigen::Matrix3d IMUFactor::right_jacobian_SO3(const Eigen::Vector3d& phi) const {
-    double theta = phi.norm();
-    if (theta < 1e-6) {
-        return Eigen::Matrix3d::Identity() - 0.5 * skew_symmetric(phi);
-    }
-    
-    Eigen::Vector3d axis = phi / theta;
-    double c = cos(theta);
-    double s = sin(theta);
-    
-    return s / theta * Eigen::Matrix3d::Identity() + 
-           (1.0 - c) / theta * skew_symmetric(axis) + 
-           (theta - s) / theta * axis * axis.transpose();
-}
-
-Eigen::Matrix3d IMUFactor::left_jacobian_SO3(const Eigen::Vector3d& phi) const {
-    return right_jacobian_SO3(-phi).transpose();
-}
-
-Eigen::Vector3d IMUFactor::log_SO3(const Eigen::Matrix3d& R) const {
-    // Normalize rotation matrix using SVD to ensure orthogonality before log operation
-    Eigen::JacobiSVD<Eigen::Matrix3d> svd(R, Eigen::ComputeFullU | Eigen::ComputeFullV);
-    Eigen::Matrix3d R_normalized = svd.matrixU() * svd.matrixV().transpose();
-    
-    return Sophus::SO3d(R_normalized).log();
-}
-
-Eigen::Matrix4d IMUFactor::tangent_to_matrix(const Sophus::SE3d::Tangent& tangent) const {
-    return Sophus::SE3d::exp(tangent).matrix();
-}
-
-// ===============================================================================
 // INERTIAL GRAVITY FACTOR IMPLEMENTATION
 // ===============================================================================
+
+InertialGravityFactor::InertialGravityFactor(std::shared_ptr<IMUPreintegration> preintegration,
+                                           double gravity_magnitude)
+    : m_preintegration(preintegration), m_gravity_magnitude(gravity_magnitude) {
+    // Extract covariance for rotation, velocity, and position (9x9 block)
+    Eigen::Matrix<double, 9, 9> covariance_9x9 = m_preintegration->covariance.block<9, 9>(0, 0).cast<double>();
+    
+    // Compute information matrix (covariance inverse) with numerical stability check
+    Eigen::JacobiSVD<Eigen::Matrix<double, 9, 9>> svd(covariance_9x9, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    
+    // Apply regularization for numerical stability
+    const double min_singular_value = 1e-6;
+    Eigen::Matrix<double, 9, 1> singular_values = svd.singularValues();
+    for (int i = 0; i < 9; ++i) {
+        if (singular_values(i) < min_singular_value) {
+            singular_values(i) = min_singular_value;
+        }
+    }
+    
+    // Compute regularized inverse: A^(-1) = V * S^(-1) * U^T
+    Eigen::Matrix<double, 9, 9> information = svd.matrixV() * singular_values.cwiseInverse().asDiagonal() * svd.matrixU().transpose();
+    
+    // Compute square root information matrix using Cholesky decomposition
+    Eigen::LLT<Eigen::Matrix<double, 9, 9>> llt(information);
+    if (llt.info() == Eigen::Success) {
+        m_sqrt_information = llt.matrixL().transpose(); // Upper triangular
+    } else {
+        // Fallback to identity if decomposition fails
+        m_sqrt_information = Eigen::Matrix<double, 9, 9>::Identity();
+        spdlog::warn("[InertialGravityFactor] Cholesky decomposition failed, using identity weighting");
+    }
+}
 
 bool InertialGravityFactor::Evaluate(double const* const* parameters,
                                     double* residuals,
@@ -705,10 +490,10 @@ bool InertialGravityFactor::Evaluate(double const* const* parameters,
     Eigen::Vector3d current_ba = ba;
     Eigen::Vector3d current_bg = bg;
     
-    // Get corrected preintegration values (similar to ORB-SLAM3's GetDelta* methods)
-    Eigen::Matrix3d dR = m_preintegration->delta_R.cast<double>(); // This should be GetDeltaRotation(bias)
-    Eigen::Vector3d dV = m_preintegration->delta_V.cast<double>(); // This should be GetDeltaVelocity(bias) 
-    Eigen::Vector3d dP = m_preintegration->delta_P.cast<double>(); // This should be GetDeltaPosition(bias)
+    // Get corrected preintegration values 
+    Eigen::Matrix3d delta_R = m_preintegration->delta_R.cast<double>(); // This should be GetDeltaRotation(bias)
+    Eigen::Vector3d delta_V = m_preintegration->delta_V.cast<double>(); // This should be GetDeltaVelocity(bias) 
+    Eigen::Vector3d delta_P = m_preintegration->delta_P.cast<double>(); // This should be GetDeltaPosition(bias)
     
     // Apply bias corrections using Jacobians
     Eigen::Vector3d delta_bg = bg - m_preintegration->gyro_bias.cast<double>();
@@ -716,45 +501,45 @@ bool InertialGravityFactor::Evaluate(double const* const* parameters,
     
     if (delta_bg.norm() > 1e-6 || delta_ba.norm() > 1e-6) {
         // Apply bias correction using precomputed Jacobians
-        Eigen::Matrix3d JRg = m_preintegration->JRg.cast<double>();
-        Eigen::Matrix3d JVg = m_preintegration->JVg.cast<double>();
-        Eigen::Matrix3d JVa = m_preintegration->JVa.cast<double>();
-        Eigen::Matrix3d JPg = m_preintegration->JPg.cast<double>();
-        Eigen::Matrix3d JPa = m_preintegration->JPa.cast<double>();
+        Eigen::Matrix3d J_Rg = m_preintegration->J_Rg.cast<double>();
+        Eigen::Matrix3d J_Vg = m_preintegration->J_Vg.cast<double>();
+        Eigen::Matrix3d J_Va = m_preintegration->J_Va.cast<double>();
+        Eigen::Matrix3d J_Pg = m_preintegration->J_Pg.cast<double>();
+        Eigen::Matrix3d J_Pa = m_preintegration->J_Pa.cast<double>();
         
-        dR = dR * Sophus::SO3d::exp(JRg * delta_bg).matrix();
-        dV = dV + JVg * delta_bg + JVa * delta_ba;
-        dP = dP + JPg * delta_bg + JPa * delta_ba;
+        delta_R = delta_R * Sophus::SO3d::exp(J_Rg*delta_bg).matrix();
+        delta_V = delta_V + J_Vg * delta_bg + J_Va * delta_ba;
+        delta_P = delta_P + J_Pg * delta_bg + J_Pa * delta_ba;
     }
     
     // ===============================================================================  
-    // STEP 4: Compute residuals (following ORB-SLAM3 EdgeInertialGS::computeError)
+    // STEP 4: Compute residuals 
     // ===============================================================================
     
     Eigen::Map<Eigen::Vector3d> er(residuals);      // rotation residual  
     Eigen::Map<Eigen::Vector3d> ev(residuals + 3);  // velocity residual
     Eigen::Map<Eigen::Vector3d> ep(residuals + 6);  // position residual
     
-    // Rotation residual: er = Log(dR^T * Ri^T * Rj)
-    er = log_SO3(dR.transpose() * R_bwi * R_wbj);
+    // Rotation residual: er = Log(delta_R^T * Ri^T * Rj)
+    er = log_SO3(delta_R.transpose() * R_bwi * R_wbj);
     
-    // Velocity residual: ev = Ri^T * ((vj - vi) - g*dt) - dV
-    ev = R_bwi * ((vj - vi) - g * dt) - dV;
+    // Velocity residual: ev = Ri^T * ((vj - vi) - g*dt) - delta_V
+    ev = R_bwi * ((vj - vi) - g * dt) - delta_V;
     
-    // Position residual: ep = Ri^T * ((tj - ti - vi*dt) - g*dt²/2) - dP  
-    ep = R_bwi * ((t_wbj - t_wbi - vi * dt) - 0.5 * g * dt * dt) - dP;
+    // Position residual: ep = Ri^T * ((tj - ti - vi*dt) - g*dt²/2) - delta_P  
+    ep = R_bwi * ((t_wbj - t_wbi - vi * dt) - 0.5 * g * dt * dt) - delta_P;
     
     // ===============================================================================
-    // STEP 5: Compute Jacobians (following ORB-SLAM3 EdgeInertialGS::linearizeOplus)
+    // STEP 5: Compute Jacobians 
     // ===============================================================================
     
     if (jacobians != nullptr) {
         
         // Get bias corrected values for Jacobian computation
         Eigen::Vector3d dbg = delta_bg;
-        Eigen::Matrix3d eR = dR.transpose() * R_bwi * R_wbj;
+        Eigen::Matrix3d eR = delta_R.transpose() * R_bwi * R_wbj;
         Eigen::Vector3d er_vec = log_SO3(eR);
-        Eigen::Matrix3d invJr = right_jacobian_SO3(er_vec).inverse();
+        Eigen::Matrix3d Jr_inv = right_jacobian_SO3(er_vec).inverse();
         
         // Jacobian w.r.t posei [0] - parameters[0]: [6x9]
         if (jacobians[0] != nullptr) {
@@ -762,7 +547,7 @@ bool InertialGravityFactor::Evaluate(double const* const* parameters,
             J_posei.setZero();
             
             // rotation part
-            J_posei.block<3, 3>(0, 0) = -invJr * R_wbj.transpose() * R_wbi;
+            J_posei.block<3, 3>(0, 0) = -Jr_inv * R_wbj.transpose() * R_wbi;
             J_posei.block<3, 3>(3, 0) = skew_symmetric(R_bwi * ((vj - vi) - g * dt));
             J_posei.block<3, 3>(6, 0) = skew_symmetric(R_bwi * ((t_wbj - t_wbi - vi * dt) - 0.5 * g * dt * dt));
             
@@ -770,7 +555,7 @@ bool InertialGravityFactor::Evaluate(double const* const* parameters,
             J_posei.block<3, 3>(6, 3) = -Eigen::Matrix3d::Identity();
         }
         
-        // Jacobian w.r.t velocityi [1] - parameters[1]: [3x9]
+        // Jacobian w.r.t velocity [1] - parameters[1]: [3x9]
         if (jacobians[1] != nullptr) {
             Eigen::Map<Eigen::Matrix<double, 9, 3, Eigen::RowMajor>> J_veli(jacobians[1]);
             J_veli.setZero();
@@ -783,13 +568,13 @@ bool InertialGravityFactor::Evaluate(double const* const* parameters,
             Eigen::Map<Eigen::Matrix<double, 9, 3, Eigen::RowMajor>> J_gyro(jacobians[2]);
             J_gyro.setZero();
             
-            Eigen::Matrix3d JRg = m_preintegration->JRg.cast<double>();
-            Eigen::Matrix3d JVg = m_preintegration->JVg.cast<double>();
-            Eigen::Matrix3d JPg = m_preintegration->JPg.cast<double>();
+            Eigen::Matrix3d J_Rg = m_preintegration->J_Rg.cast<double>();
+            Eigen::Matrix3d J_Vg = m_preintegration->J_Vg.cast<double>();
+            Eigen::Matrix3d J_Pg = m_preintegration->J_Pg.cast<double>();
             
-            J_gyro.block<3, 3>(0, 0) = -invJr * eR.transpose() * right_jacobian_SO3(JRg * dbg) * JRg;
-            J_gyro.block<3, 3>(3, 0) = -JVg;
-            J_gyro.block<3, 3>(6, 0) = -JPg;
+            J_gyro.block<3, 3>(0, 0) = -Jr_inv * eR.transpose() * right_jacobian_SO3(J_Rg*dbg) * J_Rg;
+            J_gyro.block<3, 3>(3, 0) = -J_Vg;
+            J_gyro.block<3, 3>(6, 0) = -J_Pg;
         }
         
         // Jacobian w.r.t accel_bias [3] - parameters[3]: [3x9]
@@ -797,11 +582,11 @@ bool InertialGravityFactor::Evaluate(double const* const* parameters,
             Eigen::Map<Eigen::Matrix<double, 9, 3, Eigen::RowMajor>> J_accel(jacobians[3]);
             J_accel.setZero();
             
-            Eigen::Matrix3d JVa = m_preintegration->JVa.cast<double>();
-            Eigen::Matrix3d JPa = m_preintegration->JPa.cast<double>();
+            Eigen::Matrix3d J_Va = m_preintegration->J_Va.cast<double>();
+            Eigen::Matrix3d J_Pa = m_preintegration->J_Pa.cast<double>();
             
-            J_accel.block<3, 3>(3, 0) = -JVa;
-            J_accel.block<3, 3>(6, 0) = -JPa;
+            J_accel.block<3, 3>(3, 0) = -J_Va;
+            J_accel.block<3, 3>(6, 0) = -J_Pa;
         }
         
         // Jacobian w.r.t posej [4] - parameters[4]: [6x9]
@@ -810,7 +595,7 @@ bool InertialGravityFactor::Evaluate(double const* const* parameters,
             J_posej.setZero();
             
             // rotation part
-            J_posej.block<3, 3>(0, 0) = invJr;
+            J_posej.block<3, 3>(0, 0) = Jr_inv;
             
             // translation part  
             J_posej.block<3, 3>(6, 3) = R_bwi * R_wbj;

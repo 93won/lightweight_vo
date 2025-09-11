@@ -74,7 +74,6 @@ private:
     // Helper functions
     bool is_in_border(const cv::Point2f& point, const cv::Size& img_size, int border_size = 1) const;
     void update_feature_track_count(std::shared_ptr<Frame> frame);
-    std::vector<cv::Point2f> extract_points_from_features(const std::vector<std::shared_ptr<Feature>>& features);
     void update_features_with_points(std::vector<std::shared_ptr<Feature>>& features, 
                                     const std::vector<cv::Point2f>& points,
                                     const std::vector<uchar>& status);

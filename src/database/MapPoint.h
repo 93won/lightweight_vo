@@ -61,7 +61,6 @@ public:
     bool is_multi_view_triangulated() const;
     
     // Triangulation and refinement
-    void update_position_from_observations();
     double compute_reprojection_error() const;
 
 private:

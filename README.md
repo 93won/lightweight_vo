@@ -169,7 +169,3 @@ The source code is organized into the following directories:
 - `thirdparty/`: External libraries (Ceres, Pangolin, Sophus, spdlog).
 - `config/`: Configuration files.
 - `scripts/`: Helper scripts.
-
-## References
-
-- C. Forster, L. Carlone, F. Dellaert, and D. Scaramuzza, "IMU Preintegration on Manifold for Efficient Visual-Inertial Maximum-a-Posteriori Estimation," Robotics: Science and Systems (RSS), 2015.
