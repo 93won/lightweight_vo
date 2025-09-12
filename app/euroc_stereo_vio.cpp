@@ -214,21 +214,21 @@ int main(int argc, char* argv[]) {
     
     // Initialize 3D viewer (optional)
     PangolinViewer* viewer = nullptr;
-    std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
-    if (viewer_ptr->initialize(1920*2, 1080*2)) {
-        viewer = viewer_ptr.get();
-        spdlog::info("[Viewer] Pangolin viewer initialized successfully");
+    // std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
+    // if (viewer_ptr->initialize(1920*2, 1080*2)) {
+    //     viewer = viewer_ptr.get();
+    //     spdlog::info("[Viewer] Pangolin viewer initialized successfully");
         
-        // Wait for viewer to be fully ready
-        spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
-        while (viewer && !viewer->is_ready()) {
-            viewer->render();
-            std::this_thread::sleep_for(std::chrono::milliseconds(16));
-        }
-        spdlog::info("[Viewer] Viewer is ready!");
-    } else {
-        spdlog::warn("[Viewer] Failed to initialize 3D viewer, running without visualization");
-    }
+    //     // Wait for viewer to be fully ready
+    //     spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
+    //     while (viewer && !viewer->is_ready()) {
+    //         viewer->render();
+    //         std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    //     }
+    //     spdlog::info("[Viewer] Viewer is ready!");
+    // } else {
+    //     spdlog::warn("[Viewer] Failed to initialize 3D viewer, running without visualization");
+    // }
     
     // Initialize Estimator
     Estimator estimator;
@@ -259,7 +259,7 @@ int main(int argc, char* argv[]) {
     long long previous_frame_timestamp = 0;
     
     spdlog::info("[VIO] Starting VIO processing from frame {} to frame {} (GT-matched range)", start_frame_idx, end_frame_idx - 1);
-    end_frame_idx = 500;
+    // end_frame_idx = 730;
     while (current_idx < end_frame_idx) {
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {
@@ -323,14 +323,22 @@ int main(int argc, char* argv[]) {
         if (processed_frames > 0) { // Not the first frame
             imu_data_from_last_frame = lightweight_vio::EurocUtils::get_imu_between_timestamps(previous_frame_timestamp, image_data[current_idx].timestamp);
             
+            // 🎯 Debug IMU data collection
+            if (!imu_data_from_last_frame.empty()) {
+                double frame_dt = (image_data[current_idx].timestamp - previous_frame_timestamp) / 1e9;
+                double imu_first_time = imu_data_from_last_frame.front().timestamp;
+                double imu_last_time = imu_data_from_last_frame.back().timestamp;
+                double imu_dt = imu_last_time - imu_first_time;
+                
+                if (processed_frames % 20 == 0) {  // Log every 20 frames
+                    spdlog::info("[IMU_DEBUG] Frame {}: frame_dt={:.5f}s, IMU_count={}, IMU_dt={:.5f}s (first={:.6f}, last={:.6f})",
+                                processed_frames, frame_dt, imu_data_from_last_frame.size(), imu_dt, imu_first_time, imu_last_time);
+                }
+            }
+            
             // Check if we have valid IMU data
             has_valid_imu_data = !imu_data_from_last_frame.empty();
             
-            if (has_valid_imu_data) {
-                spdlog::debug("[IMU] Got {} IMU measurements between frames", imu_data_from_last_frame.size());
-            } else {
-                spdlog::debug("[IMU] No IMU data available between frames - using VO mode");
-            }
         }
         
         // Process frame through estimator with IMU data
@@ -557,7 +565,7 @@ int main(int argc, char* argv[]) {
         ++current_idx;
         
         // Control frame rate
-        std::this_thread::sleep_for(std::chrono::milliseconds(3));
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
     }
     
     spdlog::info("[VIO] Processing completed! Processed {} frames", processed_frames);

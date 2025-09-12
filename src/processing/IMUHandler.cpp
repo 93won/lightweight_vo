@@ -323,10 +323,7 @@ void IMUHandler::update_preintegration_with_new_bias(
     Eigen::Vector3f delta_bg = new_gyro_bias - preint->gyro_bias;
     Eigen::Vector3f delta_ba = new_accel_bias - preint->accel_bias;
     
-    spdlog::debug("[IMU_HANDLER] Updating preintegration with new bias - Old gyro: ({:.6f}, {:.6f}, {:.6f}), New gyro: ({:.6f}, {:.6f}, {:.6f}), Delta: ({:.6f}, {:.6f}, {:.6f})",
-                 preint->gyro_bias.x(), preint->gyro_bias.y(), preint->gyro_bias.z(),
-                 new_gyro_bias.x(), new_gyro_bias.y(), new_gyro_bias.z(),
-                 delta_bg.x(), delta_bg.y(), delta_bg.z());
+   
     
     // Update using Jacobians (much faster than re-integration)
     preint->delta_R = preint->delta_R * rodrigues(preint->J_Rg * delta_bg);

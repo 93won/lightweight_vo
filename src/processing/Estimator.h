@@ -239,6 +239,11 @@ private:
 
     bool m_success_imu_init = false;
     
+    // IMU optimization state
+    bool m_enable_imu_optimization = false;  // Flag to enable/disable IMU optimization
+    Eigen::Vector3f m_accel_bias = Eigen::Vector3f::Zero();  // Current accelerometer bias
+    Eigen::Vector3f m_gyro_bias = Eigen::Vector3f::Zero();   // Current gyroscope bias
+    
     /**
      * @brief Sliding window optimization thread function
      */

@@ -250,21 +250,21 @@ int main(int argc, char* argv[]) {
     
     // Initialize 3D viewer (optional)
     PangolinViewer* viewer = nullptr;
-    std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
-    if (viewer_ptr->initialize(1920*2, 1080*2)) {  // Pangolin 뷰어 초기화
-        viewer = viewer_ptr.get();
-        spdlog::info("[Viewer] Pangolin viewer initialized successfully");
+    // std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
+    // if (viewer_ptr->initialize(1920*2, 1080*2)) {  // Pangolin 뷰어 초기화
+    //     viewer = viewer_ptr.get();
+    //     spdlog::info("[Viewer] Pangolin viewer initialized successfully");
         
-        // Wait for viewer to be fully ready
-        spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
-        while (viewer && !viewer->is_ready()) {
-            viewer->render();
-            std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS
-        }
-        spdlog::info("[Viewer] Viewer is ready!");
-    } else {
-        spdlog::warn("[Viewer] Failed to initialize 3D viewer, running without visualization");
-    }
+    //     // Wait for viewer to be fully ready
+    //     spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
+    //     while (viewer && !viewer->is_ready()) {
+    //         viewer->render();
+    //         std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS
+    //     }
+    //     spdlog::info("[Viewer] Viewer is ready!");
+    // } else {
+    //     spdlog::warn("[Viewer] Failed to initialize 3D viewer, running without visualization");
+    // }
     
     // Initialize Estimator
     Estimator estimator;
@@ -294,8 +294,7 @@ int main(int argc, char* argv[]) {
     // Process frames in the valid GT range
     size_t current_idx = start_frame_idx;
     size_t processed_frames = 0;
-
-    end_frame_idx = 500;
+    // end_frame_idx = 800;
     while (current_idx < end_frame_idx) {
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {

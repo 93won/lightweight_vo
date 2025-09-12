@@ -13,7 +13,7 @@ system_mode:
 keyframe_management:
   keyframe_window_size: 5
   grid_coverage_ratio: 0.7  # Add keyframe when coverage drops to 80% of last keyframe's coverage
-  time_threshold: 0.05   
+  time_threshold: 0.01   
   
 # Feature Detection Parameters
 # Controls how corner features are detected using goodFeaturesToTrack
@@ -100,7 +100,7 @@ camera:
 optimization:
   # PnP Optimization Parameters
   max_iterations: 10               # Maximum optimization iterations for PnP
-  sliding_window_max_iterations: 4  # Maximum optimization iterations for sliding window
+  sliding_window_max_iterations: 10  # Maximum optimization iterations for sliding window
   function_tolerance: 1e-6         # Function tolerance for convergence
   gradient_tolerance: 1e-10        # Gradient tolerance for convergence  
   parameter_tolerance: 1e-8        # Parameter tolerance for convergence

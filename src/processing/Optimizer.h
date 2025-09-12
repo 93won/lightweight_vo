@@ -275,6 +275,25 @@ public:
      */
     SlidingWindowResult optimize(const std::vector<std::shared_ptr<Frame>>& keyframes,
                                 bool* force_stop_flag = nullptr);
+    
+    /**
+     * @brief Enable IMU optimization in sliding window
+     * @param imu_handler IMU handler with preintegration data
+     * @param gravity_direction Fixed gravity direction (normalized)
+     */
+    void enable_imu_optimization(std::shared_ptr<IMUHandler> imu_handler,
+                                const Eigen::Vector3d& gravity_direction);
+    
+    /**
+     * @brief Disable IMU optimization (visual-only mode)
+     */
+    void disable_imu_optimization();
+    
+    /**
+     * @brief Check if IMU optimization is enabled
+     * @return True if IMU optimization is enabled
+     */
+    bool is_imu_enabled() const { return m_imu_enabled; }
 
 private:
     /**
@@ -420,6 +439,56 @@ private:
      * @return 2x2 information matrix
      */
     Eigen::Matrix2d create_information_matrix(double pixel_noise, int num_observations) const;
+    
+    /**
+     * @brief Add inertial factors to sliding window optimization using existing InertialGravityFactor
+     * @param problem Ceres problem
+     * @param keyframes Vector of keyframes  
+     * @param pose_params_vec Vector of pose parameter arrays
+     * @param velocity_params_vec Vector of velocity parameter arrays  
+     * @param accel_bias_params Shared accelerometer bias parameters (global)
+     * @param gyro_bias_params Shared gyroscope bias parameters (global)
+     * @param gravity_dir_params Fixed gravity direction parameters
+     * @return Number of IMU factors added
+     */
+    int add_inertial_factors_to_sliding_window(
+        ceres::Problem& problem,
+        const std::vector<std::shared_ptr<Frame>>& keyframes,
+        const std::vector<std::vector<double>>& pose_params_vec,
+        const std::vector<std::vector<double>>& velocity_params_vec,
+        const std::vector<double>& accel_bias_params,
+        const std::vector<double>& gyro_bias_params,
+        const std::vector<double>& gravity_dir_params);
+    
+    /**
+     * @brief Setup IMU parameter blocks for sliding window optimization
+     * @param problem Ceres problem
+     * @param keyframes Vector of keyframes
+     * @param velocity_params_vec Vector to store velocity parameters (per keyframe)
+     * @param accel_bias_params Shared accelerometer bias parameters (global)
+     * @param gyro_bias_params Shared gyroscope bias parameters (global)
+     * @param gravity_dir_params Vector to store gravity direction parameters
+     */
+    void setup_imu_parameter_blocks(
+        ceres::Problem& problem,
+        const std::vector<std::shared_ptr<Frame>>& keyframes,
+        std::vector<std::vector<double>>& velocity_params_vec,
+        std::vector<double>& accel_bias_params,
+        std::vector<double>& gyro_bias_params,
+        std::vector<double>& gravity_dir_params);
+        
+    /**
+     * @brief Update frames with optimized IMU states
+     * @param keyframes Vector of keyframes to update
+     * @param velocity_params_vec Optimized velocity parameters (per keyframe)
+     * @param accel_bias_params Optimized accelerometer bias parameters (shared)
+     * @param gyro_bias_params Optimized gyroscope bias parameters (shared)
+     */
+    void update_imu_optimized_values(
+        const std::vector<std::shared_ptr<Frame>>& keyframes,
+        const std::vector<std::vector<double>>& velocity_params_vec,
+        const std::vector<double>& accel_bias_params,
+        const std::vector<double>& gyro_bias_params);
 
 private:
     size_t m_window_size;        // Maximum keyframes in sliding window
@@ -427,6 +496,12 @@ private:
     double m_huber_delta;        // Huber loss delta parameter
     double m_pixel_noise_std;    // Pixel noise standard deviation
     double m_outlier_threshold;  // Chi-square outlier threshold
+    
+    // IMU optimization settings
+    bool m_imu_enabled;          // Whether IMU optimization is enabled
+    std::shared_ptr<IMUHandler> m_imu_handler;  // IMU handler for preintegration
+    Eigen::Vector3d m_gravity_direction;         // Fixed gravity direction (normalized)
+    double m_gravity_magnitude;   // Gravity magnitude (m/s^2)
     
     // Global mutexes for thread-safe access to MapPoints and Frames
     static std::mutex s_mappoint_mutex;

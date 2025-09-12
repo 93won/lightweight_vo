@@ -1383,7 +1383,6 @@ void Frame::initialize_velocity_from_preintegration() {
     // ===============================================================================
     if (velocity_candidates.empty()) {
         // No preintegration data available, keep zero velocity
-        spdlog::debug("⚪ [FRAME_INIT] Frame[{}]: No preintegration data available, keeping zero velocity", get_frame_id());
         return;
     }
     
