@@ -1058,7 +1058,7 @@ void SlidingWindowOptimizer::apply_marginalization_strategy(
         int obs_count = map_point->get_observation_count();
         
         // Fix map points with too few observations
-        if (obs_count < 2) {
+        if (obs_count < 3) {
             problem.SetParameterBlockConstant(const_cast<double*>(point_params_vec[mp_idx].data()));
             fixed_points++;
         }
@@ -2181,10 +2181,10 @@ void SlidingWindowOptimizer::setup_imu_parameter_blocks(
             Eigen::Matrix3f gyro_bias_cov = preintegration->covariance.block<3,3>(9, 9);
             Eigen::Matrix3f accel_bias_cov = preintegration->covariance.block<3,3>(12, 12);
             
-            // Log covariance diagonal for debugging
-            spdlog::debug("[SW_IMU] Current bias covariances - Gyro diag: ({:.2e}, {:.2e}, {:.2e}), Accel diag: ({:.2e}, {:.2e}, {:.2e})",
-                         gyro_bias_cov(0,0), gyro_bias_cov(1,1), gyro_bias_cov(2,2),
-                         accel_bias_cov(0,0), accel_bias_cov(1,1), accel_bias_cov(2,2));
+            // // Log covariance diagonal for debugging
+            // spdlog::debug("[SW_IMU] Current bias covariances - Gyro diag: ({:.2e}, {:.2e}, {:.2e}), Accel diag: ({:.2e}, {:.2e}, {:.2e})",
+            //              gyro_bias_cov(0,0), gyro_bias_cov(1,1), gyro_bias_cov(2,2),
+            //              accel_bias_cov(0,0), accel_bias_cov(1,1), accel_bias_cov(2,2));
             
             // Compute weights as inverse of diagonal covariance elements (information matrix)
             // Method 1: Use average variance across all 3 axes
@@ -2206,11 +2206,11 @@ void SlidingWindowOptimizer::setup_imu_parameter_blocks(
             // std::cout<<gyro_bias_weight<< " / "<<   accel_bias_weight<<std::endl;
             
             // Apply reasonable bounds to prevent extreme weights
-            gyro_bias_weight = std::clamp(gyro_bias_weight, 1.0, 1e6);
-            accel_bias_weight = std::clamp(accel_bias_weight, 1.0, 1e5);
+            gyro_bias_weight = std::clamp(gyro_bias_weight, 1.0, 1e3);
+            accel_bias_weight = std::clamp(accel_bias_weight, 1.0, 1e2);
             
-            spdlog::debug("[SW_IMU] Dynamic bias weights from covariance: gyro={:.2e}, accel={:.2e}", 
-                         gyro_bias_weight, accel_bias_weight);
+            // spdlog::debug("[SW_IMU] Dynamic bias weights from covariance: gyro={:.2e}, accel={:.2e}", 
+            //              gyro_bias_weight, accel_bias_weight);
         } else {
             // Fallback to default values if no preintegration available
             accel_bias_weight = 1e4;

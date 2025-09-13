@@ -289,12 +289,20 @@ int main(int argc, char* argv[]) {
     // Vector to store frame processing times for statistics
     std::vector<double> frame_processing_times;
 
+    // Variables to store statistics for combined output
+    bool transform_stats_available = false;
+    double transform_rot_mean, transform_rot_median, transform_rot_min, transform_rot_max, transform_rot_rmse;
+    double transform_trans_mean, transform_trans_median, transform_trans_min, transform_trans_max, transform_trans_rmse;
+    double transform_lin_vel_mean, transform_lin_vel_median, transform_lin_vel_min, transform_lin_vel_max;
+    double transform_ang_vel_mean, transform_ang_vel_median, transform_ang_vel_min, transform_ang_vel_max;
+    size_t transform_total_pairs, transform_total_frames, transform_total_gt_poses;
+    bool velocity_stats_available = false;
+
     spdlog::info("[VO] Starting VIO processing from frame {} to frame {} (GT-matched range)", start_frame_idx, end_frame_idx);
     
     // Process frames in the valid GT range
     size_t current_idx = start_frame_idx;
     size_t processed_frames = 0;
-    // end_frame_idx = 800;
     while (current_idx < end_frame_idx) {
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {
@@ -611,8 +619,19 @@ int main(int argc, char* argv[]) {
         // Move to next frame
         ++current_idx;
         
-        // Control frame rate
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // Real-time frame rate control based on actual frame timestamps
+        if (current_idx < end_frame_idx) {
+            // Calculate actual time difference between frames in seconds
+            double actual_frame_dt = (image_data[current_idx].timestamp - image_data[current_idx - 1].timestamp) / 1e9;
+            
+            // Calculate required sleep time = actual frame interval - processing time
+            double required_sleep_ms = (actual_frame_dt * 1000.0) - frame_time_ms;
+            
+            if (required_sleep_ms > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(required_sleep_ms)));
+            }
+            // If required_sleep_ms <= 0, we're already slower than real-time, so no sleep
+        }
     }
     
     spdlog::info("[VO] Processing completed! Processed {} frames \n", processed_frames);
@@ -699,6 +718,8 @@ int main(int argc, char* argv[]) {
         const auto& all_frames = estimator.get_all_frames();
         std::vector<double> rotation_errors;
         std::vector<double> translation_errors;
+        std::vector<double> linear_velocities;  // m/s
+        std::vector<double> angular_velocities; // rad/s
         
         for (size_t i = 1; i < all_frames.size() && i < gt_poses.size(); ++i) {
             if (!all_frames[i-1] || !all_frames[i]) continue;
@@ -716,26 +737,47 @@ int main(int argc, char* argv[]) {
             // Calculate transform error: T_error = T_gt^-1 * T_est
             Eigen::Matrix4f T_error = T_gt_transform.inverse() * T_est_transform;
             
-            // Debug: Print detailed info for first few pairs
-            if (i <= 3) {
-                spdlog::info("=== FRAME PAIR {} -> {} DEBUG (VO) ===", i-1, i);
-                spdlog::info("GT_prev position: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_gt_prev(0,3), T_gt_prev(1,3), T_gt_prev(2,3));
-                spdlog::info("GT_curr position: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_gt_curr(0,3), T_gt_curr(1,3), T_gt_curr(2,3));
-                spdlog::info("GT_rel translation: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_gt_transform(0,3), T_gt_transform(1,3), T_gt_transform(2,3));
-                spdlog::info("Est_prev position: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_est_prev(0,3), T_est_prev(1,3), T_est_prev(2,3));
-                spdlog::info("Est_curr position: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_est_curr(0,3), T_est_curr(1,3), T_est_curr(2,3));
-                spdlog::info("Est_rel translation: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_est_transform(0,3), T_est_transform(1,3), T_est_transform(2,3));
-                spdlog::info("Error translation: ({:.6f}, {:.6f}, {:.6f})", 
-                            T_error(0,3), T_error(1,3), T_error(2,3));
-                spdlog::info("Error magnitude: {:.8f}m", T_error.block<3,1>(0,3).norm());
-                spdlog::info("========================================");
+            // Calculate velocities from estimated transform
+            if (i < lightweight_vio::EurocUtils::get_matched_count()) {
+                // Get time difference between frames
+                long long ts_prev = lightweight_vio::EurocUtils::get_matched_timestamp(i-1);
+                long long ts_curr = lightweight_vio::EurocUtils::get_matched_timestamp(i);
+                double dt = (ts_curr - ts_prev) / 1e9; // Convert to seconds
+                
+                if (dt > 0.001 && dt < 1.0) { // Valid time interval
+                    // Linear velocity (m/s)
+                    Eigen::Vector3f translation = T_est_transform.block<3,1>(0,3);
+                    double linear_velocity = translation.norm() / dt;
+                    linear_velocities.push_back(linear_velocity);
+                    
+                    // Angular velocity (rad/s)
+                    Eigen::Matrix3f R_est = T_est_transform.block<3,3>(0,0);
+                    Eigen::AngleAxisf angle_axis(R_est);
+                    double angular_velocity = std::abs(angle_axis.angle()) / dt;
+                    angular_velocities.push_back(angular_velocity);
+                }
             }
+            
+            // // Debug: Print detailed info for first few pairs
+            // if (i <= 3) {
+            //     spdlog::info("=== FRAME PAIR {} -> {} DEBUG (VO) ===", i-1, i);
+            //     spdlog::info("GT_prev position: ({:.6f}, {:.6f}, {:.6f})", 
+            //                 T_gt_prev(0,3), T_gt_prev(1,3), T_gt_prev(2,3));
+            //     spdlog::info("GT_curr position: ({:.6f}, {:.6f}, {:.6f})", 
+            //                 T_gt_curr(0,3), T_gt_curr(1,3), T_gt_curr(2,3));
+            //     spdlog::info("GT_rel translation: ({:.6f}, {:.6f}, {:.6f})", 
+            //                 T_gt_transform(0,3), T_gt_transform(1,3), T_gt_transform(2,3));
+            //     spdlog::info("Est_prev position: ({:.6f}, {:.6f}, {:.6f})", 
+            //                 T_est_prev(0,3), T_est_prev(1,3), T_est_prev(2,3));
+            //     spdlog::info("Est_curr position: ({:.6f}, {:.6f}, {:.6f})", 
+            //                 T_est_curr(0,3), T_est_curr(1,3), T_est_curr(2,3));
+            //     spdlog::info("Est_rel translation: ({:.6f}, {:.6f}, {:.6f})", 
+            //                 T_est_transform(0,3), T_est_transform(1,3), T_est_transform(2,3));
+            //     spdlog::info("Error translation: ({:.6f}, {:.6f}, {:.6f})", 
+            //                 T_error(0,3), T_error(1,3), T_error(2,3));
+            //     spdlog::info("Error magnitude: {:.8f}m", T_error.block<3,1>(0,3).norm());
+            //     spdlog::info("========================================");
+            // }
             
             // Alternative calculation matching EVO exactly
             // EVO: E_i = (Q_i^-1 * Q_{i+1})^-1 * (P_i^-1 * P_{i+1})
@@ -747,16 +789,16 @@ int main(int argc, char* argv[]) {
             float our_error = T_error.block<3,1>(0,3).norm();
             float evo_error = E_evo.block<3,1>(0,3).norm();
             
-            if (i <= 20) {
-                spdlog::info("Our method error: {:.8f}m", our_error);
-                spdlog::info("EVO method error: {:.8f}m", evo_error);
-                spdlog::info("Difference: {:.8f}m", std::abs(our_error - evo_error));
-            }
+            // if (i <= 20) {
+            //     spdlog::info("Our method error: {:.8f}m", our_error);
+            //     spdlog::info("EVO method error: {:.8f}m", evo_error);
+            //     spdlog::info("Difference: {:.8f}m", std::abs(our_error - evo_error));
+            // }
             
             // Extract rotation error (angle in degrees)
             Eigen::Matrix3f R_error = T_error.block<3,3>(0,0);
-            Eigen::AngleAxisf angle_axis(R_error);
-            double rotation_error_deg = std::abs(angle_axis.angle()) * 180.0 / M_PI;
+            Eigen::AngleAxisf angle_axis_error(R_error);
+            double rotation_error_deg = std::abs(angle_axis_error.angle()) * 180.0 / M_PI;
             
             // Extract translation error (magnitude in meters)
             Eigen::Vector3f t_error = T_error.block<3,1>(0,3);
@@ -775,7 +817,7 @@ int main(int argc, char* argv[]) {
         }
         
         if (!rotation_errors.empty()) {
-            // Calculate statistics
+            // Calculate error statistics
             std::sort(rotation_errors.begin(), rotation_errors.end());
             std::sort(translation_errors.begin(), translation_errors.end());
             
@@ -794,6 +836,26 @@ int main(int argc, char* argv[]) {
             double trans_max = translation_errors.back();
             double trans_rmse = std::sqrt(std::accumulate(translation_errors.begin(), translation_errors.end(), 0.0,
                 [](double sum, double err) { return sum + err * err; }) / translation_errors.size());
+            
+            // Calculate velocity statistics
+            double lin_vel_mean = 0.0, lin_vel_median = 0.0, lin_vel_min = 0.0, lin_vel_max = 0.0;
+            double ang_vel_mean = 0.0, ang_vel_median = 0.0, ang_vel_min = 0.0, ang_vel_max = 0.0;
+            
+            if (!linear_velocities.empty()) {
+                std::sort(linear_velocities.begin(), linear_velocities.end());
+                lin_vel_mean = std::accumulate(linear_velocities.begin(), linear_velocities.end(), 0.0) / linear_velocities.size();
+                lin_vel_median = linear_velocities[linear_velocities.size() / 2];
+                lin_vel_min = linear_velocities.front();
+                lin_vel_max = linear_velocities.back();
+            }
+            
+            if (!angular_velocities.empty()) {
+                std::sort(angular_velocities.begin(), angular_velocities.end());
+                ang_vel_mean = std::accumulate(angular_velocities.begin(), angular_velocities.end(), 0.0) / angular_velocities.size();
+                ang_vel_median = angular_velocities[angular_velocities.size() / 2];
+                ang_vel_min = angular_velocities.front();
+                ang_vel_max = angular_velocities.back();
+            }
             
             // Beautiful statistics output
             spdlog::info("══════════════════════════════════════════════════════════════════");
@@ -819,6 +881,35 @@ int main(int argc, char* argv[]) {
             spdlog::info(" RMSE      : {:>10.6f}m", trans_rmse);
             spdlog::info("══════════════════════════════════════════════════════════════════");
             
+            // Store transform error statistics for combined output
+            transform_stats_available = true;
+            transform_rot_mean = rot_mean;
+            transform_rot_median = rot_median;
+            transform_rot_min = rot_min;
+            transform_rot_max = rot_max;
+            transform_rot_rmse = rot_rmse;
+            transform_trans_mean = trans_mean;
+            transform_trans_median = trans_median;
+            transform_trans_min = trans_min;
+            transform_trans_max = trans_max;
+            transform_trans_rmse = trans_rmse;
+            transform_total_pairs = rotation_errors.size();
+            transform_total_frames = all_frames.size();
+            transform_total_gt_poses = gt_poses.size();
+            
+            // Store velocity statistics
+            if (!linear_velocities.empty() && !angular_velocities.empty()) {
+                velocity_stats_available = true;
+                transform_lin_vel_mean = lin_vel_mean;
+                transform_lin_vel_median = lin_vel_median;
+                transform_lin_vel_min = lin_vel_min;
+                transform_lin_vel_max = lin_vel_max;
+                transform_ang_vel_mean = ang_vel_mean;
+                transform_ang_vel_median = ang_vel_median;
+                transform_ang_vel_min = ang_vel_min;
+                transform_ang_vel_max = ang_vel_max;
+            }
+            
         }
     } else {
         spdlog::warn("[TRANSFORM_ANALYSIS] No ground truth data available for transform analysis");
@@ -832,6 +923,74 @@ int main(int argc, char* argv[]) {
         
         spdlog::info("[TIMING_ANALYSIS] Average frame processing time: {:.2f}ms ({:.1f}fps)", 
                     time_mean, fps_mean, frame_processing_times.size());
+
+        // Save comprehensive statistics to a single file
+        std::string stats_file = dataset_path + "/statistics_vo.txt";
+        std::ofstream stats_out(stats_file);
+        if (stats_out.is_open()) {
+            stats_out << "══════════════════════════════════════════════════════════════════\n";
+            stats_out << "                         STATISTICS (VO)                          \n";
+            stats_out << "══════════════════════════════════════════════════════════════════\n";
+            stats_out << "\n";
+            
+            // Timing Statistics
+            stats_out << "                         TIMING ANALYSIS                          \n";
+            stats_out << "══════════════════════════════════════════════════════════════════\n";
+            stats_out << " Total Frames Processed: " << frame_processing_times.size() << "\n";
+            stats_out << " Average Processing Time: " << std::fixed << std::setprecision(2) << time_mean << "ms\n";
+            stats_out << " Average Frame Rate: " << std::fixed << std::setprecision(1) << fps_mean << "fps\n";
+            stats_out << "\n";
+            
+            // Velocity Statistics (if available)
+            if (velocity_stats_available) {
+                stats_out << "                       VELOCITY STATISTICS                        \n";
+                stats_out << "══════════════════════════════════════════════════════════════════\n";
+                stats_out << "                    LINEAR VELOCITY STATISTICS                    \n";
+                stats_out << " Mean      : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_lin_vel_mean << "m/s\n";
+                stats_out << " Median    : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_lin_vel_median << "m/s\n";
+                stats_out << " Minimum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_lin_vel_min << "m/s\n";
+                stats_out << " Maximum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_lin_vel_max << "m/s\n";
+                stats_out << "\n";
+                stats_out << "                   ANGULAR VELOCITY STATISTICS                    \n";
+                stats_out << " Mean      : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_ang_vel_mean << "rad/s\n";
+                stats_out << " Median    : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_ang_vel_median << "rad/s\n";
+                stats_out << " Minimum   : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_ang_vel_min << "rad/s\n";
+                stats_out << " Maximum   : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_ang_vel_max << "rad/s\n";
+                stats_out << "\n";
+            }
+            
+            // Transform Error Statistics (if available)
+            if (transform_stats_available) {
+                stats_out << "              FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS             \n";
+                stats_out << "══════════════════════════════════════════════════════════════════\n";
+                stats_out << " Total Frame Pairs Analyzed: " << transform_total_pairs 
+                         << " (all_frames: " << transform_total_frames << ", gt_poses: " << transform_total_gt_poses << ")\n";
+                stats_out << " Frame precision: " << sizeof(float) * 8 << " bit floats\n";
+                stats_out << "\n";
+                stats_out << "                     ROTATION ERROR STATISTICS                    \n";
+                stats_out << " Mean      : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_rot_mean << "°\n";
+                stats_out << " Median    : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_rot_median << "°\n";
+                stats_out << " Minimum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_rot_min << "°\n";
+                stats_out << " Maximum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_rot_max << "°\n";
+                stats_out << " RMSE      : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_rot_rmse << "°\n";
+                stats_out << "\n";
+                stats_out << "                   TRANSLATION ERROR STATISTICS                   \n";
+                stats_out << " Mean      : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_trans_mean << "m\n";
+                stats_out << " Median    : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_trans_median << "m\n";
+                stats_out << " Minimum   : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_trans_min << "m\n";
+                stats_out << " Maximum   : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_trans_max << "m\n";
+                stats_out << " RMSE      : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_trans_rmse << "m\n";
+            } else {
+                stats_out << "              FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS             \n";
+                stats_out << "══════════════════════════════════════════════════════════════════\n";
+                stats_out << " No ground truth data available for transform analysis\n";
+            }
+            
+            stats_out << "\n";
+            stats_out << "══════════════════════════════════════════════════════════════════\n";
+            stats_out.close();
+            spdlog::info("[STATISTICS] Saved comprehensive statistics to: {}", stats_file);
+        }
 
             spdlog::info("══════════════════════════════════════════════════════════════════");
     }

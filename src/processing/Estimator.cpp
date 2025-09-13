@@ -1605,7 +1605,7 @@ void Estimator::predict_state() {
 
         
         // Get from-last-keyframe IMU preintegration (more stable for longer intervals)
-        auto keyframe_to_frame_preint = m_current_frame->get_imu_preintegration_from_last_keyframe();
+        auto keyframe_to_frame_preint = m_current_frame->get_imu_preintegration_from_last_frame();
         
         if (keyframe_to_frame_preint && keyframe_to_frame_preint->is_valid() && m_last_keyframe) {
             // Use IMU preintegration from last keyframe (more robust)
