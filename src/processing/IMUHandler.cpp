@@ -96,9 +96,7 @@ void IMUHandler::set_bias(const Eigen::Vector3f& gyro_bias, const Eigen::Vector3
     m_gyro_bias = gyro_bias;
     m_accel_bias = accel_bias;
     
-    spdlog::debug("[IMU_HANDLER] Updated bias - Gyro: ({:.6f}, {:.6f}, {:.6f}), Accel: ({:.6f}, {:.6f}, {:.6f})",
-                 gyro_bias.x(), gyro_bias.y(), gyro_bias.z(),
-                 accel_bias.x(), accel_bias.y(), accel_bias.z());
+    
 }
 
 void IMUHandler::get_bias(Eigen::Vector3f& gyro_bias, Eigen::Vector3f& accel_bias) const {
@@ -323,16 +321,44 @@ void IMUHandler::update_preintegration_with_new_bias(
     Eigen::Vector3f delta_bg = new_gyro_bias - preint->gyro_bias;
     Eigen::Vector3f delta_ba = new_accel_bias - preint->accel_bias;
     
-   
+    // Log initial covariance values
+    float old_gyro_cov_trace = preint->covariance.block<3,3>(9, 9).trace();
+    float old_accel_cov_trace = preint->covariance.block<3,3>(12, 12).trace();
+    
+    // spdlog::debug("[IMU_HANDLER] Updating preintegration with new bias - Old gyro: ({:.6f}, {:.6f}, {:.6f}), New gyro: ({:.6f}, {:.6f}, {:.6f}), Delta: ({:.6f}, {:.6f}, {:.6f})",
+    //              preint->gyro_bias.x(), preint->gyro_bias.y(), preint->gyro_bias.z(),
+    //              new_gyro_bias.x(), new_gyro_bias.y(), new_gyro_bias.z(),
+    //              delta_bg.x(), delta_bg.y(), delta_bg.z());
     
     // Update using Jacobians (much faster than re-integration)
     preint->delta_R = preint->delta_R * rodrigues(preint->J_Rg * delta_bg);
     preint->delta_V = preint->delta_V + preint->J_Vg * delta_bg + preint->J_Va * delta_ba;
     preint->delta_P = preint->delta_P + preint->J_Pg * delta_bg + preint->J_Pa * delta_ba;
     
+    // Update covariance: When bias changes, bias uncertainty should reset to lower values
+    // since optimization has provided better bias estimates
+    float bias_reduction_factor = 0.9f; // New bias estimates are more accurate
+    
+    // Update gyro bias covariance (indices 9-11)
+    preint->covariance.block<3,3>(9, 9) *= bias_reduction_factor;
+    
+    // Update accel bias covariance (indices 12-14)  
+    preint->covariance.block<3,3>(12, 12) *= bias_reduction_factor;
+    
+    // Add small diagonal regularization to prevent singular covariance
+    float min_bias_variance = 1e-8f;
+    for (int i = 9; i < 15; ++i) {
+        preint->covariance(i, i) = std::max(preint->covariance(i, i), min_bias_variance);
+    }
+    
     // Update bias to new values
     preint->gyro_bias = new_gyro_bias;
     preint->accel_bias = new_accel_bias;
+    
+    // Log covariance update results
+    float new_gyro_cov_trace = preint->covariance.block<3,3>(9, 9).trace();
+    float new_accel_cov_trace = preint->covariance.block<3,3>(12, 12).trace();
+    
 }
 
 void IMUHandler::estimate_initial_bias(
@@ -814,11 +840,6 @@ bool IMUHandler::inherit_bias_from_keyframe(
     m_gyro_bias = reference_keyframe->get_gyro_bias();
     m_accel_bias = reference_keyframe->get_accel_bias();
     
-    spdlog::debug("[IMU_HANDLER] Frame {} inherited bias from keyframe {} - Gyro: ({:.6f},{:.6f},{:.6f}), Accel: ({:.6f},{:.6f},{:.6f})",
-                 new_frame->get_frame_id(), reference_keyframe->get_frame_id(),
-                 m_gyro_bias.x(), m_gyro_bias.y(), m_gyro_bias.z(),
-                 m_accel_bias.x(), m_accel_bias.y(), m_accel_bias.z());
-    
     return true;
 }
 
@@ -920,8 +941,6 @@ bool IMUHandler::update_preintegrations_with_optimized_bias(
         return false;
     }
     
-    spdlog::info("[IMU_HANDLER] 🔄 Updating preintegrations with optimized bias for {} frames", frames.size());
-    
     int updated_count = 0;
     for (size_t i = 0; i < frames.size(); ++i) {
         Frame* frame = frames[i];
@@ -951,7 +970,6 @@ bool IMUHandler::update_preintegrations_with_optimized_bias(
         updated_count++;
     }
     
-    spdlog::info("[IMU_HANDLER] ✅ Updated {} preintegrations with optimized bias", updated_count);
     return updated_count > 0;
 }
 
@@ -972,5 +990,6 @@ void IMUHandler::set_gravity_aligned_coordinate_system() {
     spdlog::info("  - Rgw is now Identity (no further transformation needed)");
     spdlog::info("  - Gravity vector: (0.0, 0.0, -9.81) m/s²");
 }
+
 
 } // namespace lightweight_vio

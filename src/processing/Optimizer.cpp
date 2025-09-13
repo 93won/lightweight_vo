@@ -139,11 +139,11 @@ namespace lightweight_vio
             return result;
         }
 
-        // Setup solver options
-        ceres::Solver::Options options = setup_solver_options();
-        
         // Get global config
         const auto& config = Config::getInstance();
+
+        // Setup solver options
+        ceres::Solver::Options options = setup_solver_options(config.m_pose_max_iterations);
 
         // Perform outlier detection rounds if enabled
         if (config.m_enable_outlier_detection)
@@ -515,12 +515,13 @@ namespace lightweight_vio
         return num_inliers;
     }
 
-    ceres::Solver::Options PnPOptimizer::setup_solver_options() const
+    ceres::Solver::Options PnPOptimizer::setup_solver_options(int max_iter) const
     {
         ceres::Solver::Options options;
         const auto& config = Config::getInstance();
 
-        options.max_num_iterations = config.m_pose_max_iterations;
+        // Use provided max_iter directly
+        options.max_num_iterations = max_iter;
         options.function_tolerance = config.m_pose_function_tolerance;
         options.gradient_tolerance = config.m_pose_gradient_tolerance;
         options.parameter_tolerance = config.m_pose_parameter_tolerance;
@@ -627,26 +628,19 @@ SlidingWindowOptimizer::SlidingWindowOptimizer(size_t window_size)
 }
 
 SlidingWindowResult SlidingWindowOptimizer::optimize(
-    const std::vector<std::shared_ptr<Frame>>& keyframes,
-    bool* force_stop_flag) {
+    const std::vector<std::shared_ptr<Frame>>& keyframes) {
     
     SlidingWindowResult result;
     
-    if (keyframes.empty()) {
-        spdlog::warn("[SlidingWindowOptimizer] No keyframes provided");
-        return result;
-    }
     
     if (keyframes.size() < 2) {
-        spdlog::warn("[SlidingWindowOptimizer] Need at least 2 keyframes for bundle adjustment");
         return result;
     }
+  
     
-    // Collect map points observed by keyframes in sliding window
     auto map_points = collect_window_map_points(keyframes);
     
     if (map_points.empty()) {
-        spdlog::warn("[SlidingWindowOptimizer] No map points found in sliding window");
         return result;
     }
     
@@ -668,7 +662,6 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
         problem, keyframes, map_points, pose_params_vec, point_params_vec);
     
     if (observations.empty()) {
-        spdlog::warn("[SlidingWindowOptimizer] No valid observations found");
         return result;
     }
     
@@ -683,39 +676,31 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
             accel_bias_params, gyro_bias_params, gravity_dir_params);
     }
     
-    // Apply marginalization strategy (fix oldest keyframe, etc.)
-    apply_marginalization_strategy(
-        problem, keyframes, map_points, pose_params_vec, point_params_vec);
+    // Configure solver options for two-stage optimization
+    // First stage: Quick outlier detection with visual factors only (no IMU)
+    int first_stage_max_iter = std::max(1, m_max_iterations / 2);
+    ceres::Solver::Options first_stage_options = setup_solver_options(m_max_iterations);
     
-    // Configure solver options
-    ceres::Solver::Options first_stage_options = setup_solver_options();
-    ceres::Solver::Options second_stage_options = setup_solver_options();
-    
-    // First stage: Use half iterations for quick outlier detection
-    first_stage_options.max_num_iterations = std::max(1, m_max_iterations / 2);
-    
-    // Second stage: Use full iterations for precise optimization
-    second_stage_options.max_num_iterations = m_max_iterations;
-    
-    if (force_stop_flag) {
-        // TODO: Add custom callback for early termination if needed
-    }
+    // Second stage: Precise optimization with all factors (visual + IMU if enabled)
+    ceres::Solver::Options second_stage_options = setup_solver_options(m_max_iterations);
     
     ceres::Solver::Summary summary;
     
     // Initial cost evaluation
-    double initial_cost = 0.0;
-    problem.Evaluate(ceres::Problem::EvaluateOptions(), &initial_cost, nullptr, nullptr, nullptr);
-    result.initial_cost = initial_cost;
+    double first_cost = 0.0;
+    problem.Evaluate(ceres::Problem::EvaluateOptions(), &first_cost, nullptr, nullptr, nullptr);
+
+    // Stage 1: Quick optimization with more fixed keyframes for stability
+    // Fix more keyframes in first stage for robust outlier detection
+    int stage1_fixed_keyframes = 4;  // More conservative approach for first stage
+    apply_marginalization_strategy(problem, keyframes, map_points, pose_params_vec, point_params_vec, stage1_fixed_keyframes);
+    // spdlog::debug("[SlidingWindowOptimizer] Stage 1: Fixed {} keyframes for outlier detection", stage1_fixed_keyframes);
     
-    // Stage 1: Quick optimization with robust kernel (half iterations)
     ceres::Solve(first_stage_options, &problem, &summary);
     
-    if (force_stop_flag && *force_stop_flag) {
-        result.success = false;
-        return result;
-    }
-    
+    double stage1_cost = 0.0;
+    problem.Evaluate(ceres::Problem::EvaluateOptions(), &stage1_cost, nullptr, nullptr, nullptr);
+
     // Outlier detection phase: mark outliers but don't remove them yet
     for (const auto& obs_info : observations) {
         const double* pose_params = pose_params_vec[obs_info.keyframe_index].data();
@@ -730,16 +715,25 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
         obs_info.cost_function->set_outlier(is_outlier);
     }
     
+    // Stage 2: Apply different marginalization strategy for precise optimization
+    // Fix fewer keyframes in second stage for more degrees of freedom
+    int stage2_fixed_keyframes = 1;  // More flexible approach for second stage
+    apply_marginalization_strategy(problem, keyframes, map_points, pose_params_vec, point_params_vec, stage2_fixed_keyframes, true);
+    // spdlog::debug("[SlidingWindowOptimizer] Stage 2: Reset constraints and fixed {} keyframes for precise optimization", stage2_fixed_keyframes);
+    
+    // Get cost before Stage 2 (after Stage 1 completion)
+    double stage2_initial_cost = 0.0;
+    problem.Evaluate(ceres::Problem::EvaluateOptions(), &stage2_initial_cost, nullptr, nullptr, nullptr);
+    
     // Stage 2: Precise optimization without robust kernel (full iterations)
     // Outliers are disabled via set_outlier - they return zero residuals
     ceres::Solver::Summary final_summary;
     ceres::Solve(second_stage_options, &problem, &final_summary);
     summary = final_summary; // Use final summary for cost reporting
     
-    // Final cost evaluation
-    double final_cost = 0.0;
-    problem.Evaluate(ceres::Problem::EvaluateOptions(), &final_cost, nullptr, nullptr, nullptr);
-    result.final_cost = final_cost;
+    // Final cost evaluation (after Stage 2)
+    double second_cost = 0.0;
+    problem.Evaluate(ceres::Problem::EvaluateOptions(), &second_cost, nullptr, nullptr, nullptr);
     result.num_iterations = summary.iterations.size();
     
     // Detect outliers and count inliers
@@ -751,9 +745,16 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
     result.num_poses_optimized = static_cast<int>(keyframes.size());
     result.num_points_optimized = static_cast<int>(map_points.size());
     
-    // Check if optimization was successful - SUCCESS if cost decreased
-    bool cost_decreased = (result.final_cost < result.initial_cost);
-    result.success = cost_decreased;
+    // Check if Stage 2 optimization was successful using Brief Report costs
+    bool stage2_cost_decreased = (summary.final_cost < summary.initial_cost);
+    bool stage2_converged = (summary.termination_type == ceres::CONVERGENCE || summary.termination_type == ceres::USER_SUCCESS);
+    
+                    
+    result.final_cost = summary.final_cost;
+    result.initial_cost = summary.initial_cost;
+
+    
+    result.success = stage2_cost_decreased || stage2_converged;
     
     if (result.success) {
         // Update keyframes and map points with optimized values
@@ -765,13 +766,13 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
                                        accel_bias_params, gyro_bias_params);
         }
         
-        spdlog::info("[SlidingWindowOptimizer] ✅ Optimization successful: {} poses, {} points, {} visual obs, {} IMU factors, {} inliers, {} outliers, cost: {:.2e} -> {:.2e}",
+        spdlog::info("[SlidingWindowOptimizer] ✅ Optimization successful: {} poses, {} points, {} visual obs, {} IMU factors, {} inliers, {} outliers, cost: {:.10e} -> {:.10e}",
                     result.num_poses_optimized, result.num_points_optimized, 
                     observations.size(), num_imu_factors,
                     result.num_inliers, result.num_outliers, result.initial_cost, result.final_cost);
+
     } else {
-        spdlog::warn("[SlidingWindowOptimizer] ❌ Optimization failed (cost increased): {:.2e} -> {:.2e}, {}", 
-                    result.initial_cost, result.final_cost, summary.BriefReport());
+        spdlog::warn("[SlidingWindowOptimizer] ❌ Optimization failed (cost increased): {:.2e} -> {:.2e}, {}", result.initial_cost, result.final_cost, summary.BriefReport());
     }
     
     return result;
@@ -1020,16 +1021,35 @@ void SlidingWindowOptimizer::apply_marginalization_strategy(
     const std::vector<std::shared_ptr<Frame>>& keyframes,
     const std::vector<std::shared_ptr<MapPoint>>& map_points,
     const std::vector<std::vector<double>>& pose_params_vec,
-    const std::vector<std::vector<double>>& point_params_vec) {
+    const std::vector<std::vector<double>>& point_params_vec,
+    int num_fixed_keyframes,
+    bool reset_constraints) {
     
     if (keyframes.empty()) return;
     
-    // Fix the oldest keyframe (first in vector) as reference to prevent gauge freedom
-    if (!pose_params_vec.empty()) {
-        problem.SetParameterBlockConstant(const_cast<double*>(pose_params_vec[0].data()));
-        // spdlog::debug("[SlidingWindowOptimizer] Fixed oldest keyframe {} as reference",
-        //              keyframes[0]->get_frame_id());
+    // Reset existing constraints if requested
+    if (reset_constraints) {
+        // Make all pose parameters variable first
+        for (size_t i = 0; i < pose_params_vec.size(); ++i) {
+            problem.SetParameterBlockVariable(const_cast<double*>(pose_params_vec[i].data()));
+        }
+        // Make all point parameters variable first
+        for (size_t i = 0; i < point_params_vec.size(); ++i) {
+            problem.SetParameterBlockVariable(const_cast<double*>(point_params_vec[i].data()));
+        }
     }
+    
+    // Ensure num_fixed_keyframes is within valid range
+    int max_fixed = std::min(num_fixed_keyframes, static_cast<int>(keyframes.size()));
+    max_fixed = std::max(max_fixed, 1); // At least fix one keyframe for gauge freedom
+    
+    // Fix the first N keyframes as reference to prevent gauge freedom
+    for (int i = 0; i < max_fixed && i < static_cast<int>(pose_params_vec.size()); ++i) {
+        problem.SetParameterBlockConstant(const_cast<double*>(pose_params_vec[i].data()));
+        // spdlog::debug("[SlidingWindowOptimizer] Fixed keyframe {} (index {}) as reference",
+        //              keyframes[i]->get_frame_id(), i);
+    }
+    
     
     // Optional: Fix map points with insufficient observations
     int fixed_points = 0;
@@ -1208,7 +1228,7 @@ void SlidingWindowOptimizer::update_optimized_values(
     //             updated_keyframes, updated_map_points);
 }
 
-ceres::Solver::Options SlidingWindowOptimizer::setup_solver_options() const {
+ceres::Solver::Options SlidingWindowOptimizer::setup_solver_options(int max_iter) const {
     ceres::Solver::Options options;
     const Config& config = Config::getInstance();
     
@@ -1216,8 +1236,8 @@ ceres::Solver::Options SlidingWindowOptimizer::setup_solver_options() const {
     options.linear_solver_type = ceres::SPARSE_SCHUR;
     options.preconditioner_type = ceres::SCHUR_JACOBI;
     
-    // Solver parameters from config
-    options.max_num_iterations = config.m_sw_max_iterations;
+    // Use provided max_iter directly
+    options.max_num_iterations = max_iter;
     options.function_tolerance = config.m_sw_function_tolerance;
     options.gradient_tolerance = config.m_sw_gradient_tolerance;
     options.parameter_tolerance = config.m_sw_parameter_tolerance;
@@ -1409,7 +1429,7 @@ InertialOptimizationResult InertialOptimizer::optimize_imu_initialization(
     // STEP 7: Extract optimized results
     // ===============================================================================
     
-    result.success = true;//(summary.termination_type == ceres::CONVERGENCE || summary.termination_type == ceres::USER_SUCCESS);
+    result.success = (summary.termination_type == ceres::CONVERGENCE || summary.termination_type == ceres::USER_SUCCESS);
     result.num_iterations = summary.iterations.size();
     result.initial_cost = summary.initial_cost;
     result.final_cost = summary.final_cost;
@@ -1613,11 +1633,12 @@ int InertialOptimizer::add_inertial_gravity_factors(
         auto* imu_loss_function = new ceres::HuberLoss(imu_huber_delta);
         
         // Add residual block using separate parameter arrays (7 parameter version) with Huber loss
+        // NOTE: InertialGravityFactor expects [pose1, velocity1, GYRO_bias, ACCEL_bias, pose2, velocity2, gravity_dir]
         problem.AddResidualBlock(inertial_gravity_factor, imu_loss_function,
                                 const_cast<double*>(pose_params_vec[opt_idx].data()),           // pose1 (6D)
                                 const_cast<double*>(velocity_params_vec[opt_idx].data()),       // velocity1 (3D)
-                                const_cast<double*>(accel_bias_params_vec[opt_idx].data()),     // accel_bias1 (3D) 
-                                const_cast<double*>(gyro_bias_params_vec[opt_idx].data()),      // gyro_bias1 (3D)
+                                const_cast<double*>(gyro_bias_params_vec[opt_idx].data()),      // GYRO_bias1 (3D) - parameters[2]
+                                const_cast<double*>(accel_bias_params_vec[opt_idx].data()),     // ACCEL_bias1 (3D) - parameters[3]
                                 const_cast<double*>(pose_params_vec[opt_idx+1].data()),         // pose2 (6D)
                                 const_cast<double*>(velocity_params_vec[opt_idx+1].data()),     // velocity2 (3D)
                                 const_cast<double*>(gravity_dir_params.data()));                // gravity_dir (2D)
@@ -1664,8 +1685,8 @@ void InertialOptimizer::add_imu_init_priors(
         
         // Information matrix (9x9) - different weights for velocity and biases
         Eigen::MatrixXd information = Eigen::MatrixXd::Zero(9, 9);
-        double velocity_weight = 1.0;  // Small velocity prior weight
-        double bias_weight = 100000.0;      // Stronger bias prior weight 
+        double velocity_weight = 0.01;  // Small velocity prior weight
+        double bias_weight = 1.0;      // Stronger bias prior weight 
         
         // Set diagonal elements
         information(0, 0) = velocity_weight; // vx
@@ -1927,25 +1948,6 @@ void InertialOptimizer::setup_params(
     spdlog::info("🎯 [SETUP_PARAMS] Initialized {} frames with current velocities and zero biases", frames.size());
 }
 
-void InertialOptimizer::add_bias_priors(
-    ceres::Problem& problem,
-    double* gyro_bias_params,
-    double* accel_bias_params) {
-    
-    // Add gyro bias prior
-    Eigen::Vector3d gyro_prior(0.0, 0.0, 0.0);  // Zero prior
-    double gyro_info = 1.0;  // Information weight
-    
-    // Add gyro bias prior - use direct cost function instead of AutoDiff
-    auto gyro_prior_cost = new lightweight_vio::factor::BiasPriorFactor(gyro_prior, gyro_info);
-    problem.AddResidualBlock(gyro_prior_cost, nullptr, gyro_bias_params);
-    
-    // Add accel bias prior
-    Eigen::Vector3d accel_prior(0.0, 0.0, 0.0);  // Zero prior
-    double accel_info = 1.0;  // Information weight
-    auto accel_prior_cost = new lightweight_vio::factor::BiasPriorFactor(accel_prior, accel_info);
-    problem.AddResidualBlock(accel_prior_cost, nullptr, accel_bias_params);
-}
 
 
 void InertialOptimizer::recover_optimized_states(
@@ -2071,11 +2073,12 @@ int SlidingWindowOptimizer::add_inertial_factors_to_sliding_window(
         auto* imu_loss_function = new ceres::HuberLoss(imu_huber_delta);
         
         // Add residual block using InertialGravityFactor with shared bias parameters and Huber loss
+        // NOTE: InertialGravityFactor expects [pose1, velocity1, GYRO_bias, ACCEL_bias, pose2, velocity2, gravity_dir]
         problem.AddResidualBlock(inertial_gravity_factor, imu_loss_function,
                                 const_cast<double*>(pose_params_vec[i].data()),           // pose_i (6D SE3)
                                 const_cast<double*>(velocity_params_vec[i].data()),       // velocity_i (3D)
-                                const_cast<double*>(accel_bias_params.data()),            // shared accel_bias (3D)
-                                const_cast<double*>(gyro_bias_params.data()),             // shared gyro_bias (3D)
+                                const_cast<double*>(gyro_bias_params.data()),             // shared GYRO_bias (3D) - parameters[2]
+                                const_cast<double*>(accel_bias_params.data()),            // shared ACCEL_bias (3D) - parameters[3]
                                 const_cast<double*>(pose_params_vec[i+1].data()),         // pose_j (6D SE3)
                                 const_cast<double*>(velocity_params_vec[i+1].data()),     // velocity_j (3D)
                                 const_cast<double*>(gravity_dir_params.data()));          // gravity_dir (2D sphere)
@@ -2087,6 +2090,12 @@ int SlidingWindowOptimizer::add_inertial_factors_to_sliding_window(
     spdlog::info("[SW_IMU] Added {} InertialGravityFactor factors to sliding window with shared bias", factors_added);
     return factors_added;
 }
+
+
+
+
+
+
 
 void SlidingWindowOptimizer::setup_imu_parameter_blocks(
     ceres::Problem& problem,
@@ -2157,9 +2166,65 @@ void SlidingWindowOptimizer::setup_imu_parameter_blocks(
     Eigen::Vector3d accel_bias_prior(accel_bias_params[0], accel_bias_params[1], accel_bias_params[2]);
     Eigen::Vector3d gyro_bias_prior(gyro_bias_params[0], gyro_bias_params[1], gyro_bias_params[2]);
     
-    // Information matrices for bias priors (weaker than IMU init to allow small adjustments)
-    double accel_bias_weight = 100000.0;   // 1/variance - allow some drift for accel bias
-    double gyro_bias_weight = 100000.0;   // Stronger prior for gyro bias (more stable)
+    // Compute bias prior weights dynamically from IMU handler covariance
+    double accel_bias_weight, gyro_bias_weight;
+    
+    if (m_imu_handler && !keyframes.empty()) {
+        // Try to extract bias uncertainty from latest preintegration covariance
+        auto latest_frame = keyframes.back();
+        auto preintegration = latest_frame->get_imu_preintegration_from_last_keyframe();
+        
+        if (preintegration) {
+            // Extract bias covariance from 15x15 preintegration covariance matrix
+            // Structure: [δR(3), δV(3), δP(3), δbg(3), δba(3)]
+            // Gyro bias covariance: indices 9-11, Accel bias covariance: indices 12-14
+            Eigen::Matrix3f gyro_bias_cov = preintegration->covariance.block<3,3>(9, 9);
+            Eigen::Matrix3f accel_bias_cov = preintegration->covariance.block<3,3>(12, 12);
+            
+            // Log covariance diagonal for debugging
+            spdlog::debug("[SW_IMU] Current bias covariances - Gyro diag: ({:.2e}, {:.2e}, {:.2e}), Accel diag: ({:.2e}, {:.2e}, {:.2e})",
+                         gyro_bias_cov(0,0), gyro_bias_cov(1,1), gyro_bias_cov(2,2),
+                         accel_bias_cov(0,0), accel_bias_cov(1,1), accel_bias_cov(2,2));
+            
+            // Compute weights as inverse of diagonal covariance elements (information matrix)
+            // Method 1: Use average variance across all 3 axes
+            double gyro_bias_variance = gyro_bias_cov.trace() / 3.0 + 1e-8;  // Average variance
+            double accel_bias_variance = accel_bias_cov.trace() / 3.0 + 1e-8;
+            
+            // Alternative methods (choose one):
+            // Method 2: Use maximum variance (most conservative)
+            // double gyro_bias_variance = std::max({gyro_bias_cov(0,0), gyro_bias_cov(1,1), gyro_bias_cov(2,2)}) + 1e-8;
+            // double accel_bias_variance = std::max({accel_bias_cov(0,0), accel_bias_cov(1,1), accel_bias_cov(2,2)}) + 1e-8;
+            
+            // Method 3: Use determinant-based measure
+            // double gyro_bias_variance = std::pow(gyro_bias_cov.determinant(), 1.0/3.0) + 1e-8;  // Geometric mean
+            // double accel_bias_variance = std::pow(accel_bias_cov.determinant(), 1.0/3.0) + 1e-8;
+            
+            gyro_bias_weight = 1.0 / gyro_bias_variance;
+            accel_bias_weight = 1.0 / accel_bias_variance;
+
+            // std::cout<<gyro_bias_weight<< " / "<<   accel_bias_weight<<std::endl;
+            
+            // Apply reasonable bounds to prevent extreme weights
+            gyro_bias_weight = std::clamp(gyro_bias_weight, 1.0, 1e6);
+            accel_bias_weight = std::clamp(accel_bias_weight, 1.0, 1e5);
+            
+            spdlog::debug("[SW_IMU] Dynamic bias weights from covariance: gyro={:.2e}, accel={:.2e}", 
+                         gyro_bias_weight, accel_bias_weight);
+        } else {
+            // Fallback to default values if no preintegration available
+            accel_bias_weight = 1e4;
+            gyro_bias_weight = 1e5;
+            spdlog::debug("[SW_IMU] Using fallback bias weights (no preintegration): gyro={:.2e}, accel={:.2e}", 
+                         gyro_bias_weight, accel_bias_weight);
+        }
+    } else {
+        // Fallback to default values if IMU handler not available
+        accel_bias_weight = 1e4;
+        gyro_bias_weight = 1e5;
+        spdlog::debug("[SW_IMU] Using default bias weights (no IMU handler): gyro={:.2e}, accel={:.2e}", 
+                     gyro_bias_weight, accel_bias_weight);
+    }
     
     Eigen::Matrix3d accel_bias_info = Eigen::Matrix3d::Identity() * accel_bias_weight;
     Eigen::Matrix3d gyro_bias_info = Eigen::Matrix3d::Identity() * gyro_bias_weight;
@@ -2253,10 +2318,6 @@ void SlidingWindowOptimizer::update_imu_optimized_values(
         
     }
     
-    spdlog::info("[SW_IMU] Updated {} keyframes with shared bias: ba=[{:.10f},{:.10f},{:.10f}], bg=[{:.10f},{:.10f},{:.10f}]",
-                 keyframes.size(),
-                 optimized_accel_bias.x(), optimized_accel_bias.y(), optimized_accel_bias.z(),
-                 optimized_gyro_bias.x(), optimized_gyro_bias.y(), optimized_gyro_bias.z());
 }
 
 

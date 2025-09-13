@@ -612,7 +612,7 @@ int main(int argc, char* argv[]) {
         ++current_idx;
         
         // Control frame rate
-        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     
     spdlog::info("[VO] Processing completed! Processed {} frames \n", processed_frames);

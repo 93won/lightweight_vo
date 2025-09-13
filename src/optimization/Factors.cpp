@@ -28,8 +28,8 @@ PnPFactor::PnPFactor(const Eigen::Vector2d& observation,
 bool PnPFactor::Evaluate(double const* const* parameters, double* residuals, double** jacobians) const {
     // If marked as outlier, set residuals to zero and jacobians to zero
     if (m_is_outlier) {
-        residuals[0] = 0.0;
-        residuals[1] = 0.0;
+        residuals[0] = 640.0;
+        residuals[1] = 480.0;
         
         if (jacobians && jacobians[0]) {
             Eigen::Map<Eigen::Matrix<double, 2, 6, Eigen::RowMajor>> jac(jacobians[0]);
@@ -200,8 +200,8 @@ bool BAFactor::Evaluate(double const* const* parameters,
     
     if (m_is_outlier) {
         // If marked as outlier, set zero residual and jacobians
-        residuals[0] = 0.0;
-        residuals[1] = 0.0;
+        residuals[0] = 640.0;
+        residuals[1] = 480.0;
         
         if (jacobians) {
             if (jacobians[0]) {
@@ -244,15 +244,30 @@ bool BAFactor::Evaluate(double const* const* parameters,
         double y = camera_point[1];
         double z = camera_point[2];
         double invz = 1.0 / (z + 1e-9);
-        
+
         // Check for valid depth
-        if (invz < 1e-3 || invz > 1e2) {
+        if (invz < 1e-3 || invz > 1e2)
+        {
             // Behind camera or too far - return large residual
             residuals[0] = 640.0;
             residuals[1] = 360.0;
+
+            if (jacobians)
+            {
+                if (jacobians[0])
+                {
+                    Eigen::Map<Eigen::Matrix<double, 2, 6, Eigen::RowMajor>> jac_pose(jacobians[0]);
+                    jac_pose.setZero();
+                }
+                if (jacobians[1])
+                {
+                    Eigen::Map<Eigen::Matrix<double, 2, 3, Eigen::RowMajor>> jac_point(jacobians[1]);
+                    jac_point.setZero();
+                }
+            }
             return true;
         }
-        
+
         // Project to pixel coordinates
         double u = m_camera_params.fx * x * invz + m_camera_params.cx;
         double v = m_camera_params.fy * y * invz + m_camera_params.cy;
@@ -645,13 +660,13 @@ Eigen::Matrix3d InertialGravityFactor::right_jacobian_SO3(const Eigen::Vector3d&
         return Eigen::Matrix3d::Identity() - 0.5 * skew_symmetric(phi);
     }
     
-    Eigen::Vector3d axis = phi / theta;
     double c = cos(theta);
     double s = sin(theta);
+    Eigen::Matrix3d W = skew_symmetric(phi);
     
-    return s / theta * Eigen::Matrix3d::Identity() + 
-           (1.0 - c) / theta * skew_symmetric(axis) + 
-           (theta - s) / theta * axis * axis.transpose();
+    return Eigen::Matrix3d::Identity() - 
+           W * (1.0 - c) / (theta * theta) + 
+           W * W * (theta - s) / (theta * theta * theta);
 }
 
 Eigen::Matrix3d InertialGravityFactor::left_jacobian_SO3(const Eigen::Vector3d& phi) const {

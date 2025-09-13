@@ -12,7 +12,6 @@
 #pragma once
 
 #include <memory>
-#include <vector>
 #include <mutex>
 #include <ceres/ceres.h>
 #include <Eigen/Dense>
@@ -174,7 +173,7 @@ private:
      * @brief Setup solver options based on configuration
      * @return Configured solver options
      */
-    ceres::Solver::Options setup_solver_options() const;
+    ceres::Solver::Options setup_solver_options(int max_iter) const;
     
     /**
      * @brief Convert frame pose to SE3 tangent space
@@ -270,11 +269,9 @@ public:
     /**
      * @brief Optimize sliding window of keyframes and map points
      * @param keyframes Vector of keyframes in sliding window (oldest to newest)
-     * @param force_stop_flag Optional flag to force early termination
      * @return Optimization result
      */
-    SlidingWindowResult optimize(const std::vector<std::shared_ptr<Frame>>& keyframes,
-                                bool* force_stop_flag = nullptr);
+    SlidingWindowResult optimize(const std::vector<std::shared_ptr<Frame>>& keyframes);
     
     /**
      * @brief Enable IMU optimization in sliding window
@@ -376,13 +373,17 @@ private:
      * @param map_points Vector of map points
      * @param pose_params_vec Vector of pose parameter arrays
      * @param point_params_vec Vector of point parameter arrays
+     * @param num_fixed_keyframes Number of keyframes to fix from the beginning (default: 1)
+     * @param reset_constraints Whether to reset existing constraints before applying new ones (default: false)
      */
     void apply_marginalization_strategy(
         ceres::Problem& problem,
         const std::vector<std::shared_ptr<Frame>>& keyframes,
         const std::vector<std::shared_ptr<MapPoint>>& map_points,
         const std::vector<std::vector<double>>& pose_params_vec,
-        const std::vector<std::vector<double>>& point_params_vec);
+        const std::vector<std::vector<double>>& point_params_vec,
+        int num_fixed_keyframes = 1,
+        bool reset_constraints = false);
     
     /**
      * @brief Detect outliers using chi-square test for bundle adjustment
@@ -416,7 +417,7 @@ private:
      * @brief Setup solver options for sliding window optimization
      * @return Configured solver options
      */
-    ceres::Solver::Options setup_solver_options() const;
+    ceres::Solver::Options setup_solver_options(int max_iter) const;
     
     /**
      * @brief Create robust loss function
@@ -589,11 +590,7 @@ private:
         std::vector<std::vector<double>>& velocity_params_vec,
         std::vector<double>& gyro_bias_params,
         std::vector<double>& accel_bias_params);
-    
-    void add_bias_priors(
-        ceres::Problem& problem,
-        double* gyro_bias_params,
-        double* accel_bias_params);
+
     
     int add_inertial_factors(
         ceres::Problem& problem,

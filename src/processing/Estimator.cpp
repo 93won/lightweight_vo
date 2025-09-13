@@ -698,6 +698,21 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         }
     }
     
+    // Compute from-last-keyframe preintegration for more stable state prediction
+    if (!m_imu_vec_from_last_keyframe.empty() && m_imu_handler && m_last_keyframe) {
+        double current_frame_time = static_cast<double>(timestamp) / 1e9;
+        double last_keyframe_time = static_cast<double>(m_last_keyframe->get_timestamp()) / 1e9;
+        
+        // Create preintegration from last keyframe to current frame using accumulated IMU data
+        auto keyframe_to_frame_preint = m_imu_handler->preintegrate(m_imu_vec_from_last_keyframe, last_keyframe_time, current_frame_time);
+        if (keyframe_to_frame_preint && keyframe_to_frame_preint->is_valid()) {
+            frame->set_imu_preintegration_from_last_keyframe(keyframe_to_frame_preint);
+            // spdlog::debug("[IMU] Created keyframe-to-frame preintegration: dt={:.4f}s", keyframe_to_frame_preint->dt_total);
+        } else {
+            spdlog::warn("[IMU] Failed to create keyframe-to-frame preintegration for frame {}", frame->get_frame_id());
+        }
+    }
+    
     // Set as current frame for the rest of the processing
     m_current_frame = frame;
     
@@ -1589,40 +1604,39 @@ void Estimator::predict_state() {
         // Only use IMU prediction when IMU is properly initialized
 
         
-        // Get frame-to-frame IMU preintegration
-        auto frame_to_frame_preint = m_current_frame->get_imu_preintegration_from_last_frame();
+        // Get from-last-keyframe IMU preintegration (more stable for longer intervals)
+        auto keyframe_to_frame_preint = m_current_frame->get_imu_preintegration_from_last_keyframe();
         
-        if (frame_to_frame_preint && frame_to_frame_preint->is_valid()) {
-            // Use IMU preintegration from last frame
+        if (keyframe_to_frame_preint && keyframe_to_frame_preint->is_valid() && m_last_keyframe) {
+            // Use IMU preintegration from last keyframe (more robust)
             
-
             // Get gravity vector from IMU handler (gravity-aligned coordinate system)
             Eigen::Vector3f Gz = m_imu_handler->get_gravity();
             
-            // Get previous frame state
-            const Eigen::Vector3f twb1 = m_previous_frame->get_Twb().block<3,1>(0,3);     // Position
-            const Eigen::Matrix3f Rwb1 = m_previous_frame->get_Twb().block<3,3>(0,0);     // Rotation  
-            const Eigen::Vector3f Vwb1 = m_previous_frame->get_velocity();                // Velocity
+            // Get last keyframe state as reference
+            const Eigen::Vector3f twb1 = m_last_keyframe->get_Twb().block<3,1>(0,3);     // Position
+            const Eigen::Matrix3f Rwb1 = m_last_keyframe->get_Twb().block<3,3>(0,0);     // Rotation  
+            const Eigen::Vector3f Vwb1 = m_last_keyframe->get_velocity();                // Velocity
             
-            // Get preintegration data and time interval
-            const float t12 = frame_to_frame_preint->dt_total;
+            // Get preintegration data and time interval from last keyframe
+            const float t12 = keyframe_to_frame_preint->dt_total;
             
-            // Get IMU bias from previous frame
-            const Eigen::Vector3f gyro_bias = m_previous_frame->get_gyro_bias();
-            const Eigen::Vector3f accel_bias = m_previous_frame->get_accel_bias();
+            // Get IMU bias from last keyframe
+            const Eigen::Vector3f gyro_bias = m_last_keyframe->get_gyro_bias();
+            const Eigen::Vector3f accel_bias = m_last_keyframe->get_accel_bias();
 
-            Eigen::Matrix3f Rwb2 = Rwb1 * frame_to_frame_preint->delta_R;  // No normalization for now
-            Eigen::Vector3f twb2 = twb1 + Vwb1*t12 + 0.5f*t12*t12*Gz + Rwb1*frame_to_frame_preint->delta_P;
-            Eigen::Vector3f Vwb2 = Vwb1 + t12*Gz + Rwb1*frame_to_frame_preint->delta_V;
+            // IMU prediction from last keyframe to current frame
+            Eigen::Matrix3f Rwb2 = Rwb1 * keyframe_to_frame_preint->delta_R;  
+            Eigen::Vector3f twb2 = twb1 + Vwb1*t12 + 0.5f*t12*t12*Gz + Rwb1*keyframe_to_frame_preint->delta_P;
+            Eigen::Vector3f Vwb2 = Vwb1 + t12*Gz + Rwb1*keyframe_to_frame_preint->delta_V;
             
             // Set predicted state
             Eigen::Matrix4f predicted_pose = Eigen::Matrix4f::Identity();
             predicted_pose.block<3,3>(0,0) = Rwb2;
             predicted_pose.block<3,1>(0,3) = twb2;
             
-            // Store predicted pose for comparison logging (don't set it yet)
+            // Store predicted pose for comparison logging
             m_predicted_pose = predicted_pose;
-            // spdlog::warn("Predicted pose for frame {}: position=({:.3f}, {:.3f}, {:.3f})", m_current_frame->get_frame_id(), twb2.x(), twb2.y(), twb2.z());
             m_current_frame->set_Twb(predicted_pose);
             m_current_frame->set_velocity(Vwb2);
             
@@ -1783,8 +1797,6 @@ void lightweight_vio::Estimator::transfer_imu_data_to_keyframe(std::shared_ptr<F
     if (!m_imu_vec_from_last_keyframe.empty()) {
         keyframe->set_imu_data_since_last_keyframe(m_imu_vec_from_last_keyframe);
         
-        spdlog::info("[IMU] Transferred {} IMU measurements to keyframe {}", 
-                    m_imu_vec_from_last_keyframe.size(), keyframe->get_frame_id());
         
         // Log time range for verification
         double first_time = m_imu_vec_from_last_keyframe.front().timestamp;
