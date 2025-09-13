@@ -2205,9 +2205,9 @@ void SlidingWindowOptimizer::setup_imu_parameter_blocks(
 
             // std::cout<<gyro_bias_weight<< " / "<<   accel_bias_weight<<std::endl;
             
-            // Apply reasonable bounds to prevent extreme weights
-            gyro_bias_weight = std::clamp(gyro_bias_weight, 1.0, 1e3);
-            accel_bias_weight = std::clamp(accel_bias_weight, 1.0, 1e2);
+            // // Apply reasonable bounds to prevent extreme weights
+            gyro_bias_weight = std::clamp(gyro_bias_weight, 1.0, 1e5);
+            accel_bias_weight = std::clamp(accel_bias_weight, 1.0, 1e4);
             
             // spdlog::debug("[SW_IMU] Dynamic bias weights from covariance: gyro={:.2e}, accel={:.2e}", 
             //              gyro_bias_weight, accel_bias_weight);

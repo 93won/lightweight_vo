@@ -250,21 +250,21 @@ int main(int argc, char* argv[]) {
     
     // Initialize 3D viewer (optional)
     PangolinViewer* viewer = nullptr;
-    // std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
-    // if (viewer_ptr->initialize(1920*2, 1080*2)) {  // Pangolin 뷰어 초기화
-    //     viewer = viewer_ptr.get();
-    //     spdlog::info("[Viewer] Pangolin viewer initialized successfully");
+    std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
+    if (viewer_ptr->initialize(1920*2, 1080*2)) {  // Pangolin 뷰어 초기화
+        viewer = viewer_ptr.get();
+        spdlog::info("[Viewer] Pangolin viewer initialized successfully");
         
-    //     // Wait for viewer to be fully ready
-    //     spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
-    //     while (viewer && !viewer->is_ready()) {
-    //         viewer->render();
-    //         std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS
-    //     }
-    //     spdlog::info("[Viewer] Viewer is ready!");
-    // } else {
-    //     spdlog::warn("[Viewer] Failed to initialize 3D viewer, running without visualization");
-    // }
+        // Wait for viewer to be fully ready
+        spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
+        while (viewer && !viewer->is_ready()) {
+            viewer->render();
+            std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS
+        }
+        spdlog::info("[Viewer] Viewer is ready!");
+    } else {
+        spdlog::warn("[Viewer] Failed to initialize 3D viewer, running without visualization");
+    }
     
     // Initialize Estimator
     Estimator estimator;
@@ -928,14 +928,14 @@ int main(int argc, char* argv[]) {
         std::string stats_file = dataset_path + "/statistics_vo.txt";
         std::ofstream stats_out(stats_file);
         if (stats_out.is_open()) {
-            stats_out << "══════════════════════════════════════════════════════════════════\n";
-            stats_out << "                         STATISTICS (VO)                          \n";
-            stats_out << "══════════════════════════════════════════════════════════════════\n";
+            stats_out << "════════════════════════════════════════════════════════════════════\n";
+            stats_out << "                          STATISTICS (VO)                           \n";
+            stats_out << "════════════════════════════════════════════════════════════════════\n";
             stats_out << "\n";
             
             // Timing Statistics
-            stats_out << "                         TIMING ANALYSIS                          \n";
-            stats_out << "══════════════════════════════════════════════════════════════════\n";
+            stats_out << "                          TIMING ANALYSIS                           \n";
+            stats_out << "════════════════════════════════════════════════════════════════════\n";
             stats_out << " Total Frames Processed: " << frame_processing_times.size() << "\n";
             stats_out << " Average Processing Time: " << std::fixed << std::setprecision(2) << time_mean << "ms\n";
             stats_out << " Average Frame Rate: " << std::fixed << std::setprecision(1) << fps_mean << "fps\n";
@@ -943,56 +943,56 @@ int main(int argc, char* argv[]) {
             
             // Velocity Statistics (if available)
             if (velocity_stats_available) {
-                stats_out << "                       VELOCITY STATISTICS                        \n";
-                stats_out << "══════════════════════════════════════════════════════════════════\n";
-                stats_out << "                    LINEAR VELOCITY STATISTICS                    \n";
+                stats_out << "                        VELOCITY STATISTICS                         \n";
+                stats_out << "════════════════════════════════════════════════════════════════════\n";
+                stats_out << "                     LINEAR VELOCITY STATISTICS                     \n";
                 stats_out << " Mean      : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_lin_vel_mean << "m/s\n";
                 stats_out << " Median    : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_lin_vel_median << "m/s\n";
                 stats_out << " Minimum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_lin_vel_min << "m/s\n";
                 stats_out << " Maximum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_lin_vel_max << "m/s\n";
                 stats_out << "\n";
-                stats_out << "                   ANGULAR VELOCITY STATISTICS                    \n";
-                stats_out << " Mean      : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_ang_vel_mean << "rad/s\n";
-                stats_out << " Median    : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_ang_vel_median << "rad/s\n";
-                stats_out << " Minimum   : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_ang_vel_min << "rad/s\n";
-                stats_out << " Maximum   : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_ang_vel_max << "rad/s\n";
+                stats_out << "                    ANGULAR VELOCITY STATISTICS                     \n";
+                stats_out << " Mean      : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_ang_vel_mean << "rad/s\n";
+                stats_out << " Median    : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_ang_vel_median << "rad/s\n";
+                stats_out << " Minimum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_ang_vel_min << "rad/s\n";
+                stats_out << " Maximum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_ang_vel_max << "rad/s\n";
                 stats_out << "\n";
             }
             
             // Transform Error Statistics (if available)
             if (transform_stats_available) {
-                stats_out << "              FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS             \n";
-                stats_out << "══════════════════════════════════════════════════════════════════\n";
+                stats_out << "               FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS              \n";
+                stats_out << "════════════════════════════════════════════════════════════════════\n";
                 stats_out << " Total Frame Pairs Analyzed: " << transform_total_pairs 
                          << " (all_frames: " << transform_total_frames << ", gt_poses: " << transform_total_gt_poses << ")\n";
                 stats_out << " Frame precision: " << sizeof(float) * 8 << " bit floats\n";
                 stats_out << "\n";
-                stats_out << "                     ROTATION ERROR STATISTICS                    \n";
+                stats_out << "                      ROTATION ERROR STATISTICS                     \n";
                 stats_out << " Mean      : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_rot_mean << "°\n";
                 stats_out << " Median    : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_rot_median << "°\n";
                 stats_out << " Minimum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_rot_min << "°\n";
                 stats_out << " Maximum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_rot_max << "°\n";
                 stats_out << " RMSE      : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_rot_rmse << "°\n";
                 stats_out << "\n";
-                stats_out << "                   TRANSLATION ERROR STATISTICS                   \n";
+                stats_out << "                    TRANSLATION ERROR STATISTICS                    \n";
                 stats_out << " Mean      : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_trans_mean << "m\n";
                 stats_out << " Median    : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_trans_median << "m\n";
                 stats_out << " Minimum   : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_trans_min << "m\n";
                 stats_out << " Maximum   : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_trans_max << "m\n";
                 stats_out << " RMSE      : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_trans_rmse << "m\n";
             } else {
-                stats_out << "              FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS             \n";
-                stats_out << "══════════════════════════════════════════════════════════════════\n";
+                stats_out << "               FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS              \n";
+                stats_out << "════════════════════════════════════════════════════════════════════\n";
                 stats_out << " No ground truth data available for transform analysis\n";
             }
             
             stats_out << "\n";
-            stats_out << "══════════════════════════════════════════════════════════════════\n";
+            stats_out << "════════════════════════════════════════════════════════════════════\n";
             stats_out.close();
             spdlog::info("[STATISTICS] Saved comprehensive statistics to: {}", stats_file);
         }
 
-            spdlog::info("══════════════════════════════════════════════════════════════════");
+            spdlog::info("════════════════════════════════════════════════════════════════════");
     }
   
     // Wait for user to click Finish button before exiting

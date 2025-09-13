@@ -12,7 +12,7 @@ system_mode:
 # Controls keyframe selection and sliding window management
 keyframe_management:
   keyframe_window_size: 5
-  grid_coverage_ratio: 0.9  # Add keyframe when coverage drops to 80% of last keyframe's coverage
+  grid_coverage_ratio: 0.7  # Add keyframe when coverage drops to 80% of last keyframe's coverage
   time_threshold: 0.05   
   
 # Feature Detection Parameters

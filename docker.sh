@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Docker build and run script for lightweight VO
+# Docker build and run script for lightweight VO/VIO
 
-IMAGE_NAME="lightweight-vo"
+IMAGE_NAME="lightweight-vio"
 TAG="latest"
 
 echo "=============================================="
-echo "  Lightweight VO Docker Build Script"
+echo "  Lightweight VIO Docker Helper Script"
 echo "=============================================="
 
 # Function to build Docker image
@@ -24,21 +24,27 @@ build_image() {
 }
 
 # Function to run Docker container
-run_container() {
-    local dataset_path=$1
+run_app() {
+    local app_type=$1
+    local dataset_path=$2
     
-    if [ -z "$dataset_path" ]; then
-        echo "Usage: $0 run <euroc_dataset_path>"
-        echo "Example: $0 run /path/to/euroc/MH_01_easy"
+    if [ -z "$app_type" ] || [ -z "$dataset_path" ]; then
+        echo "Usage: $0 run <vo|vio> <euroc_dataset_path>"
+        echo "Example: $0 run vio /path/to/euroc/MH_01_easy"
         exit 1
     fi
     
+    if [ "$app_type" != "vo" ] && [ "$app_type" != "vio" ]; then
+        echo "Error: Invalid application type '$app_type'. Must be 'vo' or 'vio'."
+        exit 1
+    fi
+
     if [ ! -d "$dataset_path" ]; then
         echo "Error: Dataset path does not exist: $dataset_path"
         exit 1
     fi
     
-    echo "Running Docker container with dataset: $dataset_path"
+    echo "Running Docker container with app='$app_type' and dataset='$dataset_path'"
 
     # Allow Docker to connect to the host's X server for GUI forwarding
     echo "Temporarily allowing local connections to X server..."
@@ -49,7 +55,7 @@ run_container() {
         -e DISPLAY=$DISPLAY \
         -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
         --privileged \
-        $IMAGE_NAME:$TAG /dataset
+        $IMAGE_NAME:$TAG $app_type /dataset
 
     # Revoke access after the container exits
     echo "Revoking local connections to X server."
@@ -73,7 +79,7 @@ case "$1" in
         build_image
         ;;
     "run")
-        run_container "$2"
+        run_app "$2" "$3"
         ;;
     "shell")
         run_shell
@@ -86,14 +92,15 @@ case "$1" in
         echo "Usage: $0 {build|run|shell|clean}"
         echo ""
         echo "Commands:"
-        echo "  build           Build the Docker image"
-        echo "  run <dataset>   Run VIO with dataset (mount dataset directory)"
-        echo "  shell           Start interactive shell in container"
-        echo "  clean           Remove the Docker image"
+        echo "  build              Build the Docker image"
+        echo "  run <vo|vio> <path>  Run the specified application with a dataset"
+        echo "  shell              Start an interactive shell in the container"
+        echo "  clean              Remove the Docker image"
         echo ""
         echo "Examples:"
         echo "  $0 build"
-        echo "  $0 run /path/to/euroc/MH_01_easy"
+        echo "  $0 run vo /path/to/euroc/MH_01_easy"
+        echo "  $0 run vio /path/to/euroc/MH_01_easy"
         echo "  $0 shell"
         echo "  $0 clean"
         exit 1

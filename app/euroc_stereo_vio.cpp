@@ -214,21 +214,21 @@ int main(int argc, char* argv[]) {
     
     // Initialize 3D viewer (optional)
     PangolinViewer* viewer = nullptr;
-    // std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
-    // if (viewer_ptr->initialize(1920*2, 1080*2)) {
-    //     viewer = viewer_ptr.get();
-    //     spdlog::info("[Viewer] Pangolin viewer initialized successfully");
+    std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
+    if (viewer_ptr->initialize(1920*2, 1080*2)) {
+        viewer = viewer_ptr.get();
+        spdlog::info("[Viewer] Pangolin viewer initialized successfully");
         
-    //     // Wait for viewer to be fully ready
-    //     spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
-    //     while (viewer && !viewer->is_ready()) {
-    //         viewer->render();
-    //         std::this_thread::sleep_for(std::chrono::milliseconds(16));
-    //     }
-    //     spdlog::info("[Viewer] Viewer is ready!");
-    // } else {
-    //     spdlog::warn("[Viewer] Failed to initialize 3D viewer, running without visualization");
-    // }
+        // Wait for viewer to be fully ready
+        spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
+        while (viewer && !viewer->is_ready()) {
+            viewer->render();
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        }
+        spdlog::info("[Viewer] Viewer is ready!");
+    } else {
+        spdlog::warn("[Viewer] Failed to initialize 3D viewer, running without visualization");
+    }
     
     // Initialize Estimator
     Estimator estimator;
@@ -581,7 +581,7 @@ int main(int argc, char* argv[]) {
             double required_sleep_ms = (actual_frame_dt * 1000.0) - frame_time_ms;
             
             if (required_sleep_ms > 0) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(10)));
+                std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(required_sleep_ms)));
             }
             // If required_sleep_ms <= 0, we're already slower than real-time, so no sleep
         }
@@ -835,20 +835,20 @@ int main(int argc, char* argv[]) {
         
         spdlog::info("[TIMING_ANALYSIS] Average frame processing time: {:.2f}ms ({:.1f}fps)", 
                     time_mean, fps_mean);
-        spdlog::info("══════════════════════════════════════════════════════════════════");
+        spdlog::info("════════════════════════════════════════════════════════════════════");
         
         // Save comprehensive statistics to a single file
         std::string comprehensive_stats_file = dataset_path + "/statistics_vio.txt";
         std::ofstream comp_stats_out(comprehensive_stats_file);
         if (comp_stats_out.is_open()) {
-            comp_stats_out << "══════════════════════════════════════════════════════════════════\n";
-            comp_stats_out << "                         STATISTICS (VIO)                         \n";
-            comp_stats_out << "══════════════════════════════════════════════════════════════════\n";
+            comp_stats_out << "════════════════════════════════════════════════════════════════════\n";
+            comp_stats_out << "                          STATISTICS (VIO)                          \n";
+            comp_stats_out << "════════════════════════════════════════════════════════════════════\n";
             comp_stats_out << "\n";
             
             // Timing Statistics
-            comp_stats_out << "                         TIMING ANALYSIS                          \n";
-            comp_stats_out << "══════════════════════════════════════════════════════════════════\n";
+            comp_stats_out << "                          TIMING ANALYSIS                           \n";
+            comp_stats_out << "════════════════════════════════════════════════════════════════════\n";
             comp_stats_out << " Total Frames Processed: " << frame_processing_times.size() << "\n";
             comp_stats_out << " Average Processing Time: " << std::fixed << std::setprecision(2) << time_mean << "ms\n";
             comp_stats_out << " Average Frame Rate: " << std::fixed << std::setprecision(1) << fps_mean << "fps\n";
@@ -856,30 +856,30 @@ int main(int argc, char* argv[]) {
             
             // Velocity Statistics (if available)
             if (velocity_stats_available) {
-                comp_stats_out << "                         VELOCITY ANALYSIS                        \n";
-                comp_stats_out << "══════════════════════════════════════════════════════════════════\n";
-                comp_stats_out << "                       LINEAR VELOCITY (m/s)                      \n";
+                comp_stats_out << "                          VELOCITY ANALYSIS                         \n";
+                comp_stats_out << "════════════════════════════════════════════════════════════════════\n";
+                comp_stats_out << "                        LINEAR VELOCITY (m/s)                       \n";
                 comp_stats_out << " Mean      : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_lin_vel_mean << "m/s\n";
                 comp_stats_out << " Median    : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_lin_vel_median << "m/s\n";
                 comp_stats_out << " Minimum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_lin_vel_min << "m/s\n";
                 comp_stats_out << " Maximum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_lin_vel_max << "m/s\n";
                 comp_stats_out << "\n";
-                comp_stats_out << "                      ANGULAR VELOCITY (rad/s)                    \n";
+                comp_stats_out << "                       ANGULAR VELOCITY (rad/s)                     \n";
                 comp_stats_out << " Mean      : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_ang_vel_mean << "rad/s\n";
                 comp_stats_out << " Median    : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_ang_vel_median << "rad/s\n";
                 comp_stats_out << " Minimum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_ang_vel_min << "rad/s\n";
                 comp_stats_out << " Maximum   : " << std::setw(10) << std::fixed << std::setprecision(4) << transform_ang_vel_max << "rad/s\n";
             } else {
-                comp_stats_out << "                         VELOCITY ANALYSIS                        \n";
-                comp_stats_out << "══════════════════════════════════════════════════════════════════\n";
+                comp_stats_out << "                          VELOCITY ANALYSIS                         \n";
+                comp_stats_out << "════════════════════════════════════════════════════════════════════\n";
                 comp_stats_out << " No velocity data available (insufficient pose transforms)\n";
             }
             comp_stats_out << "\n";
             
             // Transform Error Statistics (if available)
             if (transform_stats_available) {
-                comp_stats_out << "              FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS             \n";
-                comp_stats_out << "══════════════════════════════════════════════════════════════════\n";
+                comp_stats_out << "               FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS              \n";
+                comp_stats_out << "════════════════════════════════════════════════════════════════════\n";
                 comp_stats_out << " Total Frame Pairs Analyzed: " << transform_total_pairs 
                              << " (all_frames: " << transform_total_frames << ", gt_poses: " << transform_total_gt_poses << ")\n";
                 comp_stats_out << " Frame precision: " << sizeof(float) * 8 << " bit floats\n";
@@ -898,13 +898,13 @@ int main(int argc, char* argv[]) {
                 comp_stats_out << " Maximum   : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_trans_max << "m\n";
                 comp_stats_out << " RMSE      : " << std::setw(10) << std::fixed << std::setprecision(6) << transform_trans_rmse << "m\n";
             } else {
-                comp_stats_out << "              FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS             \n";
-                comp_stats_out << "══════════════════════════════════════════════════════════════════\n";
+                comp_stats_out << "               FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS              \n";
+                comp_stats_out << "════════════════════════════════════════════════════════════════════\n";
                 comp_stats_out << " No ground truth data available for transform analysis\n";
             }
             
             comp_stats_out << "\n";
-            comp_stats_out << "══════════════════════════════════════════════════════════════════\n";
+            comp_stats_out << "════════════════════════════════════════════════════════════════════\n";
             comp_stats_out.close();
             spdlog::info("[STATISTICS] Saved comprehensive statistics to: {}", comprehensive_stats_file);
         }
