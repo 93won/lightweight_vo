@@ -214,21 +214,21 @@ int main(int argc, char* argv[]) {
     
     // Initialize 3D viewer (optional)
     PangolinViewer* viewer = nullptr;
-    // std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
-    // if (viewer_ptr->initialize(1920*2, 1080*2)) {
-    //     viewer = viewer_ptr.get();
-    //     spdlog::info("[Viewer] Pangolin viewer initialized successfully");
+    std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
+    if (viewer_ptr->initialize(1920*2, 1080*2)) {
+        viewer = viewer_ptr.get();
+        spdlog::info("[Viewer] Pangolin viewer initialized successfully");
         
-    //     // Wait for viewer to be fully ready
-    //     spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
-    //     while (viewer && !viewer->is_ready()) {
-    //         viewer->render();
-    //         std::this_thread::sleep_for(std::chrono::milliseconds(16));
-    //     }
-    //     spdlog::info("[Viewer] Viewer is ready!");
-    // } else {
-    //     spdlog::warn("[Viewer] Failed to initialize 3D viewer, running without visualization");
-    // }
+        // Wait for viewer to be fully ready
+        spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
+        while (viewer && !viewer->is_ready()) {
+            viewer->render();
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        }
+        spdlog::info("[Viewer] Viewer is ready!");
+    } else {
+        spdlog::warn("[Viewer] Failed to initialize 3D viewer, running without visualization");
+    }
     
     // Initialize Estimator
     Estimator estimator;
@@ -294,6 +294,15 @@ int main(int argc, char* argv[]) {
         cv::Mat left_image = load_image(dataset_path, image_data[current_idx].filename, 0);
         cv::Mat right_image = load_image(dataset_path, image_data[current_idx].filename, 1);
         
+        // 🎯 DEBUG: Log current frame timestamp info
+        long long current_timestamp = image_data[current_idx].timestamp;
+        double current_time_sec = static_cast<double>(current_timestamp) / 1e9;
+        
+        if (processed_frames % 10 == 0 || processed_frames < 5) {  // Log first 5 frames and every 10th frame
+            spdlog::info("[IMG_LOAD] Frame {}: timestamp={}ns ({:.6f}s), filename={}", 
+                        processed_frames, current_timestamp, current_time_sec, image_data[current_idx].filename);
+        }
+        
         if (left_image.empty()) {
             spdlog::warn("[Dataset] Skipping frame {} due to empty image", current_idx);
             ++current_idx;
@@ -321,18 +330,36 @@ int main(int argc, char* argv[]) {
         bool has_valid_imu_data = false;
         
         if (processed_frames > 0) { // Not the first frame
+            // 🎯 DEBUG: Log frame timestamps before IMU data collection
+            long long prev_timestamp = previous_frame_timestamp;
+            long long curr_timestamp = image_data[current_idx].timestamp;
+            double prev_time_sec = static_cast<double>(prev_timestamp) / 1e9;
+            double curr_time_sec = static_cast<double>(curr_timestamp) / 1e9;
+            double frame_dt = (curr_timestamp - prev_timestamp) / 1e9;
+            
+            if (processed_frames % 10 == 0 || processed_frames < 5) {
+                spdlog::info("[IMU_COLLECT] Frame {}: Previous={}ns ({:.6f}s) -> Current={}ns ({:.6f}s), Frame_dt={:.5f}s", 
+                            processed_frames, prev_timestamp, prev_time_sec, curr_timestamp, curr_time_sec, frame_dt);
+            }
+            
             imu_data_from_last_frame = lightweight_vio::EurocUtils::get_imu_between_timestamps(previous_frame_timestamp, image_data[current_idx].timestamp);
             
             // 🎯 Debug IMU data collection
             if (!imu_data_from_last_frame.empty()) {
-                double frame_dt = (image_data[current_idx].timestamp - previous_frame_timestamp) / 1e9;
                 double imu_first_time = imu_data_from_last_frame.front().timestamp;
                 double imu_last_time = imu_data_from_last_frame.back().timestamp;
                 double imu_dt = imu_last_time - imu_first_time;
                 
-                if (processed_frames % 20 == 0) {  // Log every 20 frames
-                    spdlog::info("[IMU_DEBUG] Frame {}: frame_dt={:.5f}s, IMU_count={}, IMU_dt={:.5f}s (first={:.6f}, last={:.6f})",
-                                processed_frames, frame_dt, imu_data_from_last_frame.size(), imu_dt, imu_first_time, imu_last_time);
+                if (processed_frames % 10 == 0 || processed_frames < 5) {  // More frequent logging for debugging
+                    spdlog::info("[IMU_DATA] Frame {}: IMU_count={}, IMU_range={:.6f}s to {:.6f}s, IMU_dt={:.5f}s",
+                                processed_frames, imu_data_from_last_frame.size(), imu_first_time, imu_last_time, imu_dt);
+                    spdlog::info("[IMU_SYNC] Frame {}: Frame_dt={:.5f}s vs IMU_dt={:.5f}s, diff={:.5f}s", 
+                                processed_frames, frame_dt, imu_dt, std::abs(frame_dt - imu_dt));
+                }
+            } else {
+                if (processed_frames % 10 == 0 || processed_frames < 5) {
+                    spdlog::warn("[IMU_DATA] Frame {}: NO IMU data found between {:.6f}s and {:.6f}s!", 
+                                processed_frames, prev_time_sec, curr_time_sec);
                 }
             }
             
@@ -346,11 +373,23 @@ int main(int argc, char* argv[]) {
         
         if (processed_frames == 0 || !has_valid_imu_data) {
             // First frame or no valid IMU data - use VO mode
+            if (processed_frames == 0) {
+                spdlog::info("[FIRST_FRAME] Frame 0: timestamp={}ns ({:.6f}s), Using VO mode (no previous frame)", 
+                            image_data[current_idx].timestamp, static_cast<double>(image_data[current_idx].timestamp) / 1e9);
+            } else {
+                spdlog::warn("[NO_IMU] Frame {}: No valid IMU data, falling back to VO mode", processed_frames);
+            }
+            
             result = estimator.process_frame(
                 processed_left_image, processed_right_image, 
                 image_data[current_idx].timestamp);
         } else {
             // Use IMU overload for subsequent frames with valid IMU data
+            if (processed_frames % 10 == 0 || processed_frames < 5) {
+                spdlog::info("[VIO_MODE] Frame {}: Using VIO mode with {} IMU measurements", 
+                            processed_frames, imu_data_from_last_frame.size());
+            }
+            
             result = estimator.process_frame(
                 processed_left_image, processed_right_image, 
                 image_data[current_idx].timestamp, imu_data_from_last_frame);
@@ -565,7 +604,7 @@ int main(int argc, char* argv[]) {
         ++current_idx;
         
         // Control frame rate
-        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     
     spdlog::info("[VIO] Processing completed! Processed {} frames", processed_frames);
