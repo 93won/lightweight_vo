@@ -572,19 +572,7 @@ int main(int argc, char* argv[]) {
         ++processed_frames;
         ++current_idx;
         
-        // Real-time frame rate control based on actual frame timestamps
-        if (current_idx < end_frame_idx) {
-            // Calculate actual time difference between frames in seconds
-            double actual_frame_dt = (image_data[current_idx].timestamp - image_data[current_idx - 1].timestamp) / 1e9;
-            
-            // Calculate required sleep time = actual frame interval - processing time
-            double required_sleep_ms = (actual_frame_dt * 1000.0) - frame_time_ms;
-            
-            if (required_sleep_ms > 0) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(required_sleep_ms)));
-            }
-            // If required_sleep_ms <= 0, we're already slower than real-time, so no sleep
-        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     
     spdlog::info("[VIO] Processing completed! Processed {} frames", processed_frames);
