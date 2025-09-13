@@ -21,37 +21,25 @@
 #include <queue>
 #include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
-#include "processing/Optimizer.h"
-
 // Forward declarations
+
+
 namespace lightweight_vio {
     class Frame;
     class MapPoint;
     class FeatureTracker;
     class IMUHandler;
     class InertialOptimizer;
+    class PnPOptimizer;
+    class SlidingWindowOptimizer;
+
+    struct OptimizationResult;
     struct IMUData;
     struct IMUPreintegration;
 }
 
 
 namespace lightweight_vio {
-
-/**
- * @brief Result of VIO estimation for a single frame
- */
-struct EstimationResult {
-    bool success = false;
-    Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
-    int num_features = 0;
-    int num_inliers = 0;
-    int num_outliers = 0;
-    bool is_keyframe = false;
-    double optimization_time_ms = 0.0;
-    
-    // Optional: Additional information
-    // OptimizationResult pose_optimization_result; // Commented out - not used in current implementation
-};
 
 /**
  * @brief Main VIO estimator class that handles the complete pipeline

@@ -13,6 +13,7 @@
 #include "database/Frame.h"
 #include "database/Feature.h"
 #include "database/MapPoint.h"
+#include "util/Config.h"
 #include <spdlog/spdlog.h>
 #include <Eigen/Dense>
 #include <algorithm>
@@ -21,7 +22,7 @@
 
 namespace lightweight_vio {
 
-FeatureTracker::FeatureTracker()
+FeatureTracker::FeatureTracker() : m_config(Config::getInstance())
 {
 }
 

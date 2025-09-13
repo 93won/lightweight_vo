@@ -14,7 +14,7 @@
 #include <opencv2/opencv.hpp>
 #include <memory>
 #include <vector>
-#include <util/Config.h>
+#include "util/Config.h"
 
 // Forward declarations
 namespace lightweight_vio {

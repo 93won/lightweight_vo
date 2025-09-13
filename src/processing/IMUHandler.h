@@ -23,13 +23,13 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <sophus/se3.hpp>
-#include "database/Frame.h"
-#include "util/EurocUtils.h"
 
 namespace lightweight_vio {
 
 class Config;
 class MapPoint;  // Forward declaration
+class Frame;
+struct IMUData;
 
 // IMU preintegration measurement structure
 struct IMUPreintegration {

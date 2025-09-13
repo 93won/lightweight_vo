@@ -20,6 +20,7 @@
 #include "database/MapPoint.h"
 #include "util/EurocUtils.h"
 #include "util/Config.h"
+#include "database/Frame.h"
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <cmath>

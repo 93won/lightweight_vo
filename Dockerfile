@@ -1,5 +1,5 @@
 # Use Ubuntu 22.04 as base image
-FROM ubuntu:22.04
+FROM ubuntu:20.04
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive

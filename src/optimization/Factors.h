@@ -18,7 +18,6 @@
 #include <ceres/ceres.h>
 #include <ceres/autodiff_cost_function.h>
 #include <ceres/sized_cost_function.h>
-#include <ceres/manifold.h>
 #include <ceres/local_parameterization.h>
 #include <sophus/se3.hpp>
 #include <spdlog/spdlog.h>
