@@ -11,7 +11,7 @@ This is a lightweight stereo visual-inertial odometry (VIO) project designed for
 - Docker support for easy deployment and testing
 
 ## Demo
-[![Stereo VO Demo](https://img.youtube.com/vi/41o9R-rKQ1s/0.jpg)]([https://youtu.be/qdnn4ShEpTA](https://www.youtube.com/watch?v=41o9R-rKQ1s))
+[![Stereo VO Demo](https://img.youtube.com/vi/41o9R-rKQ1s/0.jpg)](https://www.youtube.com/watch?v=41o9R-rKQ1s)
 
 ## To-Do List
 
