@@ -17,7 +17,6 @@
 namespace lightweight_vio {
 
 bool Config::load(const std::string& config_file) {
-    std::cout << "[DEBUG] Config::load called with file: " << config_file << std::endl;
     cv::FileStorage fs(config_file, cv::FileStorage::READ);
     
     if (!fs.isOpened()) {
@@ -25,7 +24,15 @@ bool Config::load(const std::string& config_file) {
         return false;
     }
     
-    std::cout << "[DEBUG] Config file opened successfully" << std::endl;
+    // Performance Parameters - Load first to control debug output
+    cv::FileNode performance = fs["performance"];
+    if (!performance.empty()) {
+        auto enable_timing_node = performance["enable_timing"];
+        auto enable_debug_output_node = performance["enable_debug_output"];
+        
+        m_enable_timing = (bool)(int)enable_timing_node;
+        m_enable_debug_output = (bool)(int)enable_debug_output_node;
+    }
     
     // Feature Detection Parameters
     cv::FileNode feature_detection = fs["feature_detection"];
@@ -96,20 +103,31 @@ bool Config::load(const std::string& config_file) {
         m_grid_coverage_ratio = (double)keyframe_mgmt["grid_coverage_ratio"];
         m_keyframe_window_size = (int)keyframe_mgmt["keyframe_window_size"];
         m_keyframe_time_threshold = (double)keyframe_mgmt["time_threshold"];
-        spdlog::info("Loaded keyframe management from config: grid_coverage_ratio={}, window_size={}, time_threshold={}", 
-                    m_grid_coverage_ratio, m_keyframe_window_size, m_keyframe_time_threshold);
+        if (m_enable_debug_output) {
+            spdlog::info("Loaded keyframe management from config: grid_coverage_ratio={}, window_size={}, time_threshold={}", 
+                        m_grid_coverage_ratio, m_keyframe_window_size, m_keyframe_time_threshold);
+        }
     } else {
-        spdlog::warn("Keyframe management section not found in config, using defaults: grid_coverage_ratio={}, window_size={}, time_threshold={}", 
-                    m_grid_coverage_ratio, m_keyframe_window_size, m_keyframe_time_threshold);
+        if (m_enable_debug_output) {
+            spdlog::warn("Keyframe management section not found in config, using defaults: grid_coverage_ratio={}, window_size={}, time_threshold={}", 
+                        m_grid_coverage_ratio, m_keyframe_window_size, m_keyframe_time_threshold);
+        }
     }
     
     // Optimization Parameters (unified for PnP and Sliding Window)
     cv::FileNode optimization = fs["optimization"];
     if (!optimization.empty()) {
         // PnP specific variables
-        if (optimization["max_iterations"].isInt()) {
+        if (optimization["pnp_max_iterations"].isInt()) {
+            m_pnp_max_iterations = (int)optimization["pnp_max_iterations"];
+            m_pose_max_iterations = m_pnp_max_iterations; // Legacy compatibility
+        } else if (optimization["max_iterations"].isInt()) {
+            // Fallback to old config format
             m_pnp_max_iterations = (int)optimization["max_iterations"];
             m_pose_max_iterations = m_pnp_max_iterations; // Legacy compatibility
+        }
+        if (optimization["pnp_information_matrix_mode"].isString()) {
+            m_pnp_information_matrix_mode = (std::string)optimization["pnp_information_matrix_mode"];
         }
         if (optimization["function_tolerance"].isReal()) {
             m_pnp_function_tolerance = (double)optimization["function_tolerance"];
@@ -225,18 +243,13 @@ bool Config::load(const std::string& config_file) {
         }
     }
     
-    // Performance Parameters
-    cv::FileNode performance = fs["performance"];
-    if (!performance.empty()) {
-        m_enable_timing = (bool)(int)performance["enable_timing"];
-        m_enable_debug_output = (bool)(int)performance["enable_debug_output"];
-    }
-    
     // System Mode Parameters
     cv::FileNode system_mode = fs["system_mode"];
     if (!system_mode.empty()) {
         m_system_mode = (std::string)system_mode["mode"];
-        spdlog::info("[CONFIG] System mode: {}", m_system_mode);
+        if (m_enable_debug_output) {
+            spdlog::info("[CONFIG] System mode: {}", m_system_mode);
+        }
     }
     
     // Gravity Estimation Parameters
@@ -246,10 +259,12 @@ bool Config::load(const std::string& config_file) {
         m_gravity_min_frames_for_estimation = (int)gravity_estimation["min_frames_for_estimation"];
         m_gravity_magnitude = (double)gravity_estimation["gravity_magnitude"];
         
-        spdlog::info("[CONFIG] Gravity estimation parameters:");
-        spdlog::info("  - Enable: {}", m_gravity_estimation_enable);
-        spdlog::info("  - Min frames: {}", m_gravity_min_frames_for_estimation);
-        spdlog::info("  - Gravity magnitude: {:.3f} m/s²", m_gravity_magnitude);
+        if (m_enable_debug_output) {
+            spdlog::info("[CONFIG] Gravity estimation parameters:");
+            spdlog::info("  - Enable: {}", m_gravity_estimation_enable);
+            spdlog::info("  - Min frames: {}", m_gravity_min_frames_for_estimation);
+            spdlog::info("  - Gravity magnitude: {:.3f} m/s²", m_gravity_magnitude);
+        }
     }
 
     // IMU Noise Model Parameters
@@ -260,11 +275,13 @@ bool Config::load(const std::string& config_file) {
         m_accel_noise_density = (double)imu_noise["accelerometer_noise_density"];
         m_accel_random_walk = (double)imu_noise["accelerometer_random_walk"];
         
-        spdlog::info("[CONFIG] IMU noise parameters loaded:");
-        spdlog::info("  - Gyro noise density: {:.6e} rad/s/√Hz", m_gyro_noise_density);
-        spdlog::info("  - Gyro random walk: {:.6e} rad/s²/√Hz", m_gyro_random_walk);
-        spdlog::info("  - Accel noise density: {:.6e} m/s²/√Hz", m_accel_noise_density);
-        spdlog::info("  - Accel random walk: {:.6e} m/s³/√Hz", m_accel_random_walk);
+        if (m_enable_debug_output) {
+            spdlog::info("[CONFIG] IMU noise parameters loaded:");
+            spdlog::info("  - Gyro noise density: {:.6e} rad/s/√Hz", m_gyro_noise_density);
+            spdlog::info("  - Gyro random walk: {:.6e} rad/s²/√Hz", m_gyro_random_walk);
+            spdlog::info("  - Accel noise density: {:.6e} m/s²/√Hz", m_accel_noise_density);
+            spdlog::info("  - Accel random walk: {:.6e} m/s³/√Hz", m_accel_random_walk);
+        }
     }
     
     fs.release();

@@ -32,7 +32,9 @@ public:
     Eigen::Vector3f get_3d_point() const { return m_3d_point; }
     Eigen::Vector2f get_velocity() const { return m_velocity; }
     float get_depth() const { return m_depth; }
+    float get_reprojection_error() const { return m_reprojection_error; }
     int get_track_count() const { return m_track_count; }
+    int get_num_observations_accumulated() const { return m_num_observations_accumulated; }
     bool is_valid() const { return m_is_valid; }
     bool has_3d_point() const { return m_has_3d_point; }
 
@@ -47,7 +49,9 @@ public:
     }
     void set_velocity(const Eigen::Vector2f& velocity) { m_velocity = velocity; }
     void set_depth(float depth) { m_depth = depth; }
+    void set_reprojection_error(float reprojection_error) { m_reprojection_error = reprojection_error; }
     void set_track_count(int count) { m_track_count = count; }
+    void set_num_observations_accumulated(int count) { m_num_observations_accumulated = count; }
     void set_valid(bool valid) { m_is_valid = valid; }
     
     // Tracking relationship
@@ -57,6 +61,7 @@ public:
 
     // Operations
     void increment_track_count() { m_track_count++; }
+    void increment_observations_accumulated() { m_num_observations_accumulated++; }
     
     // Stereo operations
     void set_stereo_match(const cv::Point2f& right_coord, float disparity) {
@@ -89,7 +94,9 @@ private:
     Eigen::Vector3f m_3d_point;    // 3D point in left camera frame
     Eigen::Vector2f m_velocity;    // Optical flow velocity
     int m_track_count;             // Number of times tracked
+    int m_num_observations_accumulated; // Total number of observations accumulated (not reset by window sliding)
     float m_depth;                 // Estimated depth (inverse depth parameterization)
+    float m_reprojection_error;   // Reprojection error in pixels
     bool m_is_valid;               // Whether this feature is valid
     bool m_has_3d_point;           // Whether 3D point is available
     

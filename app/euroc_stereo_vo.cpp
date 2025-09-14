@@ -220,7 +220,6 @@ int main(int argc, char* argv[]) {
         
         if (lightweight_vio::EurocUtils::match_image_timestamps(image_timestamps)) {
             size_t matched_count = lightweight_vio::EurocUtils::get_matched_count();
-            spdlog::info("[EuRoC] Successfully pre-matched {} image timestamps with ground truth", matched_count);
             
             // Find the valid frame range based on matched timestamps
             if (matched_count > 0) {
@@ -242,8 +241,6 @@ int main(int argc, char* argv[]) {
                         break;
                     }
                 }
-                
-                spdlog::info("[EuRoC] Processing frame range: {} to {} (total: {} frames)", start_frame_idx, end_frame_idx - 1, end_frame_idx - start_frame_idx);
             }
         }
     }
@@ -298,7 +295,7 @@ int main(int argc, char* argv[]) {
     size_t transform_total_pairs, transform_total_frames, transform_total_gt_poses;
     bool velocity_stats_available = false;
 
-    spdlog::info("[VO] Starting VIO processing from frame {} to frame {} (GT-matched range)", start_frame_idx, end_frame_idx);
+    spdlog::info("[VO] frame {} to frame {} (GT-matched range)", start_frame_idx, end_frame_idx);
     
     // Process frames in the valid GT range
     size_t current_idx = start_frame_idx;
@@ -621,6 +618,10 @@ int main(int argc, char* argv[]) {
         
         
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        if(processed_frames % 100 == 0) {
+            spdlog::info("[VO] Processed {} / {} frames", processed_frames, end_frame_idx - start_frame_idx);
+        }
     }
     
     spdlog::info("[VO] Processing completed! Processed {} frames \n", processed_frames);

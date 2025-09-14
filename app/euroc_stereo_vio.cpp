@@ -153,7 +153,6 @@ int main(int argc, char* argv[]) {
         
         if (lightweight_vio::EurocUtils::match_image_timestamps(image_timestamps)) {
             size_t matched_count = lightweight_vio::EurocUtils::get_matched_count();
-            spdlog::info("[EuRoC] Successfully pre-matched {} image timestamps with ground truth", matched_count);
             
             // Find the valid frame range based on matched timestamps (SAME AS VO)
             if (matched_count > 0) {
@@ -176,7 +175,6 @@ int main(int argc, char* argv[]) {
                     }
                 }
                 
-                spdlog::info("[EuRoC] Processing frame range: {} to {} (total: {} frames)", start_frame_idx, end_frame_idx - 1, end_frame_idx - start_frame_idx);
             }
         }
         
@@ -214,21 +212,21 @@ int main(int argc, char* argv[]) {
     
     // Initialize 3D viewer (optional)
     PangolinViewer* viewer = nullptr;
-    std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
-    if (viewer_ptr->initialize(1920*2, 1080*2)) {
-        viewer = viewer_ptr.get();
-        spdlog::info("[Viewer] Pangolin viewer initialized successfully");
+    // std::unique_ptr<PangolinViewer> viewer_ptr = std::make_unique<PangolinViewer>();
+    // if (viewer_ptr->initialize(1920*2, 1080*2)) {
+    //     viewer = viewer_ptr.get();
+    //     spdlog::info("[Viewer] Pangolin viewer initialized successfully");
         
-        // Wait for viewer to be fully ready
-        spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
-        while (viewer && !viewer->is_ready()) {
-            viewer->render();
-            std::this_thread::sleep_for(std::chrono::milliseconds(16));
-        }
-        spdlog::info("[Viewer] Viewer is ready!");
-    } else {
-        spdlog::warn("[Viewer] Failed to initialize 3D viewer, running without visualization");
-    }
+    //     // Wait for viewer to be fully ready
+    //     spdlog::info("[Viewer] Waiting for viewer to be fully ready...");
+    //     while (viewer && !viewer->is_ready()) {
+    //         viewer->render();
+    //         std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    //     }
+    //     spdlog::info("[Viewer] Viewer is ready!");
+    // } else {
+    //     spdlog::warn("[Viewer] Failed to initialize 3D viewer, running without visualization");
+    // }
     
     // Initialize Estimator
     Estimator estimator;
@@ -238,7 +236,6 @@ int main(int argc, char* argv[]) {
         auto first_gt_pose = lightweight_vio::EurocUtils::get_matched_pose(0);
         if (first_gt_pose.has_value()) {
             estimator.set_initial_gt_pose(first_gt_pose.value());
-            spdlog::info("[GT_INIT] Set initial ground truth pose for VIO estimation");
         }
     }
     
@@ -261,13 +258,14 @@ int main(int argc, char* argv[]) {
     double transform_ang_vel_mean, transform_ang_vel_median, transform_ang_vel_min, transform_ang_vel_max;
     size_t transform_total_pairs, transform_total_frames, transform_total_gt_poses;
     bool velocity_stats_available = false;
+
+    spdlog::info("[VIO] frame {} to frame {} (GT-matched range)", start_frame_idx, end_frame_idx);
     
     // Process frames within GT range
     size_t current_idx = start_frame_idx;
     size_t processed_frames = 0;
     long long previous_frame_timestamp = 0;
     
-    spdlog::info("[VIO] Starting VIO processing from frame {} to frame {} (GT-matched range)", start_frame_idx, end_frame_idx - 1);
     while (current_idx < end_frame_idx) {
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {
@@ -338,10 +336,6 @@ int main(int argc, char* argv[]) {
                 double imu_last_time = imu_data_from_last_frame.back().timestamp;
                 double imu_dt = imu_last_time - imu_first_time;
                 
-                if (processed_frames % 20 == 0) {  // Log every 20 frames
-                    spdlog::info("[IMU_DEBUG] Frame {}: frame_dt={:.5f}s, IMU_count={}, IMU_dt={:.5f}s (first={:.6f}, last={:.6f})",
-                                processed_frames, frame_dt, imu_data_from_last_frame.size(), imu_dt, imu_first_time, imu_last_time);
-                }
             }
             
             // Check if we have valid IMU data
@@ -384,13 +378,6 @@ int main(int argc, char* argv[]) {
             if (gt_pose_opt.has_value()) {
                 Eigen::Matrix4f gt_pose = gt_pose_opt.value();
                 gt_poses.push_back(gt_pose);
-                
-                // Debug first few GT poses
-                if (processed_frames < 3) {
-                    long long matched_ts = lightweight_vio::EurocUtils::get_matched_timestamp(processed_frames);
-                    spdlog::info("[GT_DEBUG] processed_frames={}, matched_ts={}, gt_pos=({:.6f},{:.6f},{:.6f})", 
-                                processed_frames, matched_ts, gt_pose(0,3), gt_pose(1,3), gt_pose(2,3));
-                }
                 
                 if (viewer) {
                     viewer->add_ground_truth_pose(gt_pose);
@@ -573,6 +560,10 @@ int main(int argc, char* argv[]) {
         ++current_idx;
         
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        if(processed_frames % 100 == 0) {
+            spdlog::info("[VIO] Processed {} / {} frames", processed_frames, end_frame_idx - start_frame_idx);
+        }
     }
     
     spdlog::info("[VIO] Processing completed! Processed {} frames", processed_frames);

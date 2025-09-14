@@ -23,7 +23,9 @@ Feature::Feature(int feature_id, const cv::Point2f& pixel_coord)
     , m_3d_point(Eigen::Vector3f::Zero())
     , m_velocity(Eigen::Vector2f::Zero())
     , m_track_count(1)
+    , m_num_observations_accumulated(1)  // Start with 1 since we're creating this observation
     , m_depth(-1.0f)  // Invalid depth initially
+    , m_reprojection_error(-1.0f)  // Invalid reprojection error initially
     , m_is_valid(true)
     , m_has_3d_point(false)
     , m_right_coord(cv::Point2f(-1, -1))  // Invalid stereo coordinate initially

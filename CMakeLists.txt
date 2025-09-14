@@ -107,6 +107,22 @@ add_executable(euroc_stereo_vio app/euroc_stereo_vio.cpp
     src/util/Config.cpp
     src/util/EurocUtils.cpp
     src/viewer/PangolinViewer.cpp
+)
+
+# Add Information Matrix Comparison Test
+add_executable(information_matrix_comparison app/information_matrix_comparison.cpp 
+    src/database/Frame.cpp
+    src/database/Feature.cpp  
+    src/database/MapPoint.cpp
+    src/processing/FeatureTracker.cpp
+    src/processing/Optimizer.cpp
+    src/processing/Estimator.cpp
+    src/processing/IMUHandler.cpp
+    src/optimization/Factors.cpp
+    src/optimization/Parameters.cpp
+    src/util/Config.cpp
+    src/util/EurocUtils.cpp
+    src/viewer/PangolinViewer.cpp
 )# Link libraries
 target_link_libraries(euroc_stereo_vo 
     ${OpenCV_LIBS} 
@@ -140,15 +156,33 @@ target_link_libraries(euroc_stereo_vio
     pango_image
 )
 
+target_link_libraries(information_matrix_comparison 
+    ${OpenCV_LIBS} 
+    yaml-cpp 
+    OpenGL::GL 
+    GLEW::GLEW
+    Threads::Threads
+    ceres
+    Sophus::Sophus
+    spdlog::spdlog
+    pango_display
+    pango_windowing
+    pango_opengl
+    pango_core
+    pango_image
+)
+
 
 # Link Eigen3 to all targets
 if(TARGET Eigen3::Eigen)
     target_link_libraries(euroc_stereo_vo Eigen3::Eigen)
     target_link_libraries(euroc_stereo_vio Eigen3::Eigen)
+    target_link_libraries(information_matrix_comparison Eigen3::Eigen)
 else()
     # Fallback for older CMake versions
     target_include_directories(euroc_stereo_vo PRIVATE ${EIGEN3_INCLUDE_DIR})
     target_include_directories(euroc_stereo_vio PRIVATE ${EIGEN3_INCLUDE_DIR})
+    target_include_directories(information_matrix_comparison PRIVATE ${EIGEN3_INCLUDE_DIR})
 endif()
 
 # Print OpenCV information for debugging

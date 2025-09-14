@@ -108,6 +108,7 @@ namespace lightweight_vio
         bool m_pnp_enable_outlier_detection = true;
         int m_pnp_outlier_detection_rounds = 3;
         double m_pnp_max_observation_weight = 3.0;
+        std::string m_pnp_information_matrix_mode = "observation_count"; // "observation_count", "reprojection_error"
 
         // Sliding Window Optimization Parameters  
         int m_sw_max_iterations = 20;
@@ -137,7 +138,7 @@ namespace lightweight_vio
 
         // Performance Parameters
         bool m_enable_timing = true;
-        bool m_enable_debug_output = true;
+        bool m_enable_debug_output = false;
 
         // System Mode Parameters
         std::string m_system_mode = "VIO";  // "VO" or "VIO"

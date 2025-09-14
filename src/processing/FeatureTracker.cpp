@@ -267,6 +267,10 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
         // Set the tracked feature ID to maintain tracking relationship
         new_feature->set_tracked_feature_id(prev_feature->get_feature_id());
         
+        // Inherit accumulated observations from previous feature (without incrementing)
+        int prev_accumulated_obs = prev_feature->get_num_observations_accumulated();
+        new_feature->set_num_observations_accumulated(prev_accumulated_obs);
+        
         // Update velocity
         Eigen::Vector2f velocity(dx, dy);
         new_feature->set_velocity(velocity);

@@ -63,7 +63,9 @@ Estimator::Estimator()
     m_sliding_window_thread_running = true;
     m_sliding_window_thread = std::make_unique<std::thread>(&Estimator::sliding_window_thread_function, this);
     
-    spdlog::info("[ESTIMATOR] Sliding window optimization thread started");
+    if (Config::getInstance().m_enable_debug_output) {
+        spdlog::info("[ESTIMATOR] Sliding window optimization thread started");
+    }
 }
 
 Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, const cv::Mat& right_image, long long timestamp) {
@@ -71,8 +73,10 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
     auto total_start_time = std::chrono::high_resolution_clock::now();
 
     // Frame processing starts
-    std::cout<<"\n";
-    spdlog::info("============================== Frame {} ==============================\n", m_frame_id_counter);
+    if (Config::getInstance().m_enable_debug_output) {
+        std::cout<<"\n";
+        spdlog::info("============================== Frame {} ==============================\n", m_frame_id_counter);
+    }
 
     // Increment frame counter since last keyframe for every new frame
     m_frames_since_last_keyframe++;
@@ -118,8 +122,10 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         int num_tracked_with_map_points = count_features_with_map_points(m_current_frame);
         
         // Log tracking information
-        spdlog::info("[TRACKING] {} features tracked, {} with map points", 
-                    result.num_features, num_tracked_with_map_points);
+        if (Config::getInstance().m_enable_debug_output) {
+            spdlog::info("[TRACKING] {} features tracked, {} with map points", 
+                        result.num_features, num_tracked_with_map_points);
+        }
         
         if (num_tracked_with_map_points > 0) {
             // ✅ ENABLED: Pose optimization re-enabled after fixing coordinate space mismatch!
@@ -146,11 +152,10 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
                         // Compute rotation angle difference
                         float rotation_angle = std::acos(std::min(1.0f, (rotation_diff.trace() - 1.0f) / 2.0f));
                         rotation_angle = rotation_angle * 180.0f / M_PI;  // Convert to degrees
-                        
-                        spdlog::info("[POSE_COMPARE] Frame {}: Translation diff=({:.3f}, {:.3f}, {:.3f})m, Rotation diff={:.2f}°", 
-                                   m_current_frame->get_frame_id(),
-                                   translation_diff.x(), translation_diff.y(), translation_diff.z(),
-                                   rotation_angle);
+                        if (Config::getInstance().m_enable_debug_output) {
+                            spdlog::info("[POSE_COMPARE] Frame {}: Translation diff=({:.3f}, {:.3f}, {:.3f})m, Rotation diff={:.2f}°", 
+                                        m_frame_id_counter, translation_diff.x(), translation_diff.y(), translation_diff.z(), rotation_angle);
+                        }
                     }
                     
                     // 🎯 Compare frame-to-frame transformations: VO vs IMU prediction
@@ -183,12 +188,18 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
                     // Update transform from last frame for velocity estimation
                     update_transform_from_last();
                     
-                    spdlog::info("[POSE_OPT] ✅ Optimization successful: {} inliers, {} outliers", opt_result.num_inliers, opt_result.num_outliers);
+                    if (Config::getInstance().m_enable_debug_output) {
+                        spdlog::info("[POSE_OPT] ✅ Optimization successful: {} inliers, {} outliers", opt_result.num_inliers, opt_result.num_outliers);
+                    }
                 } else {
-                    spdlog::warn("[POSE_OPT] ❌ Optimization failed - keeping previous pose");
+                    if (Config::getInstance().m_enable_debug_output) {
+                        spdlog::warn("[POSE_OPT] ❌ Optimization failed - keeping previous pose");
+                    }
                 }
             } else {
-                spdlog::warn("[POSE_OPT] ⚠️ Not enough map point associations for optimization: {} (need ≥5)", num_tracked_with_map_points);
+                if (Config::getInstance().m_enable_debug_output) {
+                    spdlog::warn("[POSE_OPT] ⚠️ Not enough map point associations for optimization: {} (need ≥5)", num_tracked_with_map_points);
+                }
                 // Fallback: use current pose as-is
                 m_current_pose = m_current_frame->get_Twb();
                 
@@ -284,8 +295,6 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         
         m_frames_since_last_keyframe = 0;  // Reset after creating first keyframe
         
-        spdlog::info("[TIMING] First frame initialization: stereo={:.2f}ms, initial_map_points={:.2f}ms, keyframe={:.2f}ms", 
-                    stereo_time, initial_map_points_time, first_keyframe_time);
         
         // Count features for first frame
         result.num_tracked_features = m_current_frame->get_feature_count();
@@ -294,16 +303,10 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         result.success = true;
     }
     
-    // Update result
-    result.pose = m_current_frame->get_Twb();
-    
     // Add processed frame to all frames vector for trajectory export
     m_all_frames.push_back(m_current_frame);
     
-    // Total frames processed (reduced logging)
-    if (m_all_frames.size() % 10 == 0 || m_all_frames.size() <= 5) {
-        spdlog::info("[ESTIMATOR] Processed {} frames", m_all_frames.size());
-    }
+  
     
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - total_start_time);
@@ -720,10 +723,11 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
     EstimationResult result;
     auto total_start_time = std::chrono::high_resolution_clock::now();
 
-    // Frame processing starts
-    std::cout<<"\n";
-    spdlog::info("============================== Frame {} ==============================\n", m_current_frame->get_frame_id());
-
+     // Frame processing starts
+    if (Config::getInstance().m_enable_debug_output) {
+        std::cout<<"\n";
+        spdlog::info("============================== Frame {} ==============================\n", m_frame_id_counter);
+    }
     // Increment frame counter since last keyframe for every new frame
     m_frames_since_last_keyframe++;
 
@@ -735,8 +739,10 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
 
     // IMU data processed (reduced logging)
     if (!imu_data_from_last_frame.empty() && m_current_frame->get_frame_id() % 10 == 0) {
-        spdlog::info("[IMU] Frame {} processed {} IMU measurements", 
-                    m_current_frame->get_frame_id(), imu_data_from_last_frame.size());
+        if (Config::getInstance().m_enable_debug_output) {
+            spdlog::info("[IMU] Frame {} processed {} IMU measurements", 
+                        m_current_frame->get_frame_id(), imu_data_from_last_frame.size());
+        }
     }
 
     if (m_previous_frame) {
@@ -759,10 +765,12 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         
         // Count how many features have associated map points (already done by FeatureTracker)
         int num_tracked_with_map_points = count_features_with_map_points(m_current_frame);
-        
         // Log tracking information
-        spdlog::info("[TRACKING] {} features tracked, {} with map points", 
-                    result.num_features, num_tracked_with_map_points);
+        if (Config::getInstance().m_enable_debug_output) {
+            spdlog::info("[TRACKING] {} features tracked, {} with map points", 
+                        result.num_features, num_tracked_with_map_points);
+        }
+       
         
         if (num_tracked_with_map_points > 0) {
             // ✅ ENABLED: Pose optimization re-enabled after fixing coordinate space mismatch!
@@ -790,10 +798,10 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
                         float rotation_angle = std::acos(std::min(1.0f, (rotation_diff.trace() - 1.0f) / 2.0f));
                         rotation_angle = rotation_angle * 180.0f / M_PI;  // Convert to degrees
                         
-                        spdlog::info("[POSE_COMPARE] Frame {}: Translation diff=({:.3f}, {:.3f}, {:.3f})m, Rotation diff={:.2f}°", 
-                                   m_current_frame->get_frame_id(),
-                                   translation_diff.x(), translation_diff.y(), translation_diff.z(),
-                                   rotation_angle);
+                        if (Config::getInstance().m_enable_debug_output) {
+                            spdlog::info("[POSE_COMPARE] Frame {}: Translation diff=({:.3f}, {:.3f}, {:.3f})m, Rotation diff={:.2f}°",
+                                        m_frame_id_counter, translation_diff.x(), translation_diff.y(), translation_diff.z(), rotation_angle);
+                        }
                     }
                     
                     // 🎯 Compare frame-to-frame transformations: VO vs IMU prediction
@@ -826,12 +834,18 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
                     // Update transform from last frame for velocity estimation
                     update_transform_from_last();
                     
-                    spdlog::info("[POSE_OPT] ✅ Optimization successful: {} inliers, {} outliers", opt_result.num_inliers, opt_result.num_outliers);
+                    if (Config::getInstance().m_enable_debug_output) {
+                        spdlog::info("[POSE_OPT] ✅ Optimization successful: {} inliers, {} outliers", opt_result.num_inliers, opt_result.num_outliers);
+                    }
                 } else {
-                    spdlog::warn("[POSE_OPT] ❌ Optimization failed - keeping previous pose");
+                    if (Config::getInstance().m_enable_debug_output) {
+                        spdlog::warn("[POSE_OPT] ❌ Optimization failed - keeping previous pose");
+                    }
                 }
             } else {
-                spdlog::warn("[POSE_OPT] ⚠️ Not enough map point associations for optimization: {} (need ≥5)", num_tracked_with_map_points);
+                if (Config::getInstance().m_enable_debug_output) {
+                    spdlog::warn("[POSE_OPT] ⚠️ Not enough map point associations for optimization: {} (need ≥5)", num_tracked_with_map_points);
+                }
                 // Fallback: use current pose as-is
                 m_current_pose = m_current_frame->get_Twb();
                 
@@ -927,8 +941,6 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         
         m_frames_since_last_keyframe = 0;  // Reset after creating first keyframe
         
-        spdlog::info("[TIMING] First frame initialization: stereo={:.2f}ms, initial_map_points={:.2f}ms, keyframe={:.2f}ms", 
-                    stereo_time, initial_map_points_time, first_keyframe_time);
         
         // Count features for first frame
         result.num_tracked_features = m_current_frame->get_feature_count();
@@ -943,10 +955,7 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
     // Add processed frame to all frames vector for trajectory export
     m_all_frames.push_back(m_current_frame);
     
-    // Total frames processed (reduced logging)
-    if (m_all_frames.size() % 10 == 0 || m_all_frames.size() <= 5) {
-        spdlog::info("[ESTIMATOR] Processed {} frames", m_all_frames.size());
-    }
+   
     
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - total_start_time);
@@ -969,35 +978,30 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         // Get current bias from IMU handler
         Eigen::Vector3f accel_bias = m_imu_handler->get_accel_bias();
         Eigen::Vector3f gyro_bias = m_imu_handler->get_gyro_bias();
-        
-        spdlog::info("Frame {}: Accel bias: [{:.6f}, {:.6f}, {:.6f}], Gyro bias: [{:.6f}, {:.6f}, {:.6f}]",
-                     m_frame_count_since_start,
-                     accel_bias[0], accel_bias[1], accel_bias[2],
-                     gyro_bias[0], gyro_bias[1], gyro_bias[2]);
+
+        if (Config::getInstance().m_enable_debug_output) {
+            spdlog::info("Frame {}: Accel bias: [{:.10f}, {:.10f}, {:.10f}], Gyro bias: [{:.10f}, {:.10f}, {:.10f}]",
+                        m_frame_id_counter, accel_bias.x(), accel_bias.y(), accel_bias.z(),
+                        gyro_bias.x(), gyro_bias.y(), gyro_bias.z());
+        }
     }
 
     // 🎯 Attempt gravity estimation if conditions are met (already in VIO mode since IMU data is available)
     const auto& config = Config::getInstance();
     if (!m_success_imu_init && m_keyframes.size() >= 5) {  // Unified condition: keyframes >= 5
 
-        spdlog::info("[GRAVITY_EST] Attempting gravity estimation with {} keyframes", m_keyframes.size());
         m_success_imu_init = try_initialize_imu();
 
         if (m_success_imu_init) {
             m_gravity_initialized = true;
             m_enable_imu_optimization = true;  // Enable bias logging
-            spdlog::info("✅ [IMU_INIT] IMU initialization successful!");
             
             // Enable IMU optimization in sliding window optimizer
             Eigen::Vector3f gravity_vector = m_imu_handler->get_gravity();
             std::shared_ptr<IMUHandler> shared_imu_handler = std::shared_ptr<IMUHandler>(m_imu_handler.get(), [](IMUHandler*){});
             m_sliding_window_optimizer->enable_imu_optimization(shared_imu_handler, gravity_vector.cast<double>());
-            spdlog::info("🚀 [SW_IMU] Enabled IMU optimization in sliding window with gravity: ({:.3f}, {:.3f}, {:.3f})",
-                         gravity_vector.x(), gravity_vector.y(), gravity_vector.z());
            
-        } else {
-            spdlog::warn("❌ [IMU_INIT] IMU initialization failed, will retry later");
-        }
+        } 
 
     }
     
@@ -1091,7 +1095,6 @@ std::shared_ptr<Frame> Estimator::create_frame(const cv::Mat& left_image, const 
         // First frame - use ground truth pose if available, otherwise identity
         if (m_has_initial_gt_pose) {
             frame->set_Twb(m_initial_gt_pose);
-            spdlog::info("[GT_INIT] Initialized first frame with ground truth pose");
         } else {
             frame->set_Twb(Eigen::Matrix4f::Identity());
         }
@@ -1179,7 +1182,6 @@ int lightweight_vio::Estimator::create_initial_map_points(std::shared_ptr<Frame>
         }
     }
     
-    spdlog::info("[MAP_POINTS] Created {} new map points from {} features", num_created, features.size());
     return num_created;
 }
 
@@ -1333,7 +1335,7 @@ bool lightweight_vio::Estimator::should_create_keyframe(std::shared_ptr<Frame> f
         if (current_grid_coverage < absolute_threshold) {
             if (Config::getInstance().m_enable_debug_output) {
                 spdlog::info("[KEYFRAME] Creating keyframe due to low grid coverage (initial): {:.2f} < {:.2f}", 
-                            current_grid_coverage, absolute_threshold);
+                            current_grid_coverage, Config::getInstance().m_grid_coverage_ratio);
             }
             return true;
         }
@@ -1474,7 +1476,6 @@ int lightweight_vio::Estimator::count_features_with_map_points(std::shared_ptr<F
 void Estimator::set_initial_gt_pose(const Eigen::Matrix4f& gt_pose) {
     m_initial_gt_pose = gt_pose;
     m_has_initial_gt_pose = true;
-    spdlog::info("[GT_INIT] Set initial ground truth pose");
 }
 
 void Estimator::apply_gt_pose_to_current_frame(const Eigen::Matrix4f& gt_pose) {
@@ -1751,7 +1752,9 @@ void lightweight_vio::Estimator::notify_sliding_window_thread() {
 }
 
 void lightweight_vio::Estimator::sliding_window_thread_function() {
-    spdlog::info("[SW_THREAD] Sliding window optimization thread started");
+    if (Config::getInstance().m_enable_debug_output) {
+        spdlog::info("[SW_THREAD] Sliding window optimization thread started");
+    }
     
     while (m_sliding_window_thread_running) {
         // Wait for keyframe updates
@@ -1781,9 +1784,7 @@ void lightweight_vio::Estimator::sliding_window_thread_function() {
                 auto sw_opt_time = std::chrono::duration_cast<std::chrono::microseconds>(sw_opt_end - sw_opt_start).count() / 1000.0;
                 
                
-            } else {
-                spdlog::debug("[SW_THREAD] Skipping optimization: only {} keyframes (need ≥2)", keyframes_copy.size());
-            }
+            } 
         }
     }
 }
@@ -1906,8 +1907,6 @@ bool lightweight_vio::Estimator::try_initialize_imu() {
         return false;
     }
     
-    spdlog::info("[GRAVITY_EST] Using {} keyframes and {} IMU measurements", keyframe_ptrs.size(), all_imu_data.size());
-    
     // Use IMUHandler to estimate gravity
     if (!m_imu_handler) {
         spdlog::error("[GRAVITY_EST] IMU handler not initialized");
@@ -1940,16 +1939,12 @@ bool lightweight_vio::Estimator::try_initialize_imu() {
         m_imu_handler->debug_velocity_comparison(keyframe_ptrs, all_imu_data);
         
         // 🎯 After gravity estimation, perform IMU initialization optimization
-        spdlog::info("[IMU_INIT] Starting IMU initialization optimization...");
         auto imu_init_result = m_inertial_optimizer->optimize_imu_initialization(
             keyframe_ptrs, 
             std::shared_ptr<IMUHandler>(m_imu_handler.get(), [](IMUHandler*){}) // Non-owning shared_ptr
         );
         
         if (imu_init_result.success) {
-            spdlog::info("✅ [IMU_INIT] IMU initialization optimization successful!");
-            spdlog::info("  - Cost reduction: {:.6f}", imu_init_result.cost_reduction);
-            spdlog::info("  - Iterations: {}", imu_init_result.num_iterations);
             
             // Store Tgw_init for viewer
             m_Tgw_init = imu_init_result.Tgw_init;
@@ -1974,7 +1969,6 @@ bool lightweight_vio::Estimator::try_initialize_imu() {
 void lightweight_vio::Estimator::debug_keyframe_to_keyframe_comparison()
 {
 
-    spdlog::info("\n\n\n\n\n\n\n\n🔍 [KF_COMPARE] Comparing VO and IMU preintegration between ALL keyframes...\n");
     if (m_keyframes.size() < 2)
     {
         return;
@@ -2046,6 +2040,10 @@ void lightweight_vio::Estimator::debug_keyframe_to_keyframe_comparison()
                 Eigen::AngleAxisf angle_axis(R_diff);
                 float angle_diff_deg = angle_axis.angle() * 180.0f / M_PI;
 
+                if(Config::getInstance().m_enable_debug_output)
+                {
+                    // Print detailed comparison
+
                 spdlog::info("🔍 [KF_COMPARE] Keyframes - Frame({}) to Frame({}) (dt={:.3f}s):",
                              prev_kf->get_frame_id(), curr_kf->get_frame_id(), dt);
                 spdlog::info("  📐 Translation diff: ({:.4f}, {:.4f}, {:.4f}) m, norm: {:.4f} m",
@@ -2055,8 +2053,9 @@ void lightweight_vio::Estimator::debug_keyframe_to_keyframe_comparison()
                              t_rel_vo.x(), t_rel_vo.y(), t_rel_vo.z());
                 spdlog::info("  📊 IMU translation: ({:.4f}, {:.4f}, {:.4f}) m",
                              t_rel_imu.x(), t_rel_imu.y(), t_rel_imu.z());
-                spdlog::info("  🔧 Bias applied: ba=({:.10f}, {:.10f}, {:.10f}), bg=({:.10f}, {:.10f}, {:.10f})\n\n\n\n\n\n\n\n",
+                spdlog::info("  🔧 Bias applied: ba=({:.10f}, {:.10f}, {:.10f}), bg=({:.10f}, {:.10f}, {:.10f})",
                              ba.x(), ba.y(), ba.z(), bg.x(), bg.y(), bg.z());
+                }
             }
         }
     }

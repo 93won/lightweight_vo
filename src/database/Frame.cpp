@@ -923,6 +923,7 @@ void Frame::triangulate_stereo_points() {
             
             // Solve using SVD
             Eigen::JacobiSVD<Eigen::Matrix4d> svd(A, Eigen::ComputeFullV);
+            
             Eigen::Vector4d X_h = svd.matrixV().col(3);
             
             // Check homogeneous coordinate
@@ -998,6 +999,9 @@ void Frame::triangulate_stereo_points() {
             double right_error = (right_normalized.head<2>() - reproj_right.head<2>()).norm();
             double max_error = std::max(left_error, right_error);
             
+            // Convert reprojection error to pixel coordinates for storage
+            double max_error_pixels = max_error * std::min(K_left_eigen(0,0), K_left_eigen(1,1));
+            
             // Use normalized coordinate reprojection threshold
             double max_reproj_error = config.m_max_reprojection_error / std::min(K_left_eigen(0,0), K_left_eigen(1,1));
             
@@ -1022,6 +1026,9 @@ void Frame::triangulate_stereo_points() {
             
             // Store in camera coordinates - transformation to body/world will be done in Estimator
             feature->set_3d_point(point3D_camera);
+            
+            // Store reprojection error from triangulation (in pixel coordinates)
+            feature->set_reprojection_error(static_cast<float>(max_error_pixels));
             
             // Update normalized coordinates in feature (using left camera)
             Eigen::Vector2f normalized_2d(left_normalized[0], left_normalized[1]);
@@ -1350,8 +1357,6 @@ void Frame::initialize_velocity_from_preintegration() {
             velocity_candidates.push_back(velocity_from_keyframe);
             velocity_sources.push_back("from_keyframe");
             
-            spdlog::debug("🔄 [FRAME_INIT] Frame[{}]: Keyframe velocity=({:.4f}, {:.4f}, {:.4f}) [dt={:.4f}s]", 
-                         get_frame_id(), velocity_from_keyframe.x(), velocity_from_keyframe.y(), velocity_from_keyframe.z(), dt_from_keyframe);
         }
     }
     
@@ -1374,8 +1379,6 @@ void Frame::initialize_velocity_from_preintegration() {
         velocity_candidates.push_back(velocity_from_frame);
         velocity_sources.push_back("from_frame");
         
-        spdlog::debug("🔄 [FRAME_INIT] Frame[{}]: Frame velocity=({:.4f}, {:.4f}, {:.4f}) [dt={:.4f}s]", 
-                     get_frame_id(), velocity_from_frame.x(), velocity_from_frame.y(), velocity_from_frame.z(), preint_from_frame->dt_total);
     }
     
     // ===============================================================================
@@ -1403,9 +1406,6 @@ void Frame::initialize_velocity_from_preintegration() {
         if (i < velocity_sources.size() - 1) sources_str += "+";
     }
     
-    spdlog::info("🚀 [FRAME_INIT] Frame[{}]: Auto-initialized velocity=({:.4f}, {:.4f}, {:.4f}) [avg of {} sources: {}]", 
-                 get_frame_id(), average_velocity.x(), average_velocity.y(), average_velocity.z(), 
-                 velocity_candidates.size(), sources_str);
 }
 
 } // namespace lightweight_vio
