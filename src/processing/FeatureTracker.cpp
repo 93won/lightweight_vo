@@ -346,15 +346,6 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
         spdlog::info("  Map point associations: {}", associated_map_points);
     }
     
-    // Log detailed timing for slow optical flow operations
-    if (total_time > 5.0) {
-        std::cout << "[FLOW DEBUG] Total: " << total_time << "ms | "
-                  << "Point extraction: " << point_extraction_time << "ms, "
-                  << "Optical flow: " << flow_time << "ms, "
-                  << "Feature creation: " << feature_creation_time << "ms | "
-                  << "Points: " << prev_pts.size() << " -> " << tracked_features << std::endl;
-    }
-    
     return {tracked_features, new_map_points_created};
 }
 

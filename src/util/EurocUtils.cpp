@@ -223,8 +223,6 @@ bool EurocUtils::match_image_timestamps(const std::vector<long long>& image_time
     long long gt_end_time = s_ground_truth_data.back().timestamp;
     const long long time_threshold_ns = 5000000; // 5ms in nanoseconds
     
-    spdlog::info("[EurocUtils] Matching {} image timestamps with ground truth data", image_timestamps.size());
-    
     s_matched_poses.clear();
     s_image_timestamps.clear();
     s_timestamp_errors.clear();

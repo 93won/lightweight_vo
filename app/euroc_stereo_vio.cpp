@@ -259,13 +259,13 @@ int main(int argc, char* argv[]) {
     size_t transform_total_pairs, transform_total_frames, transform_total_gt_poses;
     bool velocity_stats_available = false;
 
+
     spdlog::info("[VIO] frame {} to frame {} (GT-matched range)", start_frame_idx, end_frame_idx);
     
     // Process frames within GT range
     size_t current_idx = start_frame_idx;
     size_t processed_frames = 0;
     long long previous_frame_timestamp = 0;
-    
     while (current_idx < end_frame_idx) {
         // Check if viewer wants to exit
         if (viewer && viewer->should_close()) {
@@ -638,6 +638,68 @@ int main(int argc, char* argv[]) {
         std::vector<double> translation_errors;
         std::vector<double> linear_velocities;  // m/s
         std::vector<double> angular_velocities; // rad/s
+        
+        // Debug: Print time comparison for VIO
+        if (!all_frames.empty() && !gt_poses.empty()) {
+            spdlog::info("=== VIO TIME COMPARISON ===");
+            spdlog::info("VIO total frames: {}", all_frames.size());
+            spdlog::info("GT total poses: {}", gt_poses.size());
+            
+            if (all_frames.size() > 1 && gt_poses.size() > 1) {
+                // Print start and end times in seconds for VIO
+                long long vio_start_ts = all_frames.front()->get_timestamp();
+                long long vio_end_ts = all_frames.back()->get_timestamp();
+                long long gt_start_ts = lightweight_vio::EurocUtils::get_matched_timestamp(0);
+                long long gt_end_ts = lightweight_vio::EurocUtils::get_matched_timestamp(std::min(all_frames.size()-1, lightweight_vio::EurocUtils::get_matched_count()-1));
+                
+                spdlog::info("VIO start time: {:.9f} sec", vio_start_ts / 1e9);
+                spdlog::info("VIO end time: {:.9f} sec", vio_end_ts / 1e9);
+                spdlog::info("GT start time: {:.9f} sec", gt_start_ts / 1e9);
+                spdlog::info("GT end time: {:.9f} sec", gt_end_ts / 1e9);
+                
+                long long vio_total_duration = vio_end_ts - vio_start_ts;
+                long long gt_total_duration = gt_end_ts - gt_start_ts;
+                
+                spdlog::info("VIO time span: {:.3f} sec", vio_total_duration / 1e9);
+                spdlog::info("GT time span: {:.3f} sec", gt_total_duration / 1e9);
+                spdlog::info("Time difference: {:.3f} sec", 
+                            std::abs(vio_total_duration - gt_total_duration) / 1e9);
+            }
+            spdlog::info("=== END VIO TIME COMPARISON ===");
+            
+            // Print first 5 frame pose translations for comparison
+            spdlog::info("=== VIO FIRST 5 FRAME POSES COMPARISON ===");
+            size_t pose_check_count = std::min({size_t(5), all_frames.size(), gt_poses.size()});
+            spdlog::info("Checking first {} frame poses:", pose_check_count);
+            
+            // First print GT poses for reference
+            spdlog::info("Ground Truth poses:");
+            for (size_t i = 0; i < pose_check_count; ++i) {
+                Eigen::Vector3f t_gt = gt_poses[i].block<3,1>(0,3);
+                spdlog::info("  GT Frame {}: ({:.6f}, {:.6f}, {:.6f})", i, t_gt.x(), t_gt.y(), t_gt.z());
+            }
+            
+            // Then print estimated poses and differences
+            spdlog::info("Estimated poses vs GT:");
+            for (size_t i = 0; i < pose_check_count; ++i) {
+                // Get estimated pose translation
+                Eigen::Matrix4f T_est = all_frames[i]->get_Twb();
+                Eigen::Vector3f t_est = T_est.block<3,1>(0,3);
+                
+                // Get GT pose translation  
+                Eigen::Vector3f t_gt = gt_poses[i].block<3,1>(0,3);
+                
+                // Calculate difference
+                Eigen::Vector3f t_diff = t_est - t_gt;
+                
+                spdlog::info("  Frame {}: Est=({:.6f}, {:.6f}, {:.6f}) | GT=({:.6f}, {:.6f}, {:.6f}) | Diff=({:.6f}, {:.6f}, {:.6f})", 
+                            i,
+                            t_est.x(), t_est.y(), t_est.z(),
+                            t_gt.x(), t_gt.y(), t_gt.z(),
+                            t_diff.x(), t_diff.y(), t_diff.z());
+            }
+            spdlog::info("=== END VIO FIRST 5 FRAME POSES COMPARISON ===");
+        }
         
         for (size_t i = 1; i < all_frames.size() && i < gt_poses.size(); ++i) {
             if (!all_frames[i-1] || !all_frames[i]) continue;

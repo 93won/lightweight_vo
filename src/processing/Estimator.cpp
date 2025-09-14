@@ -286,7 +286,6 @@ Estimator::EstimationResult Estimator::process_frame(const cv::Mat& left_image, 
         auto initial_map_points_time = std::chrono::duration_cast<std::chrono::microseconds>(initial_map_points_end - initial_map_points_start).count() / 1000.0;
         
         result.num_new_map_points = initial_map_points;
-        spdlog::info("[MAP_POINTS] Created {} initial map points", initial_map_points);
         
         auto first_keyframe_start = std::chrono::high_resolution_clock::now();
         create_keyframe(m_current_frame);
