@@ -10,7 +10,7 @@ system_mode:
 # Viewer Configuration
 # Controls 3D visualization using Pangolin
 viewer:
-  enable: 0                      # Enable/disable 3D viewer (0=false, 1=true)
+  enable: 1                      # Enable/disable 3D viewer (0=false, 1=true)
   width: 1920                    # Viewer window width (pixels)
   height: 1080                   # Viewer window height (pixels)
 
