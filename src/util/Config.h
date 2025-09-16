@@ -89,9 +89,6 @@ namespace lightweight_vio
         double m_min_depth = 0.1;
         double m_max_depth = 100.0;
 
-        // Triangulation Parameters
-        double m_max_reprojection_error = 10.0;
-        double m_min_parallax = 0.5;
 
         // Keyframe Parameters
         double m_grid_coverage_ratio = 0.7;  // Add keyframe when coverage drops to this ratio of last keyframe's coverage
@@ -142,6 +139,11 @@ namespace lightweight_vio
 
         // System Mode Parameters
         std::string m_system_mode = "VIO";  // "VO" or "VIO"
+        
+        // Viewer Parameters
+        bool m_viewer_enable = false;       // Enable/disable 3D viewer
+        int m_viewer_width = 1920;          // Viewer window width
+        int m_viewer_height = 1080;         // Viewer window height
         
         // Gravity Estimation Parameters (VIO mode only)
         bool m_gravity_estimation_enable = true;

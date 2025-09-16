@@ -11,7 +11,7 @@ This is a lightweight stereo visual-inertial odometry (VIO) project designed for
 - Docker support for easy deployment and testing
 
 ## Demo
-[![Stereo VO Demo](https://img.youtube.com/vi/qdnn4ShEpTA/0.jpg)](https://youtu.be/qdnn4ShEpTA)
+[![Stereo VIO Demo](https://img.youtube.com/vi/qdnn4ShEpTA/0.jpg)](https://youtu.be/qdnn4ShEpTA)
 
 ## To-Do List
 
@@ -61,27 +61,28 @@ This will download all sequences into a `/path/of/dataset` directory at the root
 
 ### Step 1-4: Run the Application
 
-After the build is complete, you can run the VO or VIO with a EuRoC dataset. You need to provide the configuration file path and the dataset path as arguments.
+After the build is complete, you can run the unified stereo pipeline with a EuRoC dataset. The system mode (VO or VIO) is configured through the YAML configuration file. You need to provide the configuration file path and the dataset path as arguments.
 
-#### Running the Visual Odometry (VO)
+#### Running Example
 ```bash
-./build/euroc_stereo_vo <config_file_path> <euroc_dataset_path>
+./build/euroc_stereo <config_file_path> <euroc_dataset_path>
 ```
 
-**Example:**
+**Examples:**
+
+**Visual Odometry (VO) Mode:**
 ```bash
-./build/euroc_stereo_vo /home/lightweight_vo/config/euroc_vo.yaml /path/to/your/EuRoC/MH_01_easy
+./build/euroc_stereo config/euroc_vo.yaml /path/to/your/EuRoC/MH_01_easy
 ```
 
-#### Running the Visual-Inertial Odometry (VIO)
+**Visual-Inertial Odometry (VIO) Mode:**
 ```bash
-./build/euroc_stereo_vio <config_file_path> <euroc_dataset_path>
+./build/euroc_stereo config/euroc_vio.yaml /path/to/your/EuRoC/MH_01_easy
 ```
 
-**Example:**
-```bash
-./build/euroc_stereo_vio /home/lightweight_vo/config/euroc_vio.yaml /path/to/your/EuRoC/MH_01_easy
-```
+The mode is automatically determined by the `system_mode.mode` setting in the YAML configuration file:
+- `euroc_vo.yaml`: Contains `system_mode.mode: "VO"` for Visual Odometry
+- `euroc_vio.yaml`: Contains `system_mode.mode: "VIO"` for Visual-Inertial Odometry
 
 ---
 
@@ -113,7 +114,7 @@ This command builds a Docker image named `lightweight-vio:latest` with all neces
 
 This command runs the application inside a new container. It mounts your local dataset directory into the container (read-only) and forwards your X11 display for the Pangolin viewer.
 
-You can specify `vo` or `vio` as the first argument to choose which program to run.
+You can specify `vo` or `vio` as the first argument to choose which configuration mode to run.
 
 #### Running the VO
 ```bash
@@ -125,11 +126,11 @@ You can specify `vo` or `vio` as the first argument to choose which program to r
 ./docker.sh run vio /path/of/dataset/EuRoC/MH_01_easy
 ```
 
-The container will automatically execute the VIO with the built-in config file and the provided dataset.
+The container will automatically execute the `euroc_stereo` application with the appropriate config file (`euroc_vo.yaml` or `euroc_vio.yaml`) and the provided dataset.
 
 ## Performance Analysis and Evaluation
 
-The application automatically performs a comprehensive analysis of the VIO results and outputs detailed statistics to the console and a file (`statistics_vio.txt`) upon completion.
+The application automatically performs a comprehensive analysis of the results and outputs detailed statistics to the console and a file (e.g., `statistics_vio.txt` or `statistics_vo.txt`) upon completion.
 
 ### 1. Built-in Analysis Features
 
@@ -146,7 +147,7 @@ The application automatically performs a comprehensive analysis of the VIO resul
 - Provides statistical metrics for rotation (°) and translation (m) errors: mean, median, min, max, and RMSE.
 
 **1-4. Trajectory Output**
-- Saves both the estimated and ground truth trajectories in TUM format (`estimated_trajectory_vio.txt`, `ground_truth_vio.txt`).
+- Saves both the estimated and ground truth trajectories in TUM format (e.g., `estimated_trajectory_vio.txt`, `ground_truth_vio.txt` or `estimated_trajectory_vo.txt`, `ground_truth_vo.txt`).
 - These files are fully compatible with external evaluation tools like EVO.
 
 ### 2. Example Output

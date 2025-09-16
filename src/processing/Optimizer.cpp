@@ -298,77 +298,7 @@ namespace lightweight_vio
         return result;
     }
 
-    // Helper function implementations moved outside optimize_pose
-    ObservationInfo PnPOptimizer::add_observation(
-        ceres::Problem &problem,
-        double *pose_params,
-        const Eigen::Vector3d &world_point,
-        const Eigen::Vector2d &observation,
-        const factor::CameraParameters &camera_params,
-        std::shared_ptr<Frame> frame,
-        double pixel_noise_std)
-    {
-
-        // Create information matrix for pixel observations
-        Eigen::Matrix2d information = create_information_matrix(pixel_noise_std);
-
-        // Get T_cb (body-to-camera transform) from frame directly - NO CONFIG ACCESS!
-        const Eigen::Matrix4d& T_cb = frame->get_T_CB();
-        
-        // Create mono PnP cost function with information matrix and T_cb
-        auto cost_function = new factor::PnPFactor(observation, world_point, camera_params, T_cb, information);
-
-        // Create robust loss function if enabled
-        const Config& config = Config::getInstance();
-        ceres::LossFunction *loss_function = nullptr;
-        if (config.m_use_robust_kernel)
-        {
-            loss_function = create_robust_loss(sqrt(5.991));  // Chi-squared 95% threshold for 2 DOF
-        }
-
-        // Add residual block
-        auto residual_id = problem.AddResidualBlock(
-            cost_function, loss_function, pose_params);
-
-        return ObservationInfo(residual_id, cost_function);
-    }
-
-    // Overloaded version with observation-based weighting
-    ObservationInfo PnPOptimizer::add_observation(
-        ceres::Problem &problem,
-        double *pose_params,
-        const Eigen::Vector3d &world_point,
-        const Eigen::Vector2d &observation,
-        const factor::CameraParameters &camera_params,
-        std::shared_ptr<Frame> frame,
-        double pixel_noise_std,
-        int num_observations)
-    {
-
-        // Create information matrix with observation-based weighting
-        Eigen::Matrix2d information = create_information_matrix_with_num_observations(pixel_noise_std, num_observations);
-
-        // Get T_cb (body-to-camera transform) from frame directly - NO CONFIG ACCESS!
-        const Eigen::Matrix4d& T_cb = frame->get_T_CB();
-        
-        // Create mono PnP cost function with information matrix and T_cb
-        auto cost_function = new factor::PnPFactor(observation, world_point, camera_params, T_cb, information);
-
-        // Create robust loss function if enabled
-        const Config& config = Config::getInstance();
-        ceres::LossFunction *loss_function = nullptr;
-        if (config.m_use_robust_kernel)
-        {
-            loss_function = create_robust_loss(5.991);  // Chi-squared 95% threshold for 2 DOF
-        }
-
-        // Add residual block
-        auto residual_id = problem.AddResidualBlock(
-            cost_function, loss_function, pose_params);
-
-        return ObservationInfo(residual_id, cost_function);
-    }
-
+   
     int PnPOptimizer::detect_outliers(double const *const *pose_params,
                                        const std::vector<ObservationInfo> &observations,
                                        const std::vector<int> &feature_indices,
@@ -665,6 +595,7 @@ namespace lightweight_vio
             // Use reprojection error-based weighting
             float reprojection_error = feature->get_reprojection_error();
             information = create_information_matrix_with_reprojection_error(pixel_noise_std, reprojection_error);
+            
         } else if (config.m_pnp_information_matrix_mode == "observation_count") {
             // Use observation count-based weighting
             information = create_information_matrix_with_num_observations(pixel_noise_std, num_observations);
@@ -926,37 +857,6 @@ BAObservationInfo SlidingWindowOptimizer::add_observation(
     return BAObservationInfo(residual_id, cost_function, kf_index, mp_index);
 }
 
-BAObservationInfo SlidingWindowOptimizer::add_observation(
-    ceres::Problem& problem,
-    double* pose_params,
-    double* point_params,
-    const Eigen::Vector2d& observation,
-    const factor::CameraParameters& camera_params,
-    std::shared_ptr<Frame> frame,
-    int kf_index,
-    int mp_index,
-    double pixel_noise_std,
-    int num_observations) {
-    
-    // Get T_CB transformation from frame
-    Eigen::Matrix4d T_CB = frame->get_T_CB();
-    
-    // Create information matrix with observation-based weighting
-    Eigen::Matrix2d information = create_information_matrix_with_num_observations(pixel_noise_std, num_observations);
-    
-    // Create BA factor
-    auto* cost_function = new factor::BAFactor(
-        observation, camera_params, T_CB, information);
-    
-    // Create robust loss function
-    ceres::LossFunction* loss_function = create_robust_loss(m_huber_delta);
-    
-    // Add residual block to problem
-    ceres::ResidualBlockId residual_id = problem.AddResidualBlock(
-        cost_function, loss_function, pose_params, point_params);
-    
-    return BAObservationInfo(residual_id, cost_function, kf_index, mp_index);
-}
 
 std::vector<BAObservationInfo> SlidingWindowOptimizer::setup_optimization_problem(
     ceres::Problem& problem,
@@ -1090,8 +990,7 @@ std::vector<BAObservationInfo> SlidingWindowOptimizer::setup_optimization_proble
                     keyframe,
                     static_cast<int>(kf_idx),
                     mp_idx,
-                    m_pixel_noise_std,
-                    num_observations);
+                    m_pixel_noise_std);
                 
                 observations.push_back(obs_info);
             }
@@ -1272,11 +1171,7 @@ void SlidingWindowOptimizer::update_optimized_values(
             keyframe->set_Twb(T_wb);
             updated_keyframes++;
             
-            // Log significant pose changes
-            if (pose_change > 0.01) {
-                spdlog::debug("[UPDATE] Keyframe {} pose changed by {:.4f}", 
-                             keyframe->get_frame_id(), pose_change);
-            }
+           
         }
     }
     

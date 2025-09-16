@@ -90,12 +90,7 @@ bool Config::load(const std::string& config_file) {
         m_max_depth = (double)depth["max_depth"];
     }
     
-    // Triangulation Parameters (specific to 3D point generation)
-    cv::FileNode triangulation = fs["triangulation"];
-    if (!triangulation.empty()) {
-        m_max_reprojection_error = (double)triangulation["max_reprojection_error"];
-        m_min_parallax = (double)triangulation["min_parallax"];
-    }
+ 
     
     // Keyframe Parameters
     cv::FileNode keyframe_mgmt = fs["keyframe_management"];
@@ -249,6 +244,21 @@ bool Config::load(const std::string& config_file) {
         m_system_mode = (std::string)system_mode["mode"];
         if (m_enable_debug_output) {
             spdlog::info("[CONFIG] System mode: {}", m_system_mode);
+        }
+    }
+    
+    // Viewer Parameters
+    cv::FileNode viewer = fs["viewer"];
+    if (!viewer.empty()) {
+        m_viewer_enable = (bool)(int)viewer["enable"];
+        m_viewer_width = (int)viewer["width"];
+        m_viewer_height = (int)viewer["height"];
+        
+        if (m_enable_debug_output) {
+            spdlog::info("[CONFIG] Viewer parameters:");
+            spdlog::info("  - Enable: {}", m_viewer_enable);
+            spdlog::info("  - Width: {}", m_viewer_width);
+            spdlog::info("  - Height: {}", m_viewer_height);
         }
     }
     
