@@ -2,6 +2,10 @@
 
 This is a lightweight stereo visual-inertial odometry (VIO) project designed for real-time performance. It utilizes feature tracking, IMU pre-integration, sliding window optimization with Ceres Solver, and Pangolin for visualization.
 
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 ## Demo
 [![Stereo VIO Demo](https://img.youtube.com/vi/qdnn4ShEpTA/0.jpg)](https://youtu.be/qdnn4ShEpTA)
 
@@ -47,10 +51,6 @@ The source code is organized into the following directories:
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues and pull requests.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## References
 
