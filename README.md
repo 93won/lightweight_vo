@@ -7,7 +7,7 @@ This is a lightweight stereo visual-inertial odometry (VIO) project designed for
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Demo
-[![Stereo VIO Demo](https://img.youtube.com/vi/qdnn4ShEpTA/0.jpg)](https://youtu.be/qdnn4ShEpTA)
+[![Stereo VIO Demo](https://img.youtube.com/vi/41o9R-rKQ1s/0.jpg)](https://youtu.be/41o9R-rKQ1s)
 
 ## To-Do List
 
