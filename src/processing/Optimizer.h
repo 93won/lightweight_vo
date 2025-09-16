@@ -127,7 +127,6 @@ private:
      * @param frame Frame containing the observation
      * @param feature Feature containing condition number and other information
      * @param pixel_noise_std Standard deviation of pixel noise
-     * @param num_observations Number of observations for weighting
      * @return Observation info with residual block ID and cost function
      */
     ObservationInfo add_observation(
@@ -137,9 +136,8 @@ private:
         const Eigen::Vector2d& observation,
         const factor::CameraParameters& camera_params,
         std::shared_ptr<Frame> frame,
-        std::shared_ptr<Feature> feature,
-        double pixel_noise_std,
-        int num_observations);
+        const double pixel_noise_std
+        );
     
     /**
      * @brief Detect outliers using chi-square test

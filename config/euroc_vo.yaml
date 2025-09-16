@@ -105,7 +105,6 @@ depth:
 optimization:
   # PnP Optimization Parameters
   pnp_max_iterations: 10               # Maximum optimization iterations for PnP
-  pnp_information_matrix_mode: "none"  # Options: "observation_count", "reprojection_error"
   sliding_window_max_iterations: 10  # Maximum optimization iterations for sliding window
   function_tolerance: 1e-6         # Function tolerance for convergence
   gradient_tolerance: 1e-10        # Gradient tolerance for convergence  

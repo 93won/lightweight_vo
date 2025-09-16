@@ -113,7 +113,7 @@ namespace lightweight_vio
 
                 // Add mono PnP observation with adaptive weighting based on config mode
                 int num_observations = mp->get_observation_count();
-                auto obs_info = add_observation(problem, pose_params.data(), world_point, observation, camera_params, frame, feature, 2.0, num_observations);
+                auto obs_info = add_observation(problem, pose_params.data(), world_point, observation, camera_params, frame, 1.0);
 
                 // Debug: Check if projection makes sense for first few features
                 if (num_valid_observations < 3) {
@@ -581,28 +581,13 @@ namespace lightweight_vio
         const Eigen::Vector2d &observation,
         const factor::CameraParameters &camera_params,
         std::shared_ptr<Frame> frame,
-        std::shared_ptr<Feature> feature,
-        double pixel_noise_std,
-        int num_observations)
+        const double pixel_noise_std)
     {
         // Get config instance to check information matrix mode
         const Config& config = Config::getInstance();
         
-        Eigen::Matrix2d information;
+        Eigen::Matrix2d information = create_information_matrix(pixel_noise_std);
         
-        // Choose information matrix creation based on config mode
-        if (config.m_pnp_information_matrix_mode == "reprojection_error") {
-            // Use reprojection error-based weighting
-            float reprojection_error = feature->get_reprojection_error();
-            information = create_information_matrix_with_reprojection_error(pixel_noise_std, reprojection_error);
-            
-        } else if (config.m_pnp_information_matrix_mode == "observation_count") {
-            // Use observation count-based weighting
-            information = create_information_matrix_with_num_observations(pixel_noise_std, num_observations);
-        } else {
-            // Default: simple identity weighting
-            information = create_information_matrix(pixel_noise_std);
-        }
 
         // Get T_cb (body-to-camera transform) from frame directly
         const Eigen::Matrix4d& T_cb = frame->get_T_CB();

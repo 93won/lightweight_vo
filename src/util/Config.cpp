@@ -119,9 +119,7 @@ bool Config::load(const std::string& config_file) {
             m_pnp_max_iterations = (int)optimization["max_iterations"];
             m_pose_max_iterations = m_pnp_max_iterations; // Legacy compatibility
         }
-        if (optimization["pnp_information_matrix_mode"].isString()) {
-            m_pnp_information_matrix_mode = (std::string)optimization["pnp_information_matrix_mode"];
-        }
+       
         if (optimization["function_tolerance"].isReal()) {
             m_pnp_function_tolerance = (double)optimization["function_tolerance"];
             m_pose_function_tolerance = m_pnp_function_tolerance; // Legacy compatibility
@@ -145,10 +143,6 @@ bool Config::load(const std::string& config_file) {
         if (optimization["outlier_detection_rounds"].isInt()) {
             m_pnp_outlier_detection_rounds = (int)optimization["outlier_detection_rounds"];
             m_outlier_detection_rounds = m_pnp_outlier_detection_rounds; // Legacy compatibility
-        }
-        if (optimization["pnp_max_observation_weight"].isReal()) {
-            m_pnp_max_observation_weight = (double)optimization["pnp_max_observation_weight"];
-            m_max_observation_weight = m_pnp_max_observation_weight; // Legacy compatibility
         }
         
         // Sliding Window specific parameters  

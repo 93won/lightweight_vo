@@ -103,12 +103,10 @@ namespace lightweight_vio
         bool m_pnp_use_robust_kernel = true;
         // m_pnp_huber_delta_mono removed - hardcoded to 5.991
         bool m_pnp_enable_outlier_detection = true;
-        int m_pnp_outlier_detection_rounds = 3;
-        double m_pnp_max_observation_weight = 3.0;
-        std::string m_pnp_information_matrix_mode = "observation_count"; // "observation_count", "reprojection_error"
-
+        int m_pnp_outlier_detection_rounds = 4;
+       
         // Sliding Window Optimization Parameters  
-        int m_sw_max_iterations = 20;
+        int m_sw_max_iterations = 10;
         double m_sw_function_tolerance = 1e-6;
         double m_sw_gradient_tolerance = 1e-10;
         double m_sw_parameter_tolerance = 1e-8;
