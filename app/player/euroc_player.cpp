@@ -80,50 +80,75 @@ EurocPlayerResult EurocPlayer::run(const EurocPlayerConfig& config) {
         // 5. Process frames
         FrameContext context;
         context.step_mode = config.step_mode;
+        context.auto_play = !config.step_mode;  // auto_play is opposite of step_mode
         
         spdlog::info("[EurocPlayer] Processing frames {} to {} ({} mode)", 
                     start_frame_idx, end_frame_idx, config.use_vio_mode ? "VIO" : "VO");
         
         context.current_idx = start_frame_idx;
         while (context.current_idx < end_frame_idx) {
-            // Handle viewer controls
+            // Handle viewer controls first
             if (viewer && !handle_viewer_controls(*viewer, context)) {
                 break;
             }
             
-            // Process single frame
-            auto frame_start = std::chrono::high_resolution_clock::now();
-            double processing_time = process_single_frame(estimator, context, image_data, 
-                                                        config.dataset_path, config.use_vio_mode);
-            auto frame_end = std::chrono::high_resolution_clock::now();
+            bool should_process_frame = false;
             
-            auto frame_duration = std::chrono::duration_cast<std::chrono::microseconds>(frame_end - frame_start);
-            double total_time_ms = frame_duration.count() / 1000.0;
-            result.frame_processing_times.push_back(total_time_ms);
-            
-            // Update viewer
-            if (viewer) {
-                update_viewer(*viewer, estimator, context);
+            // Check processing conditions based on mode
+            if (context.auto_play) {
+                // Auto mode: process frame
+                should_process_frame = true;
+            } else {
+                // Step mode: only process if advance_frame is set
+                if (context.advance_frame) {
+                    should_process_frame = true;
+                    // Reset advance_frame after processing
+                    context.advance_frame = false;
+                } else {
+                    // In step mode with no advance request, just render and wait
+                    if (viewer) {
+                        viewer->render();
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+                    continue;
+                }
             }
             
-            // Progress logging
-            if (context.processed_frames % 100 == 0) {
-                spdlog::info("[EurocPlayer] Processed {} / {} frames", 
-                            context.processed_frames, end_frame_idx - start_frame_idx);
-            }
-            
-            ++context.current_idx;
-            ++context.processed_frames;
-            
-            // Calculate sleep time based on actual frame intervals
-            if (context.current_idx < end_frame_idx) {
-                long long current_timestamp = image_data[context.current_idx - 1].timestamp;
-                long long next_timestamp = image_data[context.current_idx].timestamp;
-                double frame_interval_ms = (next_timestamp - current_timestamp) / 1e6; // nanoseconds to milliseconds
+            if (should_process_frame) {
+                // Process single frame
+                auto frame_start = std::chrono::high_resolution_clock::now();
+                double processing_time = process_single_frame(estimator, context, image_data, 
+                                                            config.dataset_path, config.use_vio_mode);
+                auto frame_end = std::chrono::high_resolution_clock::now();
                 
-                double sleep_time_ms = frame_interval_ms - total_time_ms;
-                if (sleep_time_ms > 0) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(sleep_time_ms)));
+                auto frame_duration = std::chrono::duration_cast<std::chrono::microseconds>(frame_end - frame_start);
+                double total_time_ms = frame_duration.count() / 1000.0;
+                result.frame_processing_times.push_back(total_time_ms);
+                
+                // Update viewer
+                if (viewer) {
+                    update_viewer(*viewer, estimator, context);
+                }
+                
+                // Progress logging
+                if (context.processed_frames % 100 == 0) {
+                    spdlog::info("[EurocPlayer] Processed {} / {} frames", 
+                                context.processed_frames, end_frame_idx - start_frame_idx);
+                }
+                
+                ++context.current_idx;
+                ++context.processed_frames;
+                
+                // Calculate sleep time based on actual frame intervals (only in auto mode)
+                if (context.auto_play && context.current_idx < end_frame_idx) {
+                    long long current_timestamp = image_data[context.current_idx - 1].timestamp;
+                    long long next_timestamp = image_data[context.current_idx].timestamp;
+                    double frame_interval_ms = (next_timestamp - current_timestamp) / 1e6; // nanoseconds to milliseconds
+                    
+                    double sleep_time_ms = frame_interval_ms - total_time_ms;
+                    if (sleep_time_ms > 0) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(sleep_time_ms)));
+                    }
                 }
             }
         }
@@ -466,22 +491,11 @@ bool EurocPlayer::handle_viewer_controls(PangolinViewer& viewer, FrameContext& c
         return false;
     }
     
-    // Process keyboard input
+    // Process keyboard input and sync UI state
     viewer.process_keyboard_input(context.auto_play, context.step_mode, context.advance_frame);
     viewer.sync_ui_state(context.auto_play, context.step_mode);
     
-    // Handle step mode
-    if (context.step_mode && !context.advance_frame) {
-        viewer.render();
-        std::this_thread::sleep_for(std::chrono::milliseconds(30));
-        return false; // Don't advance frame
-    }
-    
-    // Reset advance flag
-    if (context.advance_frame) {
-        context.advance_frame = false;
-    }
-    
+    // Always return true, let main loop handle mode logic
     return true;
 }
 
