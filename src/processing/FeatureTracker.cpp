@@ -267,6 +267,10 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
         // Set the tracked feature ID to maintain tracking relationship
         new_feature->set_tracked_feature_id(prev_feature->get_feature_id());
         
+        // Inherit accumulated observations from previous feature (without incrementing)
+        int prev_accumulated_obs = prev_feature->get_num_observations_accumulated();
+        new_feature->set_num_observations_accumulated(prev_accumulated_obs);
+        
         // Update velocity
         Eigen::Vector2f velocity(dx, dy);
         new_feature->set_velocity(velocity);
@@ -340,15 +344,6 @@ std::pair<int, int> FeatureTracker::optical_flow_tracking(std::shared_ptr<Frame>
                      Config::getInstance().m_max_movement, movement_exceeded,
                      total_attempted > 0 ? (float)movement_exceeded / total_attempted * 100.0f : 0.0f);
         spdlog::info("  Map point associations: {}", associated_map_points);
-    }
-    
-    // Log detailed timing for slow optical flow operations
-    if (total_time > 5.0) {
-        std::cout << "[FLOW DEBUG] Total: " << total_time << "ms | "
-                  << "Point extraction: " << point_extraction_time << "ms, "
-                  << "Optical flow: " << flow_time << "ms, "
-                  << "Feature creation: " << feature_creation_time << "ms | "
-                  << "Points: " << prev_pts.size() << " -> " << tracked_features << std::endl;
     }
     
     return {tracked_features, new_map_points_created};

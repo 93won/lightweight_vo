@@ -75,11 +75,13 @@ IMUHandler::IMUHandler()
     m_gyro_bias_noise = static_cast<float>(config.m_gyro_random_walk);
     m_accel_bias_noise = static_cast<float>(config.m_accel_random_walk);
     
-    spdlog::info("[IMU_HANDLER] Initialized with config parameters:");
-    spdlog::info("  - Gyro noise: {:.6e} rad/s/√Hz", m_gyro_noise);
-    spdlog::info("  - Accel noise: {:.6e} m/s²/√Hz", m_accel_noise);
-    spdlog::info("  - Gyro bias noise: {:.6e} rad/s²/√Hz", m_gyro_bias_noise);
-    spdlog::info("  - Accel bias noise: {:.6e} m/s³/√Hz", m_accel_bias_noise);
+    if (Config::getInstance().m_enable_debug_output) {
+        spdlog::info("[IMU_HANDLER] Initialized with config parameters:");
+        spdlog::info("  - Gyro noise: {:.6e} rad/s/√Hz", m_gyro_noise);
+        spdlog::info("  - Accel noise: {:.6e} m/s²/√Hz", m_accel_noise);
+        spdlog::info("  - Gyro bias noise: {:.6e} rad/s²/√Hz", m_gyro_bias_noise);
+        spdlog::info("  - Accel bias noise: {:.6e} m/s³/√Hz", m_accel_bias_noise);
+    }
 }
 
 void IMUHandler::reset() {
@@ -314,7 +316,6 @@ void IMUHandler::update_preintegration_with_new_bias(
     const Eigen::Vector3f& new_accel_bias) {
     
     if (!preint || !preint->is_valid()) {
-        spdlog::warn("[IMU_HANDLER] Invalid preintegration for bias update");
         return;
     }
     
@@ -421,7 +422,9 @@ bool IMUHandler::estimate_gravity_with_stereo_constraints(
         return false;
     }
     
-    spdlog::info("[IMU_HANDLER] 🎯 Starting gravity estimation with {} frames", frames.size());
+    if (Config::getInstance().m_enable_debug_output) {
+        spdlog::info("[IMU_HANDLER] 🎯 Starting gravity estimation with {} frames", frames.size());
+    }
     
     // Step 1: Create preintegrations (without gravity compensation first)
     std::vector<std::shared_ptr<IMUPreintegration>> preintegrations;
@@ -453,8 +456,6 @@ bool IMUHandler::estimate_gravity_with_stereo_constraints(
         float dt = preint->dt_total;
         Eigen::Vector3f imu_vel = R_wb * preint->delta_V;
 
-        std::cout<<"Check IMU Velocity: "<<imu_vel.transpose()<<" // "<<imu_vel.norm()<<std::endl;
-        
         for (int axis = 0; axis < 3; axis++) {
             // [MODIFIED] The coefficient for the gravity term should be -dt, based on the equation v_{i+1} - v_i - g*dt = ...
             A(eq_idx + axis, axis) = -dt;
@@ -517,7 +518,6 @@ bool IMUHandler::estimate_gravity_with_stereo_constraints(
     
     // Step 4: Normalize the estimated gravity and apply the known magnitude
     if (estimated_gravity.norm() < 1.0f) {
-        spdlog::error("[IMU_HANDLER] Invalid gravity estimation");
         return false;
     }
     
@@ -570,27 +570,30 @@ bool IMUHandler::estimate_gravity_with_stereo_constraints(
     
     m_Rgw = R_candidate;
     m_gravity_aligned = true;
-    
-    spdlog::info("[IMU_HANDLER] ✅ Gravity estimation completed:");
-    spdlog::info("  Estimated gravity: ({:.4f}, {:.4f}, {:.4f}) m/s²", 
-                 estimated_gravity.x(), estimated_gravity.y(), estimated_gravity.z());
-    spdlog::info("  Final gravity: ({:.4f}, {:.4f}, {:.4f}) m/s²", 
-                 m_gravity.x(), m_gravity.y(), m_gravity.z());
-    spdlog::info("  Gravity direction: ({:.4f}, {:.4f}, {:.4f})", 
-                 gravity_direction.x(), gravity_direction.y(), gravity_direction.z());
-    spdlog::info("  Gravity magnitude: {:.4f} m/s²", m_gravity.norm());
-    spdlog::info("  Rgw (SVD-normalized World-to-Gravity rotation matrix):");
-    spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(0,0), m_Rgw(0,1), m_Rgw(0,2));
-    spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(1,0), m_Rgw(1,1), m_Rgw(1,2));
-    spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(2,0), m_Rgw(2,1), m_Rgw(2,2));
-    spdlog::info("  Matrix properties - det(Rgw): {:.6f}, orthogonality error: {:.2e}", 
-                 m_Rgw.determinant(), (m_Rgw * m_Rgw.transpose() - Eigen::Matrix3f::Identity()).norm());
-    
-    // Verify the transformation by applying it to the original gravity direction
-    Eigen::Vector3f transformed_gravity = m_Rgw * gravity_direction;
-    spdlog::info("  Verification - Transformed gravity should be close to [0, 0, -1]: ({:.4f}, {:.4f}, {:.4f})", 
-                 transformed_gravity.x(), transformed_gravity.y(), transformed_gravity.z());
-    
+
+    if (Config::getInstance().m_enable_debug_output)
+    {
+        spdlog::info("[IMU_HANDLER] ✅ Gravity estimation completed:");
+        spdlog::info("  Estimated gravity: ({:.4f}, {:.4f}, {:.4f}) m/s²",
+                     estimated_gravity.x(), estimated_gravity.y(), estimated_gravity.z());
+        spdlog::info("  Final gravity: ({:.4f}, {:.4f}, {:.4f}) m/s²",
+                     m_gravity.x(), m_gravity.y(), m_gravity.z());
+        spdlog::info("  Gravity direction: ({:.4f}, {:.4f}, {:.4f})",
+                     gravity_direction.x(), gravity_direction.y(), gravity_direction.z());
+        spdlog::info("  Gravity magnitude: {:.4f} m/s²", m_gravity.norm());
+        spdlog::info("  Rgw (SVD-normalized World-to-Gravity rotation matrix):");
+        spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(0, 0), m_Rgw(0, 1), m_Rgw(0, 2));
+        spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(1, 0), m_Rgw(1, 1), m_Rgw(1, 2));
+        spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(2, 0), m_Rgw(2, 1), m_Rgw(2, 2));
+        spdlog::info("  Matrix properties - det(Rgw): {:.6f}, orthogonality error: {:.2e}",
+                     m_Rgw.determinant(), (m_Rgw * m_Rgw.transpose() - Eigen::Matrix3f::Identity()).norm());
+
+        // Verify the transformation by applying it to the original gravity direction
+        Eigen::Vector3f transformed_gravity = m_Rgw * gravity_direction;
+        spdlog::info("  Verification - Transformed gravity should be close to [0, 0, -1]: ({:.4f}, {:.4f}, {:.4f})",
+                     transformed_gravity.x(), transformed_gravity.y(), transformed_gravity.z());
+    }
+
     return true;
 }
 
@@ -608,11 +611,6 @@ bool IMUHandler::debug_velocity_comparison(
         return false;
     }
     
-    spdlog::info("=== 🎯 Velocity Comparison: Stereo VO vs Gravity-Compensated IMU ===");
-    spdlog::info("Gravity: ({:.4f}, {:.4f}, {:.4f}) m/s²", m_gravity.x(), m_gravity.y(), m_gravity.z());
-    spdlog::info("Current IMU Biases - Gyro: ({:.6f}, {:.6f}, {:.6f}), Accel: ({:.6f}, {:.6f}, {:.6f})", 
-                 m_gyro_bias.x(), m_gyro_bias.y(), m_gyro_bias.z(),
-                 m_accel_bias.x(), m_accel_bias.y(), m_accel_bias.z());
     
     float total_error = 0.0f;
     int count = 0;
@@ -638,7 +636,6 @@ bool IMUHandler::debug_velocity_comparison(
     
     if (count > 0) {
         float avg_error = total_error / count;
-        spdlog::info("Average velocity error: {:.4f} m/s", avg_error);
         return avg_error < 0.5f;  // Reasonable threshold
     }
     
@@ -705,7 +702,9 @@ bool IMUHandler::transform_to_gravity_frame(
         return false;
     }
     
-    spdlog::info("[IMU_HANDLER] 🌍 Transforming {} keyframes and {} map points to gravity-aligned frame", keyframes.size(), map_points.size());
+    if (Config::getInstance().m_enable_debug_output) {
+        spdlog::info("[IMU_HANDLER] 🌍 Transforming {} keyframes and {} map points to gravity-aligned frame", keyframes.size(), map_points.size());
+    }
     
     // Transform all keyframe poses
 
@@ -744,11 +743,14 @@ bool IMUHandler::transform_to_gravity_frame(
         map_point->set_position(pos_gravity);
         transformed_count++;
     }
+    if (Config::getInstance().m_enable_debug_output)
+    {
     
     spdlog::info("[IMU_HANDLER] ✅ Successfully transformed {} keyframes and {} map points to gravity frame", 
                  keyframes.size(), transformed_count);
     spdlog::info("[IMU_HANDLER] Gravity vector in new frame: ({:.4f}, {:.4f}, {:.4f}) m/s²", 
                  0.0f, 0.0f, -m_gravity.norm());
+    }
     
     return true;
 }
@@ -812,15 +814,6 @@ bool IMUHandler::initialize_first_keyframe_from_second(
     first_keyframe->set_accel_bias(second_keyframe->get_accel_bias());
     first_keyframe->set_velocity(second_keyframe->get_velocity());
     
-    spdlog::info("[IMU_HANDLER] ✅ Initialized first keyframe {} from second keyframe {}", 
-                 first_keyframe->get_frame_id(), second_keyframe->get_frame_id());
-    spdlog::info("  - Gyro bias: ({:.6f}, {:.6f}, {:.6f})", 
-                 first_keyframe->get_gyro_bias().x(), first_keyframe->get_gyro_bias().y(), first_keyframe->get_gyro_bias().z());
-    spdlog::info("  - Accel bias: ({:.6f}, {:.6f}, {:.6f})", 
-                 first_keyframe->get_accel_bias().x(), first_keyframe->get_accel_bias().y(), first_keyframe->get_accel_bias().z());
-    spdlog::info("  - Velocity: ({:.6f}, {:.6f}, {:.6f})", 
-                 first_keyframe->get_velocity().x(), first_keyframe->get_velocity().y(), first_keyframe->get_velocity().z());
-    
     return true;
 }
 
@@ -846,7 +839,6 @@ bool IMUHandler::inherit_bias_from_keyframe(
 
 void IMUHandler::compute_rgw_transformation() {
     if (m_gravity.norm() < 1.0f) {
-        spdlog::warn("[IMU_HANDLER] Invalid gravity vector for Rgw computation");
         return;
     }
     
@@ -886,35 +878,35 @@ void IMUHandler::compute_rgw_transformation() {
         float angle = std::acos(std::clamp(cos_angle, -1.0f, 1.0f));  // Clamp to handle numerical errors
         Eigen::Vector3f normalized_axis = rotation_axis / rotation_axis_norm;
         Eigen::Vector3f rotation_vector = normalized_axis * angle;
-        m_Rgw = rodrigues(rotation_vector);  // Convert axis-angle to rotation matrix
+        m_Rgw = rodrigues(rotation_vector); // Convert axis-angle to rotation matrix
     }
-    
-    m_gravity_aligned = true;  // Mark that we have computed the transformation
-    
-    spdlog::info("[IMU_HANDLER] ✅ Computed Rgw transformation matrix:");
-    spdlog::info("  Current gravity: ({:.4f}, {:.4f}, {:.4f}) m/s²", 
-                 m_gravity.x(), m_gravity.y(), m_gravity.z());
-    spdlog::info("  Gravity direction: ({:.4f}, {:.4f}, {:.4f})", 
-                 gravity_direction.x(), gravity_direction.y(), gravity_direction.z());
-    spdlog::info("  Rgw matrix:");
-    spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(0,0), m_Rgw(0,1), m_Rgw(0,2));
-    spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(1,0), m_Rgw(1,1), m_Rgw(1,2));
-    spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(2,0), m_Rgw(2,1), m_Rgw(2,2));
-    
-    // Verify the transformation
-    Eigen::Vector3f transformed_gravity = m_Rgw * gravity_direction;
-    spdlog::info("  Verification - Transformed gravity: ({:.4f}, {:.4f}, {:.4f})", 
-                 transformed_gravity.x(), transformed_gravity.y(), transformed_gravity.z());
+
+    m_gravity_aligned = true; // Mark that we have computed the transformation
+
+    if (Config::getInstance().m_enable_debug_output)
+    {
+        spdlog::info("[IMU_HANDLER] ✅ Computed Rgw transformation matrix:");
+        spdlog::info("  Current gravity: ({:.4f}, {:.4f}, {:.4f}) m/s²",
+                     m_gravity.x(), m_gravity.y(), m_gravity.z());
+        spdlog::info("  Gravity direction: ({:.4f}, {:.4f}, {:.4f})",
+                     gravity_direction.x(), gravity_direction.y(), gravity_direction.z());
+        spdlog::info("  Rgw matrix:");
+        spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(0, 0), m_Rgw(0, 1), m_Rgw(0, 2));
+        spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(1, 0), m_Rgw(1, 1), m_Rgw(1, 2));
+        spdlog::info("    [{:.6f}, {:.6f}, {:.6f}]", m_Rgw(2, 0), m_Rgw(2, 1), m_Rgw(2, 2));
+
+        // Verify the transformation
+        Eigen::Vector3f transformed_gravity = m_Rgw * gravity_direction;
+        spdlog::info("  Verification - Transformed gravity: ({:.4f}, {:.4f}, {:.4f})",
+                     transformed_gravity.x(), transformed_gravity.y(), transformed_gravity.z());
+    }
 }
-
-
 
 Eigen::Vector3f IMUHandler::get_gravity_compensated_velocity(
     const Frame* frame,
     float dt) const {
     
     if (!frame || dt <= 0.0f) {
-        spdlog::warn("[IMU_HANDLER] Invalid parameters for gravity compensation");
         return Eigen::Vector3f::Zero();
     }
     
@@ -987,9 +979,12 @@ void IMUHandler::set_gravity_aligned_coordinate_system() {
     // Update gravity vector to point in standard downward direction
     m_gravity = Eigen::Vector3f(0.0f, 0.0f, -9.81f);
     
-    spdlog::info("[IMU_HANDLER] ✅ Set coordinate system to gravity-aligned frame");
-    spdlog::info("  - Rgw is now Identity (no further transformation needed)");
-    spdlog::info("  - Gravity vector: (0.0, 0.0, -9.81) m/s²");
+    if (Config::getInstance().m_enable_debug_output) {
+        spdlog::info("[IMU_HANDLER] ✅ Set coordinate system to gravity-aligned frame");
+        spdlog::info("  - Rgw is now Identity (no further transformation needed)");
+        spdlog::info("  - Gravity vector: (0.0, 0.0, -9.81) m/s²");
+        std::cout<<"\n";
+    }
 }
 
 

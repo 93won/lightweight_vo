@@ -111,9 +111,9 @@ namespace lightweight_vio
                 double undist_v = undistorted_pixel.y;
                 Eigen::Vector2d observation(undist_u, undist_v);
 
-                // Add mono PnP observation with observation-based weighting
+                // Add mono PnP observation with adaptive weighting based on config mode
                 int num_observations = mp->get_observation_count();
-                auto obs_info = add_mono_observation(problem, pose_params.data(), world_point, observation, camera_params, frame, 2.0, num_observations);
+                auto obs_info = add_observation(problem, pose_params.data(), world_point, observation, camera_params, frame, feature, 2.0, num_observations);
 
                 // Debug: Check if projection makes sense for first few features
                 if (num_valid_observations < 3) {
@@ -298,77 +298,7 @@ namespace lightweight_vio
         return result;
     }
 
-    // Helper function implementations moved outside optimize_pose
-    ObservationInfo PnPOptimizer::add_mono_observation(
-        ceres::Problem &problem,
-        double *pose_params,
-        const Eigen::Vector3d &world_point,
-        const Eigen::Vector2d &observation,
-        const factor::CameraParameters &camera_params,
-        std::shared_ptr<Frame> frame,
-        double pixel_noise_std)
-    {
-
-        // Create information matrix for pixel observations
-        Eigen::Matrix2d information = create_information_matrix(pixel_noise_std);
-
-        // Get T_cb (body-to-camera transform) from frame directly - NO CONFIG ACCESS!
-        const Eigen::Matrix4d& T_cb = frame->get_T_CB();
-        
-        // Create mono PnP cost function with information matrix and T_cb
-        auto cost_function = new factor::PnPFactor(observation, world_point, camera_params, T_cb, information);
-
-        // Create robust loss function if enabled
-        const Config& config = Config::getInstance();
-        ceres::LossFunction *loss_function = nullptr;
-        if (config.m_use_robust_kernel)
-        {
-            loss_function = create_robust_loss(sqrt(5.991));  // Chi-squared 95% threshold for 2 DOF
-        }
-
-        // Add residual block
-        auto residual_id = problem.AddResidualBlock(
-            cost_function, loss_function, pose_params);
-
-        return ObservationInfo(residual_id, cost_function);
-    }
-
-    // Overloaded version with observation-based weighting
-    ObservationInfo PnPOptimizer::add_mono_observation(
-        ceres::Problem &problem,
-        double *pose_params,
-        const Eigen::Vector3d &world_point,
-        const Eigen::Vector2d &observation,
-        const factor::CameraParameters &camera_params,
-        std::shared_ptr<Frame> frame,
-        double pixel_noise_std,
-        int num_observations)
-    {
-
-        // Create information matrix with observation-based weighting
-        Eigen::Matrix2d information = create_information_matrix(pixel_noise_std, num_observations);
-
-        // Get T_cb (body-to-camera transform) from frame directly - NO CONFIG ACCESS!
-        const Eigen::Matrix4d& T_cb = frame->get_T_CB();
-        
-        // Create mono PnP cost function with information matrix and T_cb
-        auto cost_function = new factor::PnPFactor(observation, world_point, camera_params, T_cb, information);
-
-        // Create robust loss function if enabled
-        const Config& config = Config::getInstance();
-        ceres::LossFunction *loss_function = nullptr;
-        if (config.m_use_robust_kernel)
-        {
-            loss_function = create_robust_loss(5.991);  // Chi-squared 95% threshold for 2 DOF
-        }
-
-        // Add residual block
-        auto residual_id = problem.AddResidualBlock(
-            cost_function, loss_function, pose_params);
-
-        return ObservationInfo(residual_id, cost_function);
-    }
-
+   
     int PnPOptimizer::detect_outliers(double const *const *pose_params,
                                        const std::vector<ObservationInfo> &observations,
                                        const std::vector<int> &feature_indices,
@@ -478,7 +408,7 @@ namespace lightweight_vio
         //         Eigen::Matrix3d Rbw = Rwb.transpose();
         //         Eigen::Vector3d t_bw = -Rbw * t_wb;
                 
-        //         // Get T_cb (body-to-camera transform) from frame directly - CONSISTENT WITH add_mono_observation
+        //         // Get T_cb (body-to-camera transform) from frame directly - CONSISTENT WITH add_observation
         //         const Eigen::Matrix4d& T_cb = frame->get_T_CB();
                 
         //         // Transform to camera coordinates: Pc = T_cb * (Rbw * Pw + t_bw)
@@ -587,27 +517,114 @@ namespace lightweight_vio
         return precision * Eigen::Matrix2d::Identity();
     }
 
-    Eigen::Matrix2d PnPOptimizer::create_information_matrix(double pixel_noise, int num_observations) const
+    Eigen::Matrix2d PnPOptimizer::create_information_matrix_with_num_observations(double pixel_noise, int num_observations) const
     {
         // Base precision from pixel noise
         double base_precision = 1.0 / (pixel_noise * pixel_noise);
         
-        // Get config instance
+        // Use keyframe window size from config as saturation point
         const Config& config = Config::getInstance();
+        double saturation_point = static_cast<double>(config.m_keyframe_window_size);
         
-        // Weight by number of observations (configurable max weight for PnP)
-        double observation_weight = std::min(static_cast<double>(num_observations), config.m_pnp_max_observation_weight);
+        // Logarithmic scaling with saturation at window size
+        // Weight = log(1 + num_observations) / log(1 + saturation_point)
+        // Automatically saturates at 1.0 when num_observations = saturation_point
+        double observation_weight = std::log(1.0 + static_cast<double>(num_observations)) / std::log(1.0 + saturation_point);
+        
+        // Clamp to ensure never exceeds 1.0 (though mathematically it shouldn't with proper saturation_point)
+
+        observation_weight = std::min(observation_weight, 1.0);
+        
+        // Apply minimum weight to prevent zero information
+        observation_weight = std::max(observation_weight, 0.1);
+
         
         // Final precision = base_precision * observation_weight
         double final_precision = base_precision * observation_weight;
-        
+
         return final_precision * Eigen::Matrix2d::Identity();
     }
 
-}
+    Eigen::Matrix2d PnPOptimizer::create_information_matrix_with_reprojection_error(double pixel_noise, float reprojection_error) const
+    {
+        if(reprojection_error < 0)
+        {
+            return 0.3 * Eigen::Matrix2d::Identity();
+        }
+        // Base precision from pixel noise
+        double base_precision = 1.0 / (pixel_noise * pixel_noise);
+
+        // Convert reprojection error to chi-square statistic
+        double chi_square = (reprojection_error * reprojection_error) / (pixel_noise * pixel_noise);
+
+        // CORRECT interpretation: For 2-DOF Chi-square distribution
+        // P(inlier) = exp(-χ²/2) - gives high probability for small errors
+        double prob_inlier = std::exp(-chi_square / 2.0);
+
+        // Use inlier probability as weight
+        double reproj_weight = prob_inlier;
+
+
+
+        // Apply minimum weight
+        reproj_weight = std::max(reproj_weight, 0.3);
+
+        double final_precision = base_precision * reproj_weight;
+
+        return final_precision * Eigen::Matrix2d::Identity();
+    }
+    // Adaptive version with config-based mode selection
+    ObservationInfo PnPOptimizer::add_observation(
+        ceres::Problem &problem,
+        double *pose_params,
+        const Eigen::Vector3d &world_point,
+        const Eigen::Vector2d &observation,
+        const factor::CameraParameters &camera_params,
+        std::shared_ptr<Frame> frame,
+        std::shared_ptr<Feature> feature,
+        double pixel_noise_std,
+        int num_observations)
+    {
+        // Get config instance to check information matrix mode
+        const Config& config = Config::getInstance();
+        
+        Eigen::Matrix2d information;
+        
+        // Choose information matrix creation based on config mode
+        if (config.m_pnp_information_matrix_mode == "reprojection_error") {
+            // Use reprojection error-based weighting
+            float reprojection_error = feature->get_reprojection_error();
+            information = create_information_matrix_with_reprojection_error(pixel_noise_std, reprojection_error);
+            
+        } else if (config.m_pnp_information_matrix_mode == "observation_count") {
+            // Use observation count-based weighting
+            information = create_information_matrix_with_num_observations(pixel_noise_std, num_observations);
+        } else {
+            // Default: simple identity weighting
+            information = create_information_matrix(pixel_noise_std);
+        }
+
+        // Get T_cb (body-to-camera transform) from frame directly
+        const Eigen::Matrix4d& T_cb = frame->get_T_CB();
+        
+        // Create mono PnP cost function with selected information matrix and T_cb
+        auto cost_function = new factor::PnPFactor(observation, world_point, camera_params, T_cb, information);
+
+        // Create robust loss function if enabled
+        ceres::LossFunction *loss_function = nullptr;
+        if (config.m_use_robust_kernel)
+        {
+            loss_function = create_robust_loss(sqrt(5.991));  // Chi-squared 95% threshold for 2 DOF
+        }
+
+        // Add residual block
+        auto residual_id = problem.AddResidualBlock(
+            cost_function, loss_function, pose_params);
+
+        return ObservationInfo(residual_id, cost_function);
+    }
 
 // SlidingWindowOptimizer implementation
-namespace lightweight_vio {
 
 // Define global mutexes for SlidingWindowOptimizer
 std::mutex SlidingWindowOptimizer::s_mappoint_mutex;
@@ -766,10 +783,12 @@ SlidingWindowResult SlidingWindowOptimizer::optimize(
                                        accel_bias_params, gyro_bias_params);
         }
         
-        spdlog::info("[SlidingWindowOptimizer] ✅ Optimization successful: {} poses, {} points, {} visual obs, {} IMU factors, {} inliers, {} outliers, cost: {:.10e} -> {:.10e}",
-                    result.num_poses_optimized, result.num_points_optimized, 
-                    observations.size(), num_imu_factors,
-                    result.num_inliers, result.num_outliers, result.initial_cost, result.final_cost);
+        if (Config::getInstance().m_enable_debug_output) {
+            spdlog::info("[SlidingWindowOptimizer] ✅ Optimization successful: {} poses, {} points, {} visual obs, {} IMU factors, {} inliers, {} outliers, cost: {:.10e} -> {:.10e}",
+                        result.num_poses_optimized, result.num_points_optimized, 
+                        observations.size(), num_imu_factors,
+                        result.num_inliers, result.num_outliers, result.initial_cost, result.final_cost);
+        }
 
     } else {
         spdlog::warn("[SlidingWindowOptimizer] ❌ Optimization failed (cost increased): {:.2e} -> {:.2e}, {}", result.initial_cost, result.final_cost, summary.BriefReport());
@@ -807,7 +826,7 @@ std::vector<std::shared_ptr<MapPoint>> SlidingWindowOptimizer::collect_window_ma
     return result;
 }
 
-BAObservationInfo SlidingWindowOptimizer::add_ba_observation(
+BAObservationInfo SlidingWindowOptimizer::add_observation(
     ceres::Problem& problem,
     double* pose_params,
     double* point_params,
@@ -838,37 +857,6 @@ BAObservationInfo SlidingWindowOptimizer::add_ba_observation(
     return BAObservationInfo(residual_id, cost_function, kf_index, mp_index);
 }
 
-BAObservationInfo SlidingWindowOptimizer::add_ba_observation(
-    ceres::Problem& problem,
-    double* pose_params,
-    double* point_params,
-    const Eigen::Vector2d& observation,
-    const factor::CameraParameters& camera_params,
-    std::shared_ptr<Frame> frame,
-    int kf_index,
-    int mp_index,
-    double pixel_noise_std,
-    int num_observations) {
-    
-    // Get T_CB transformation from frame
-    Eigen::Matrix4d T_CB = frame->get_T_CB();
-    
-    // Create information matrix with observation-based weighting
-    Eigen::Matrix2d information = create_information_matrix(pixel_noise_std, num_observations);
-    
-    // Create BA factor
-    auto* cost_function = new factor::BAFactor(
-        observation, camera_params, T_CB, information);
-    
-    // Create robust loss function
-    ceres::LossFunction* loss_function = create_robust_loss(m_huber_delta);
-    
-    // Add residual block to problem
-    ceres::ResidualBlockId residual_id = problem.AddResidualBlock(
-        cost_function, loss_function, pose_params, point_params);
-    
-    return BAObservationInfo(residual_id, cost_function, kf_index, mp_index);
-}
 
 std::vector<BAObservationInfo> SlidingWindowOptimizer::setup_optimization_problem(
     ceres::Problem& problem,
@@ -993,7 +981,7 @@ std::vector<BAObservationInfo> SlidingWindowOptimizer::setup_optimization_proble
                 
                 // Add BA observation with observation-based information weighting
                 int num_observations = map_point->get_observation_count();
-                auto obs_info = add_ba_observation(
+                auto obs_info = add_observation(
                     problem,
                     pose_params_vec[kf_idx].data(),
                     point_params_vec[mp_idx].data(),
@@ -1002,8 +990,7 @@ std::vector<BAObservationInfo> SlidingWindowOptimizer::setup_optimization_proble
                     keyframe,
                     static_cast<int>(kf_idx),
                     mp_idx,
-                    m_pixel_noise_std,
-                    num_observations);
+                    m_pixel_noise_std);
                 
                 observations.push_back(obs_info);
             }
@@ -1184,11 +1171,7 @@ void SlidingWindowOptimizer::update_optimized_values(
             keyframe->set_Twb(T_wb);
             updated_keyframes++;
             
-            // Log significant pose changes
-            if (pose_change > 0.01) {
-                spdlog::debug("[UPDATE] Keyframe {} pose changed by {:.4f}", 
-                             keyframe->get_frame_id(), pose_change);
-            }
+           
         }
     }
     
@@ -1264,21 +1247,26 @@ Eigen::Matrix2d SlidingWindowOptimizer::create_information_matrix(double pixel_n
     return information_matrix;
 }
 
-Eigen::Matrix2d SlidingWindowOptimizer::create_information_matrix(double pixel_noise, int num_observations) const {
-    Eigen::Matrix2d information_matrix;
-    double variance = pixel_noise * pixel_noise;
+Eigen::Matrix2d SlidingWindowOptimizer::create_information_matrix_with_num_observations(double pixel_noise, int num_observations) const {
+    // Base precision from pixel noise
+    double base_precision = 1.0 / (pixel_noise * pixel_noise);
     
-    // Get config instance
+    // Use keyframe window size from config as saturation point
     const Config& config = Config::getInstance();
+    double saturation_point = static_cast<double>(config.m_keyframe_window_size);
     
-    // Weight by number of observations (configurable max weight for sliding window)
-    double observation_weight = std::min(static_cast<double>(num_observations), config.m_sw_max_observation_weight);
+    // Logarithmic scaling with saturation at window size
+    // Weight = log(1 + num_observations) / log(1 + saturation_point)
+    // Automatically saturates at 1.0 when num_observations = saturation_point
+    double observation_weight = std::log(1.0 + static_cast<double>(num_observations)) / std::log(1.0 + saturation_point);
     
     // Apply weighting to precision
-    double weighted_precision = observation_weight / variance;
+    double weighted_precision = observation_weight * base_precision;
     
+    Eigen::Matrix2d information_matrix;
     information_matrix << weighted_precision, 0.0,
                          0.0, weighted_precision;
+    
     return information_matrix;
 }
 
@@ -1314,8 +1302,6 @@ InertialOptimizationResult InertialOptimizer::optimize_imu_initialization(
         return result;
     }
     
-    spdlog::info("🚀 [IMU_INIT] Starting IMU Initialization Optimization");
-    spdlog::info("  - Frames: {}", frames.size());
     
     
     
@@ -1336,8 +1322,7 @@ InertialOptimizationResult InertialOptimizer::optimize_imu_initialization(
     // LOG INITIAL STATES (BEFORE OPTIMIZATION) - Minimized
     // ===============================================================================
     
-    spdlog::info("� [IMU_INIT] Starting optimization with {} frames, {} factors", 
-                 frames.size(), velocity_params_vec.size() - 1);
+
     
     // ===============================================================================
     // STEP 2: Setup Ceres problem
@@ -1351,8 +1336,8 @@ InertialOptimizationResult InertialOptimizer::optimize_imu_initialization(
     // Solver configuration optimized for IMU initialization
     options.linear_solver_type = ceres::SPARSE_SCHUR;
     options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
-    options.minimizer_progress_to_stdout = true;  // Enable progress output to see gradient checks
-    options.logging_type = ceres::PER_MINIMIZER_ITERATION;
+    options.minimizer_progress_to_stdout = false;  // Disable progress output
+    options.logging_type = ceres::SILENT;
     // options.check_gradients = true;  // Disable gradient checking temporarily to allow optimization
 
 
@@ -1404,7 +1389,6 @@ InertialOptimizationResult InertialOptimizer::optimize_imu_initialization(
         return result;
     }
     
-    spdlog::info("  - Added {} InertialGravityFactor factors", inertial_gravity_factors_added);
     
     // ===============================================================================
     // STEP 5: Add bias priors for regularization
@@ -1416,7 +1400,6 @@ InertialOptimizationResult InertialOptimizer::optimize_imu_initialization(
     // STEP 6: Solve optimization
     // ===============================================================================
     
-    spdlog::info("  - Starting IMU initialization optimization...");
     auto start_time = std::chrono::high_resolution_clock::now();
     
     ceres::Solver::Summary summary;
@@ -1439,19 +1422,21 @@ InertialOptimizationResult InertialOptimizer::optimize_imu_initialization(
         // Recover optimized states
         recover_imu_init_states(frames, imu_handler, pose_params_vec, velocity_params_vec, 
                                accel_bias_params_vec, gyro_bias_params_vec, gravity_dir_params, result.Tgw_init);
-        
-        
-        spdlog::info("🎯 [IMU_INIT] Optimization Complete:");
-        spdlog::info("  ✅ Success: {}", result.success);
-        spdlog::info("  ⏱️  Duration: {} ms", duration.count());
-        spdlog::info("  🔄 Iterations: {}", result.num_iterations);
-        spdlog::info("  📊 Cost: {:.6f} → {:.6f} (Δ={:.6f})", 
-                     result.initial_cost, result.final_cost, result.cost_reduction);
-        spdlog::info("  📋 InertialGravity factors: {}", inertial_gravity_factors_added);
-        
-        // Print optimized gravity direction
-        spdlog::info("  🌍 Optimized Gravity Dir: ({:.6f}, {:.6f})", 
-                     gravity_dir_params[0], gravity_dir_params[1]);
+
+        if (Config::getInstance().m_enable_debug_output)
+        {
+            spdlog::info("🎯 [IMU_INIT] Optimization Complete:");
+            spdlog::info("  ✅ Success: {}", result.success);
+            spdlog::info("  ⏱️  Duration: {} ms", duration.count());
+            spdlog::info("  🔄 Iterations: {}", result.num_iterations);
+            spdlog::info("  📊 Cost: {:.6f} → {:.6f} (Δ={:.6f})",
+                         result.initial_cost, result.final_cost, result.cost_reduction);
+            spdlog::info("  📋 InertialGravity factors: {}", inertial_gravity_factors_added);
+
+            // Print optimized gravity direction
+            spdlog::info("  🌍 Optimized Gravity Dir: ({:.6f}, {:.6f})",
+                         gravity_dir_params[0], gravity_dir_params[1]);
+        }
     } else {
         spdlog::error("❌ [IMU_INIT] Optimization failed: {}", summary.BriefReport());
     }
@@ -1669,8 +1654,6 @@ void InertialOptimizer::add_imu_init_priors(
         // Use ACTUAL preintegration velocity as prior (not zero!) - includes gravity effects
         Eigen::Vector3f frame_velocity = frame->get_velocity();
 
-        spdlog::error("Frame[{}] Velocity: ({:.4f}, {:.4f}, {:.4f})", frame->get_frame_id(), frame_velocity.x(), frame_velocity.y(), frame_velocity.z());
-
         velocity_bias_prior[0] = static_cast<double>(frame_velocity.x());
         velocity_bias_prior[1] = static_cast<double>(frame_velocity.y());
         velocity_bias_prior[2] = static_cast<double>(frame_velocity.z());
@@ -1719,10 +1702,11 @@ void InertialOptimizer::add_imu_init_priors(
         problem.AddResidualBlock(accel_bias_prior_cost, nullptr, const_cast<double*>(accel_bias_params_vec[opt_idx].data()));
         problem.AddResidualBlock(gyro_bias_prior_cost, nullptr, const_cast<double*>(gyro_bias_params_vec[opt_idx].data()));
         
-        spdlog::debug("📌 [IMU_INIT] Added separate priors for OptIdx[{}] (FrameID: {}): vel_prior=({:.4f}, {:.4f}, {:.4f})", opt_idx, frame->get_frame_id(), frame_velocity.x(), frame_velocity.y(), frame_velocity.z());
     }
     
-    spdlog::info("📌 [IMU_INIT] Added velocity+bias priors for {} frames", velocity_params_vec.size());
+    if (Config::getInstance().m_enable_debug_output) {
+        spdlog::info("📌 [IMU_INIT] Added velocity+bias priors for {} frames", velocity_params_vec.size());
+    }
 }
 
 void InertialOptimizer::recover_imu_init_states(
@@ -1865,18 +1849,25 @@ void InertialOptimizer::recover_imu_init_states(
                 shared_frames.push_back(std::shared_ptr<Frame>(frame, [](Frame*){})); // Non-owning shared_ptr
             }
         }
-        
+
         bool transform_success = imu_handler->transform_to_gravity_frame(shared_frames, all_map_points, T_gw);
-        if (transform_success) {
+        if (transform_success)
+        {
             imu_handler->set_gravity_aligned_coordinate_system();
-            spdlog::info("[IMU_INIT] ✅ Gravity alignment applied to {} frames and {} map points", 
-                        frames.size(), all_map_points.size());
+            if (Config::getInstance().m_enable_debug_output)
+            {
+                spdlog::info("[IMU_INIT] ✅ Gravity alignment applied to {} frames and {} map points",
+                             frames.size(), all_map_points.size());
+            }
         }
     }
-    
+
     // ===============================================================================
     // 📋 FINAL RESULTS: Show only key information
     // ===============================================================================
+
+    // Frame processing starts
+    if (Config::getInstance().m_enable_debug_output) {
     
     spdlog::info("� [IMU_OPTIMIZATION_RESULTS]");
     spdlog::info("  ✅ Optimization completed successfully");
@@ -1885,11 +1876,12 @@ void InertialOptimizer::recover_imu_init_states(
     spdlog::info("  🔧 Final IMU Bias: Gyro=({:.10f}, {:.10f}, {:.6f}), Accel=({:.6f}, {:.6f}, {:.6f})",
                  avg_gyro_bias.x(), avg_gyro_bias.y(), avg_gyro_bias.z(),
                  avg_accel_bias.x(), avg_accel_bias.y(), avg_accel_bias.z());
+    }
     
 }
 
 void InertialOptimizer::setup_params(
-    const std::vector<lightweight_vio::Frame*>& frames,
+    const std::vector<Frame*>& frames,
     std::vector<std::vector<double>>& pose_params_vec,
     std::vector<std::vector<double>>& velocity_params_vec,
     std::vector<double>& gyro_bias_params,
@@ -1911,6 +1903,7 @@ void InertialOptimizer::setup_params(
         
         // Ensure rotation matrix is perfectly orthogonal using SVD
         Eigen::JacobiSVD<Eigen::Matrix3d> svd(rotation, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        
         rotation = svd.matrixU() * svd.matrixV().transpose();
         
         // Ensure proper rotation (det = 1, not -1)
@@ -1951,7 +1944,7 @@ void InertialOptimizer::setup_params(
 
 
 void InertialOptimizer::recover_optimized_states(
-    const std::vector<lightweight_vio::Frame*>& frames,
+    const std::vector<Frame*>& frames,
     const std::vector<std::vector<double>>& pose_params_vec,
     const std::vector<std::vector<double>>& velocity_params_vec,
     const double* gyro_bias_params,
@@ -2028,8 +2021,10 @@ void SlidingWindowOptimizer::enable_imu_optimization(
     m_imu_handler = imu_handler;
     m_gravity_direction = gravity_direction.normalized();
     
-    spdlog::info("[SW_IMU] IMU optimization enabled with gravity direction: ({:.3f}, {:.3f}, {:.3f})",
-                 m_gravity_direction.x(), m_gravity_direction.y(), m_gravity_direction.z());
+    if (Config::getInstance().m_enable_debug_output) {
+        spdlog::info("[SW_IMU] IMU optimization enabled with gravity direction: ({:.3f}, {:.3f}, {:.3f})",
+                     m_gravity_direction.x(), m_gravity_direction.y(), m_gravity_direction.z());
+    }
 }
 
 void SlidingWindowOptimizer::disable_imu_optimization() {
@@ -2087,7 +2082,9 @@ int SlidingWindowOptimizer::add_inertial_factors_to_sliding_window(
         
     }
     
-    spdlog::info("[SW_IMU] Added {} InertialGravityFactor factors to sliding window with shared bias", factors_added);
+    if (Config::getInstance().m_enable_debug_output) {
+        spdlog::info("[SW_IMU] Added {} InertialGravityFactor factors to sliding window with shared bias", factors_added);
+    }
     return factors_added;
 }
 

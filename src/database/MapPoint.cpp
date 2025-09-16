@@ -65,6 +65,12 @@ void MapPoint::add_observation(std::shared_ptr<Frame> frame, int feature_index) 
     
     // Add new observation
     m_observations.emplace_back(frame, feature_index);
+    
+    // Increment accumulated observation count for the feature
+    auto feature = frame->get_feature(feature_index);
+    if (feature) {
+        feature->increment_observations_accumulated();
+    }
 }
 
 void MapPoint::remove_observation(std::shared_ptr<Frame> frame) {

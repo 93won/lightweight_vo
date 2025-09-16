@@ -42,8 +42,6 @@ bool EurocUtils::load_ground_truth(const std::string& dataset_root_path) {
         return false;
     }
     
-    spdlog::info("[EurocUtils] Loading ground truth from: {}", gt_file_path);
-    
     std::string line;
     // Skip header line
     if (!std::getline(file, line)) {
@@ -139,9 +137,6 @@ bool EurocUtils::load_ground_truth(const std::string& dataset_root_path) {
     
     s_data_loaded = true;
     
-    spdlog::info("[EurocUtils] Loaded {} ground truth poses", s_ground_truth_data.size());
-    print_ground_truth_stats();
-    
     return true;
 }
 
@@ -202,37 +197,10 @@ Eigen::Matrix4f EurocUtils::get_ground_truth_pose_sec(double timestamp_sec) {
 
 void EurocUtils::print_ground_truth_stats() {
     if (!s_data_loaded || s_ground_truth_data.empty()) {
-        spdlog::info("[EurocUtils] No ground truth data loaded");
         return;
     }
     
-    spdlog::info("[EurocUtils] Ground truth statistics:");
-    spdlog::info("[EurocUtils]   Total poses: {}", s_ground_truth_data.size());
-    
-    // Convert timestamps to seconds for readability
-    double start_time_sec = s_ground_truth_data.front().timestamp / 1e9;
-    double end_time_sec = s_ground_truth_data.back().timestamp / 1e9;
-    spdlog::info("[EurocUtils]   Time range: {:.3f} to {:.3f} seconds", start_time_sec, end_time_sec);
-    
-    double duration_sec = end_time_sec - start_time_sec;
-    spdlog::info("[EurocUtils]   Duration: {:.2f} seconds", duration_sec);
-    spdlog::info("[EurocUtils]   Average frequency: {:.1f} Hz", s_ground_truth_data.size() / duration_sec);
-    
-    // Print some timestamp differences to show sync quality
-    if (s_ground_truth_data.size() > 1) {
-        std::vector<long long> diffs;
-        for (size_t i = 1; i < std::min(s_ground_truth_data.size(), size_t(10)); ++i) {
-            diffs.push_back(s_ground_truth_data[i].timestamp - s_ground_truth_data[i-1].timestamp);
-        }
-        
-        if (!diffs.empty()) {
-            long long avg_diff = 0;
-            for (auto diff : diffs) avg_diff += diff;
-            avg_diff /= diffs.size();
-            
-            spdlog::info("[EurocUtils]   Average frame interval: {:.1f} ms", avg_diff / 1e6);
-        }
-    }
+    // Statistics calculation without logging
 }
 
 bool EurocUtils::has_ground_truth() {
@@ -254,10 +222,6 @@ bool EurocUtils::match_image_timestamps(const std::vector<long long>& image_time
     long long gt_start_time = s_ground_truth_data.front().timestamp;
     long long gt_end_time = s_ground_truth_data.back().timestamp;
     const long long time_threshold_ns = 5000000; // 5ms in nanoseconds
-    
-    spdlog::info("[EurocUtils] Matching {} image timestamps with ground truth data", image_timestamps.size());
-    spdlog::info("[EurocUtils] GT time range: {:.6f}s to {:.6f}s", 
-                 gt_start_time / 1e9, gt_end_time / 1e9);
     
     s_matched_poses.clear();
     s_image_timestamps.clear();
@@ -323,18 +287,6 @@ bool EurocUtils::match_image_timestamps(const std::vector<long long>& image_time
         double time_error_sec = time_diff_ns / 1e9;
         s_timestamp_errors.push_back(time_error_sec);
         
-        // Log matching details for first few matches
-        double image_time_sec = image_ts / 1e9;
-        double gt_time_sec = s_ground_truth_data[index].timestamp / 1e9;
-        
-        if (matched_count < 5) {
-            spdlog::info("[EurocUtils] Match[{}]: IMG={:.6f}s, GT={:.6f}s, DIFF={:.6f}s ({:.2f}ms)", 
-                        matched_count, image_time_sec, gt_time_sec, time_error_sec, time_error_sec * 1000.0);
-        } else if (matched_count < 10) {
-            spdlog::debug("[EurocUtils] Match[{}]: IMG={:.6f}s, GT={:.6f}s, DIFF={:.6f}s ({:.2f}ms)", 
-                         matched_count, image_time_sec, gt_time_sec, time_error_sec, time_error_sec * 1000.0);
-        }
-        
         matched_count++;
     }
     
@@ -349,26 +301,7 @@ bool EurocUtils::match_image_timestamps(const std::vector<long long>& image_time
     for (double err : s_timestamp_errors) avg_error += err;
     avg_error /= s_timestamp_errors.size();
     
-    // Count errors by threshold
-    int errors_under_1ms = 0, errors_under_5ms = 0, errors_under_10ms = 0, errors_over_10ms = 0;
-    for (double err : s_timestamp_errors) {
-        double err_ms = err * 1000.0;
-        if (err_ms < 1.0) errors_under_1ms++;
-        else if (err_ms < 5.0) errors_under_5ms++;
-        else if (err_ms < 10.0) errors_under_10ms++;
-        else errors_over_10ms++;
-    }
-    
-    spdlog::info("[EurocUtils] Timestamp matching completed:");
-    spdlog::info("[EurocUtils]   Total input images: {}", image_timestamps.size());
-    spdlog::info("[EurocUtils]   Skipped (before GT): {}", skipped_before_gt);
-    spdlog::info("[EurocUtils]   Skipped (after GT): {}", skipped_after_gt);
-    spdlog::info("[EurocUtils]   Skipped (>5ms error): {}", skipped_large_error);
-    spdlog::info("[EurocUtils]   Successfully matched: {}", s_matched_poses.size());
-    spdlog::info("[EurocUtils]   Average error: {:.6f} sec ({:.2f} ms)", avg_error, avg_error * 1000);
-    spdlog::info("[EurocUtils]   Maximum error: {:.6f} sec ({:.2f} ms)", max_error, max_error * 1000);
-    spdlog::info("[EurocUtils]   Error distribution: <1ms:{}, 1-5ms:{}, 5-10ms:{}, >10ms:{}", 
-                 errors_under_1ms, errors_under_5ms, errors_under_10ms, errors_over_10ms);
+    // Statistics calculation without logging
     
     return true;
 }
@@ -409,8 +342,6 @@ bool EurocUtils::load_imu_data(const std::string& dataset_root_path) {
         spdlog::error("[EurocUtils] Failed to open IMU file: {}", imu_file_path);
         return false;
     }
-    
-    spdlog::info("[EurocUtils] Loading IMU data from: {}", imu_file_path);
     
     std::string line;
     // Skip header line
@@ -483,9 +414,6 @@ bool EurocUtils::load_imu_data(const std::string& dataset_root_path) {
     
     s_imu_data_loaded = true;
     
-    spdlog::info("[EurocUtils] Loaded {} IMU measurements", s_imu_data.size());
-    // spdlog::info("[EurocUtils] IMU time range: {:.6f}s to {:.6f}s", s_imu_data.front().timestamp, s_imu_data.back().timestamp);
-    
     return true;
 }
 
@@ -499,10 +427,6 @@ bool EurocUtils::load_imu_data_in_range(const std::string& dataset_root_path,
         spdlog::error("[EurocUtils] Failed to open IMU file: {}", imu_file_path);
         return false;
     }
-    
-    spdlog::info("[EurocUtils] Loading IMU data from: {} (range filtered)", imu_file_path);
-    spdlog::info("[EurocUtils] IMU time range filter: {:.6f}s to {:.6f}s", 
-                 start_timestamp_ns / 1e9, end_timestamp_ns / 1e9);
     
     std::string line;
     // Skip header line
@@ -603,10 +527,6 @@ bool EurocUtils::load_imu_data_in_range(const std::string& dataset_root_path,
     
     s_imu_data_loaded = true;
     
-    spdlog::info("[EurocUtils] Loaded {} IMU measurements (filtered from {} total, {:.1f}% within GT range)", 
-                 s_imu_data.size(), total_count, 
-                 total_count > 0 ? (100.0 * filtered_count / total_count) : 0.0);
-    
     return true;
 }
 
@@ -645,14 +565,10 @@ void EurocUtils::print_imu_stats() {
         return;
     }
     
-    spdlog::info("====== IMU Data Statistics ======");
-    spdlog::info("Total IMU measurements: {}", s_imu_data.size());
-    spdlog::info("Time range: {:.6f}s to {:.6f}s", 
-                s_imu_data.front().timestamp, s_imu_data.back().timestamp);
+   
     
     double duration = s_imu_data.back().timestamp - s_imu_data.front().timestamp;
     double avg_frequency = (s_imu_data.size() - 1) / duration;
-    spdlog::info("Average frequency: {:.1f}Hz", avg_frequency);
     
     // Calculate some basic statistics
     Eigen::Vector3f accel_sum = Eigen::Vector3f::Zero();
@@ -666,11 +582,7 @@ void EurocUtils::print_imu_stats() {
     Eigen::Vector3f accel_mean = accel_sum / s_imu_data.size();
     Eigen::Vector3f gyro_mean = gyro_sum / s_imu_data.size();
     
-    spdlog::info("Mean acceleration: [{:.3f}, {:.3f}, {:.3f}] m/s²", 
-                accel_mean.x(), accel_mean.y(), accel_mean.z());
-    spdlog::info("Mean angular velocity: [{:.6f}, {:.6f}, {:.6f}] rad/s", 
-                gyro_mean.x(), gyro_mean.y(), gyro_mean.z());
-    spdlog::info("=================================");
+    
 }
 
 void EurocUtils::clear_imu_data() {

@@ -6,7 +6,42 @@
 # Controls whether to run as VO (Visual Odometry) or VIO (Visual-Inertial Odometry)
 system_mode:
   mode: "VO"                    # Options: "VO" or "VIO"
+
+# Viewer Configuration
+# Controls 3D visualization using Pangolin
+viewer:
+  enable: 1                      # Enable/disable 3D viewer (0=false, 1=true)
+  width: 1920                    # Viewer window width (pixels)
+  height: 1080                   # Viewer window height (pixels)
   
+
+
+# Camera Parameters (EuRoC dataset specific)
+# Image dimensions and processing parameters
+camera:
+  image_width: 752            # Image width in pixels (EuRoC standard)
+  image_height: 480           # Image height in pixels (EuRoC standard)  
+  border_size: 1              # Border size to exclude from feature detection (pixels)
+  
+  # Left camera (cam0) intrinsics
+  left_intrinsics: [458.654, 457.296, 367.215, 248.375]  # [fx, fy, cx, cy]
+  left_distortion: [-0.28340811, 0.07395907, 0.00019359, 1.76187114e-05]  # [k1, k2, p1, p2]
+  
+  # Right camera (cam1) intrinsics  
+  right_intrinsics: [457.587, 456.134, 379.999, 255.238]  # [fx, fy, cx, cy]
+  right_distortion: [-0.28368365, 0.07451284, -0.00010473, -3.55590700e-05]  # [k1, k2, p1, p2]
+  
+  # Left camera extrinsics (T_BC - camera to body transform)
+  left_T_BC: [0.0148655429818, -0.999880929698, 0.00414029679422, -0.0216401454975,
+              0.999557249008, 0.0149672133247, 0.025715529948, -0.064676986768,
+              -0.0257744366974, 0.00375618835797, 0.999660727178, 0.00981073058949,
+              0.0, 0.0, 0.0, 1.0]
+  
+  # Right camera extrinsics (T_BC - camera to body transform)
+  right_T_BC: [0.0125552670891, -0.999755099723, 0.0182237714554, -0.0198435579556,
+               0.999598781151, 0.0130119051815, 0.0251588363115, 0.0453689425024,
+               -0.0253898008918, 0.0179005838253, 0.999517347078, 0.00786212447038,
+               0.0, 0.0, 0.0, 1.0]
 
 # Keyframe and Windowing Parameters
 # Controls keyframe selection and sliding window management
@@ -62,44 +97,14 @@ depth:
   min_depth: 0.1              # Minimum depth for valid 3D points (meters) - used in all depth validation
   max_depth: 100.0            # Maximum depth for valid 3D points (meters) - used in all depth validation
 
-# Triangulation Parameters
-# Controls 3D point generation from stereo matches
-triangulation:
-  max_reprojection_error: 2.447651936 # Maximum reprojection error for valid triangulation (pixels) - sqrt(5.991) for chi2 95% with 2 DOF
-  min_parallax: 0.1           # Minimum parallax angle for reliable triangulation (degrees)
 
-# Camera Parameters (EuRoC dataset specific)
-# Image dimensions and processing parameters
-camera:
-  image_width: 752            # Image width in pixels (EuRoC standard)
-  image_height: 480           # Image height in pixels (EuRoC standard)  
-  border_size: 1              # Border size to exclude from feature detection (pixels)
-  
-  # Left camera (cam0) intrinsics
-  left_intrinsics: [458.654, 457.296, 367.215, 248.375]  # [fx, fy, cx, cy]
-  left_distortion: [-0.28340811, 0.07395907, 0.00019359, 1.76187114e-05]  # [k1, k2, p1, p2]
-  
-  # Right camera (cam1) intrinsics  
-  right_intrinsics: [457.587, 456.134, 379.999, 255.238]  # [fx, fy, cx, cy]
-  right_distortion: [-0.28368365, 0.07451284, -0.00010473, -3.55590700e-05]  # [k1, k2, p1, p2]
-  
-  # Left camera extrinsics (T_BC - camera to body transform)
-  left_T_BC: [0.0148655429818, -0.999880929698, 0.00414029679422, -0.0216401454975,
-              0.999557249008, 0.0149672133247, 0.025715529948, -0.064676986768,
-              -0.0257744366974, 0.00375618835797, 0.999660727178, 0.00981073058949,
-              0.0, 0.0, 0.0, 1.0]
-  
-  # Right camera extrinsics (T_BC - camera to body transform)
-  right_T_BC: [0.0125552670891, -0.999755099723, 0.0182237714554, -0.0198435579556,
-               0.999598781151, 0.0130119051815, 0.0251588363115, 0.0453689425024,
-               -0.0253898008918, 0.0179005838253, 0.999517347078, 0.00786212447038,
-               0.0, 0.0, 0.0, 1.0]
 
 # Optimization Parameters
 # Controls Ceres-based optimization behavior for both PnP and Sliding Window
 optimization:
   # PnP Optimization Parameters
-  max_iterations: 10               # Maximum optimization iterations for PnP
+  pnp_max_iterations: 10               # Maximum optimization iterations for PnP
+  pnp_information_matrix_mode: "reprojection_error"  # Options: "observation_count", "reprojection_error"
   sliding_window_max_iterations: 10  # Maximum optimization iterations for sliding window
   function_tolerance: 1e-6         # Function tolerance for convergence
   gradient_tolerance: 1e-10        # Gradient tolerance for convergence  
@@ -112,13 +117,12 @@ optimization:
   enable_outlier_detection: true   # Enable outlier detection
   outlier_detection_rounds: 4      # Number of optimization rounds with outlier detection
   
-  # Information weighting parameters
-  pnp_max_observation_weight: 3.0          # Maximum weight multiplier for PnP optimization
-  sliding_window_max_observation_weight: 1.0  # Maximum weight multiplier for sliding window
+  # Information weighting parameters - now using logarithmic scaling (saturation_point=20)
+  # Removed pnp_max_observation_weight and sliding_window_max_observation_weight
 
 # Performance Parameters
 # Debug and timing control flags
 performance:
-  enable_timing: true         # Print timing information for performance analysis
-  enable_debug_output: true   # Print debug messages and feature counts
+  enable_timing: 1         # Print timing information for performance analysis
+  enable_debug_output: 1  # Print debug messages and feature counts
 

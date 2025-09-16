@@ -89,9 +89,6 @@ namespace lightweight_vio
         double m_min_depth = 0.1;
         double m_max_depth = 100.0;
 
-        // Triangulation Parameters
-        double m_max_reprojection_error = 10.0;
-        double m_min_parallax = 0.5;
 
         // Keyframe Parameters
         double m_grid_coverage_ratio = 0.7;  // Add keyframe when coverage drops to this ratio of last keyframe's coverage
@@ -108,6 +105,7 @@ namespace lightweight_vio
         bool m_pnp_enable_outlier_detection = true;
         int m_pnp_outlier_detection_rounds = 3;
         double m_pnp_max_observation_weight = 3.0;
+        std::string m_pnp_information_matrix_mode = "observation_count"; // "observation_count", "reprojection_error"
 
         // Sliding Window Optimization Parameters  
         int m_sw_max_iterations = 20;
@@ -137,10 +135,15 @@ namespace lightweight_vio
 
         // Performance Parameters
         bool m_enable_timing = true;
-        bool m_enable_debug_output = true;
+        bool m_enable_debug_output = false;
 
         // System Mode Parameters
         std::string m_system_mode = "VIO";  // "VO" or "VIO"
+        
+        // Viewer Parameters
+        bool m_viewer_enable = false;       // Enable/disable 3D viewer
+        int m_viewer_width = 1920;          // Viewer window width
+        int m_viewer_height = 1080;         // Viewer window height
         
         // Gravity Estimation Parameters (VIO mode only)
         bool m_gravity_estimation_enable = true;

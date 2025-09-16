@@ -63,6 +63,10 @@ bool PnPFactor::Evaluate(double const* const* parameters, double* residuals, dou
     
     // Check for valid depth
     if (z <= 1e-6) {
+         if (jacobians && jacobians[0]) {
+            Eigen::Map<Eigen::Matrix<double, 2, 6, Eigen::RowMajor>> jac(jacobians[0]);
+            jac.setZero();
+        }
         return false;
     }
     
@@ -163,6 +167,7 @@ double PnPFactor::compute_chi_square(double const* const* parameters) const {
     
     // Check for valid depth
     if (z <= 1e-6) {
+        
         return std::numeric_limits<double>::max(); // Invalid, return large chi-square
     }
     
@@ -392,6 +397,7 @@ double BAFactor::compute_chi_square(double const* const* parameters) const {
     
     // Check if point is in front of camera
     if (camera_point.z() <= 0.0) {
+        
         return 1000.0; // Large chi-square for points behind camera
     }
     

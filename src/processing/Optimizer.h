@@ -20,6 +20,7 @@
 // Forward declarations
 namespace lightweight_vio {
     class Frame;
+    class Feature;
     class MapPoint;
     class IMUHandler;
     struct IMUPreintegration;
@@ -115,44 +116,28 @@ public:
     OptimizationResult optimize_pose(std::shared_ptr<Frame> frame);
 
 private:
+
     /**
-     * @brief Add monocular PnP observation to problem
-     * @param problem Ceres problem
-     * @param pose_params Pose parameters
-     * @param world_point 3D world point
-     * @param observation 2D observation
-     * @param camera_params Camera parameters
-     * @param frame Frame containing the T_CB transformation
-     * @return Observation info with residual block ID and cost function
-     */
-    ObservationInfo add_mono_observation(
-        ceres::Problem& problem,
-        double* pose_params,
-        const Eigen::Vector3d& world_point,
-        const Eigen::Vector2d& observation,
-        const factor::CameraParameters& camera_params,
-        std::shared_ptr<Frame> frame,
-        double pixel_noise_std = 1.0);
-    
-    /**
-     * @brief Add a mono observation residual with observation-based weighting
+     * @brief Add a mono observation residual with adaptive weighting based on config mode
      * @param problem Ceres problem instance
      * @param pose_params Pose parameters (6-DOF SE3)
      * @param world_point 3D world point
      * @param observation 2D image observation
      * @param camera_params Camera intrinsics
      * @param frame Frame containing the observation
+     * @param feature Feature containing condition number and other information
      * @param pixel_noise_std Standard deviation of pixel noise
      * @param num_observations Number of observations for weighting
      * @return Observation info with residual block ID and cost function
      */
-    ObservationInfo add_mono_observation(
+    ObservationInfo add_observation(
         ceres::Problem& problem,
         double* pose_params,
         const Eigen::Vector3d& world_point,
         const Eigen::Vector2d& observation,
         const factor::CameraParameters& camera_params,
         std::shared_ptr<Frame> frame,
+        std::shared_ptr<Feature> feature,
         double pixel_noise_std,
         int num_observations);
     
@@ -209,7 +194,15 @@ private:
      * @param num_observations Number of observations for the map point (max 3.0)
      * @return 2x2 information matrix
      */
-    Eigen::Matrix2d create_information_matrix(double pixel_noise, int num_observations) const;
+    Eigen::Matrix2d create_information_matrix_with_num_observations(double pixel_noise, int num_observations) const;
+
+    /**
+     * @brief Create information matrix with reprojection error-based weighting
+     * @param pixel_noise Standard deviation of pixel noise
+     * @param reprojection_error Triangulation reprojection error
+     * @return 2x2 information matrix
+     */
+    Eigen::Matrix2d create_information_matrix_with_reprojection_error(double pixel_noise, float reprojection_error) const;
 
 private:
     // Global mutexes for thread-safe access to MapPoints and Frames
@@ -313,7 +306,7 @@ private:
      * @param mp_index Map point index
      * @return Observation info with residual block ID and cost function
      */
-    BAObservationInfo add_ba_observation(
+    BAObservationInfo add_observation(
         ceres::Problem& problem,
         double* pose_params,
         double* point_params,
@@ -324,31 +317,7 @@ private:
         int mp_index,
         double pixel_noise_std = 1.0);
     
-    /**
-     * @brief Add BA observation with observation-based information weighting
-     * @param problem Ceres optimization problem
-     * @param pose_params Pose parameters (SE3 tangent space)
-     * @param point_params 3D point parameters
-     * @param observation 2D pixel observation
-     * @param camera_params Camera parameters
-     * @param frame Frame containing the T_CB transformation
-     * @param kf_index Keyframe index in sliding window
-     * @param mp_index Map point index
-     * @param pixel_noise_std Standard deviation of pixel noise
-     * @param num_observations Number of times this map point has been observed
-     * @return Observation info with residual block ID and cost function
-     */
-    BAObservationInfo add_ba_observation(
-        ceres::Problem& problem,
-        double* pose_params,
-        double* point_params,
-        const Eigen::Vector2d& observation,
-        const factor::CameraParameters& camera_params,
-        std::shared_ptr<Frame> frame,
-        int kf_index,
-        int mp_index,
-        double pixel_noise_std,
-        int num_observations);
+   
     
     /**
      * @brief Setup optimization problem with keyframes and map points
@@ -439,7 +408,7 @@ private:
      * @param num_observations Number of observations for weighting (max 3.0)
      * @return 2x2 information matrix
      */
-    Eigen::Matrix2d create_information_matrix(double pixel_noise, int num_observations) const;
+    Eigen::Matrix2d create_information_matrix_with_num_observations(double pixel_noise, int num_observations) const;
     
     /**
      * @brief Add inertial factors to sliding window optimization using existing InertialGravityFactor
