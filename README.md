@@ -21,220 +21,113 @@ This is a lightweight stereo visual-inertial odometry (VIO) project designed for
 
 ## Installation
 
-### 1. Native Build (Ubuntu 22.04)
+📋 **[Installation Guide](docs/Install.md)** - Complete installation instructions for both Docker and native builds
 
-This method builds the project and all its dependencies directly on your system. It has been tested on Ubuntu 22.04.
+Choose between Docker (recommended) or native Ubuntu 22.04 build. Includes prerequisites, dependencies, and troubleshooting.
 
-### Prerequisites
+## Dataset Download
 
-- **Ubuntu 22.04 LTS**
-- **C++17 Compiler** (g++)
-- **CMake** (>= 3.10)
-- **Git**
+📁 **[Dataset Download Guide](docs/Download_Dataset.md)** - EuRoC dataset download and preparation
 
-### Step 1-1: Clone the Repository
+Automated scripts and manual download options for the EuRoC MAV dataset. Includes dataset structure and sequence recommendations.
 
-```bash
-git clone https://github.com/93won/lightweight_vo.git
-cd lightweight_vo
-```
+## Running the Application
 
-### Step 1-2: Run the Build Script
+🚀 **[Running Examples](docs/Running_Example.md)** - Usage examples and performance analysis
 
-The provided `build.sh` script will automatically install system dependencies (like OpenCV, Eigen, etc.) and then build the third-party libraries (Ceres, Pangolin) and the main application.
-
-```bash
-chmod +x build.sh
-./build.sh
-```
-
-### Step 1-3: Prepare the EuRoC Dataset
-
-
-First, download the dataset on your host machine. The repository includes a convenience script to download all EuRoC MAV datasets (11 sequences total).
-
-```bash
-chmod +x script/download_euroc.sh
-./script/download_euroc.sh /path/of/dataset
-```
-This will download all sequences into a `/path/of/dataset` directory at the root of the project. This directory will be mounted into the Docker container.
-
-### Step 1-4: Run the Application
-
-After the build is complete, you can run the unified stereo pipeline with a EuRoC dataset. The system mode (VO or VIO) is configured through the YAML configuration file. You need to provide the configuration file path and the dataset path as arguments.
-
-#### Running Example
-```bash
-./build/euroc_stereo <config_file_path> <euroc_dataset_path>
-```
-
-**Examples:**
-
-**Visual Odometry (VO) Mode:**
-```bash
-./build/euroc_stereo config/euroc_vo.yaml /path/to/your/EuRoC/MH_01_easy
-```
-
-**Visual-Inertial Odometry (VIO) Mode:**
-```bash
-./build/euroc_stereo config/euroc_vio.yaml /path/to/your/EuRoC/MH_01_easy
-```
-
-The mode is automatically determined by the `system_mode.mode` setting in the YAML configuration file:
-- `euroc_vo.yaml`: Contains `system_mode.mode: "VO"` for Visual Odometry
-- `euroc_vio.yaml`: Contains `system_mode.mode: "VIO"` for Visual-Inertial Odometry
-
----
-
-### 2. Docker Usage
-
-Using Docker is the recommended method as it provides a self-contained, consistent environment. The `docker.sh` script simplifies the process.
-
-### Step 2-1: Prepare the EuRoC Dataset
-
-
-First, download the dataset on your host machine. The repository includes a convenience script to download all EuRoC MAV datasets (11 sequences total).
-
-```bash
-chmod +x script/download_euroc.sh
-./script/download_euroc.sh /path/of/dataset
-```
-This will download all sequences into a `/path/of/dataset` directory at the root of the project. This directory will be mounted into the Docker container.
-
-
-### Step 2-2: Build the Docker Image
-
-This command builds a Docker image named `lightweight-vio:latest` with all necessary dependencies and source code.
-
-```bash
-./docker.sh build
-```
-
-### Step 2-3: Run the Application in a Container
-
-This command runs the application inside a new container. It mounts your local dataset directory into the container (read-only) and forwards your X11 display for the Pangolin viewer.
-
-You can specify `vo` or `vio` as the first argument to choose which configuration mode to run.
-
-#### Running the VO
-```bash
-./docker.sh run vo /path/of/dataset/EuRoC/MH_01_easy
-```
-
-#### Running the VIO
-```bash
-./docker.sh run vio /path/of/dataset/EuRoC/MH_01_easy
-```
-
-The container will automatically execute the `euroc_stereo` application with the appropriate config file (`euroc_vo.yaml` or `euroc_vio.yaml`) and the provided dataset.
+Comprehensive guide for running VIO/VO modes with Docker or native builds. Includes output analysis and EVO evaluation.
 
 ## Performance Analysis and Evaluation
 
-The application automatically performs a comprehensive analysis of the results and outputs detailed statistics to the console and a file (e.g., `statistics_vio.txt` or `statistics_vo.txt`) upon completion.
+The application automatically performs comprehensive analysis and outputs detailed statistics upon completion, including:
 
-### 1. Built-in Analysis Features
+- **Timing Analysis**: Processing times and frame rates
+- **Velocity Analysis**: Linear and angular velocity statistics
+- **Transform Error Analysis**: Frame-to-frame pose error metrics
+- **Trajectory Output**: TUM format files compatible with [EVO](https://github.com/MichaelGrupp/evo) evaluation tool
 
-**1-1. Timing Analysis** 
-- Measures frame processing times throughout the entire sequence.
-- Reports average processing time (ms) and frame rate (fps).
-
-**1-2. Velocity Analysis**
-- Calculates the linear (m/s) and angular (rad/s) velocities between consecutive frames.
-- Provides statistical metrics: mean, median, min, and max.
-
-**1-3. Frame-to-Frame Transform Error Analysis**
-- Compares the relative pose between consecutive frames against the ground truth.
-- Provides statistical metrics for rotation (°) and translation (m) errors: mean, median, min, max, and RMSE.
-
-**1-4. Trajectory Output**
-- Saves both the estimated and ground truth trajectories in TUM format (e.g., `estimated_trajectory_vio.txt`, `ground_truth_vio.txt` or `estimated_trajectory_vo.txt`, `ground_truth_vo.txt`).
-- These files are fully compatible with external evaluation tools like EVO.
-
-### 2. Example Output
-
-Here is an example of the statistics file generated by the application:
-
+### Example Output
 ```
-════════════════════════════════════════════════════════════════════
-                          STATISTICS (VIO)                          
-════════════════════════════════════════════════════════════════════
-
-                          TIMING ANALYSIS                           
-════════════════════════════════════════════════════════════════════
- Total Frames Processed: 3638
- Average Processing Time: 10.35ms
- Average Frame Rate: 96.7fps
-
-                          VELOCITY ANALYSIS                         
-════════════════════════════════════════════════════════════════════
-                        LINEAR VELOCITY (m/s)                       
- Mean      :     0.4334m/s
- Median    :     0.4343m/s
- Minimum   :     0.0000m/s
- Maximum   :     2.0516m/s
-
-                       ANGULAR VELOCITY (rad/s)                     
- Mean      :     0.1803rad/s
- Median    :     0.1377rad/s
- Minimum   :     0.0001rad/s
- Maximum   :     0.9426rad/s
-
-               FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS              
-════════════════════════════════════════════════════════════════════
- Total Frame Pairs Analyzed: 3637 (all_frames: 3638, gt_poses: 3638)
- Frame precision: 32 bit floats
-
-                     ROTATION ERROR STATISTICS                    
- Mean      :     0.0516°
- Median    :     0.0494°
- Minimum   :     0.0003°
- Maximum   :     0.1808°
- RMSE      :     0.0609°
-
-                   TRANSLATION ERROR STATISTICS                   
- Mean      :   0.001734m
- Median    :   0.001518m
- Minimum   :   0.000006m
- Maximum   :   0.008671m
- RMSE      :   0.002200m
-
-════════════════════════════════════════════════════════════════════
+[2025-09-16 14:14:28.685] [info] ════════════════════════════════════════════════════════════════════
+[2025-09-16 14:14:28.685] [info]                           STATISTICS (VIO)                          
+[2025-09-16 14:14:28.685] [info] ════════════════════════════════════════════════════════════════════
+[2025-09-16 14:14:28.685] [info] 
+[2025-09-16 14:14:28.685] [info]                           TIMING ANALYSIS                           
+[2025-09-16 14:14:28.685] [info] ════════════════════════════════════════════════════════════════════
+[2025-09-16 14:14:28.685] [info]  Total Frames Processed: 2221
+[2025-09-16 14:14:28.685] [info]  Average Processing Time: 9.29ms
+[2025-09-16 14:14:28.685] [info]  Average Frame Rate: 107.7fps
+[2025-09-16 14:14:28.685] [info] 
+[2025-09-16 14:14:28.685] [info]                           VELOCITY ANALYSIS                         
+[2025-09-16 14:14:28.685] [info] ════════════════════════════════════════════════════════════════════
+[2025-09-16 14:14:28.685] [info]                         LINEAR VELOCITY (m/s)                       
+[2025-09-16 14:14:28.685] [info]  Mean      :     0.8702m/s
+[2025-09-16 14:14:28.685] [info]  Median    :     0.8914m/s
+[2025-09-16 14:14:28.685] [info]  Minimum   :     0.0001m/s
+[2025-09-16 14:14:28.685] [info]  Maximum   :     3.0937m/s
+[2025-09-16 14:14:28.685] [info] 
+[2025-09-16 14:14:28.685] [info]                        ANGULAR VELOCITY (rad/s)                     
+[2025-09-16 14:14:28.685] [info]  Mean      :     0.1780rad/s
+[2025-09-16 14:14:28.685] [info]  Median    :     0.1217rad/s
+[2025-09-16 14:14:28.685] [info]  Minimum   :     0.0004rad/s
+[2025-09-16 14:14:28.685] [info]  Maximum   :     1.1003rad/s
+[2025-09-16 14:14:28.685] [info] 
+[2025-09-16 14:14:28.685] [info]                FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS              
+[2025-09-16 14:14:28.685] [info] ════════════════════════════════════════════════════════════════════
+[2025-09-16 14:14:28.685] [info]  Total Frame Pairs Analyzed: 2220 (all_frames: 2221, gt_poses: 2221)
+[2025-09-16 14:14:28.685] [info]  Frame precision: 32 bit floats
+[2025-09-16 14:14:28.685] [info] 
+[2025-09-16 14:14:28.685] [info]                      ROTATION ERROR STATISTICS                    
+[2025-09-16 14:14:28.685] [info]  Mean      :     0.0851°
+[2025-09-16 14:14:28.685] [info]  Median    :     0.0803°
+[2025-09-16 14:14:28.685] [info]  Minimum   :     0.0007°
+[2025-09-16 14:14:28.685] [info]  Maximum   :     0.2947°
+[2025-09-16 14:14:28.685] [info]  RMSE      :     0.0997°
+[2025-09-16 14:14:28.685] [info] 
+[2025-09-16 14:14:28.685] [info]                    TRANSLATION ERROR STATISTICS                   
+[2025-09-16 14:14:28.685] [info]  Mean      :   0.004201m
+[2025-09-16 14:14:28.685] [info]  Median    :   0.003513m
+[2025-09-16 14:14:28.685] [info]  Minimum   :   0.000011m
+[2025-09-16 14:14:28.685] [info]  Maximum   :   0.053683m
+[2025-09-16 14:14:28.685] [info]  RMSE      :   0.005488m
+[2025-09-16 14:14:28.685] [info] ════════════════════════════════════════════════════════════════════
+[2025-09-16 14:14:28.685] [info] [EurocPlayer] Processing completed! Click 'Finish & Exit' to close.
 ```
 
-### 3. External Evaluation with EVO
-
-For more comprehensive trajectory evaluation, you can use the [EVO (Python package for the evaluation of odometry and SLAM)](https://github.com/MichaelGrupp/evo) tool with the generated trajectory files.
-
-**Installation:**
-```bash
-pip install evo
-```
-
-**Example Usage:**
-```bash
-# Compare estimated trajectory against ground truth using Relative Pose Error (RPE)
-evo_rpe tum ground_truth.txt estimated_trajectory.txt --plot --save_results results/
-
-# Compare using Absolute Pose Error (APE) 
-evo_ape tum ground_truth.txt estimated_trajectory.txt --plot --save_results results/
-
-# Generate trajectory plots
-evo_traj tum ground_truth.txt estimated_trajectory.txt --plot --save_plot trajectory_comparison.pdf
-```
-
-The TUM format trajectory files generated by the application are fully compatible with EVO's evaluation metrics and visualization tools.
+See [Running Examples](docs/Running_Example.md) for complete output analysis details.
 
 ## Project Structure
 
 The source code is organized into the following directories:
 
-- `app/`: Main application entry points (`euroc_stereo_vo.cpp`, `euroc_stereo_vio.cpp`).
+- `app/`: Main application entry points
 - `src/`:
-  - `database/`: Data structures for `Frame` (including IMU data), `MapPoint`, and `Feature`.
-  - `processing/`: Core VIO modules, including `Estimator`, `FeatureTracker`, `IMUHandler` (pre-integration), and `Optimizer` (sliding window optimization).
-  - `optimization/`: Ceres Solver cost functions (`Factors`) for visual reprojection errors and IMU pre-integration constraints.
-  - `viewer/`: Pangolin-based visualization.
-  - `util/`: Utility functions for configuration and data loading.
-- `thirdparty/`: External libraries (Ceres, Pangolin, Sophus, spdlog).
-- `config/`: Configuration files for VO and VIO.
-- `scripts/`: Helper scripts for downloading datasets and running Docker.
+  - `database/`: Data structures for `Frame` (including IMU data), `MapPoint`, and `Feature`
+  - `processing/`: Core VIO modules, including `Estimator`, `FeatureTracker`, `IMUHandler`, and `Optimizer`
+  - `optimization/`: Ceres Solver cost functions for visual reprojection errors and IMU pre-integration constraints
+  - `viewer/`: Pangolin-based visualization
+  - `util/`: Utility functions for configuration and data loading
+- `thirdparty/`: External libraries (Ceres, Pangolin, Sophus, spdlog)
+- `config/`: Configuration files for VO and VIO modes
+- `docs/`: Detailed documentation guides
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues and pull requests.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Citation
+
+If you use this work in your research, please cite:
+
+```bibtex
+@misc{lightweight_vo,
+  title={Lightweight Stereo Visual-Inertial Odometry},
+  author={Your Name},
+  year={2024},
+  url={https://github.com/93won/lightweight_vo}
+}
+```
