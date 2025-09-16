@@ -27,10 +27,8 @@ bool Config::load(const std::string& config_file) {
     // Performance Parameters - Load first to control debug output
     cv::FileNode performance = fs["performance"];
     if (!performance.empty()) {
-        auto enable_timing_node = performance["enable_timing"];
         auto enable_debug_output_node = performance["enable_debug_output"];
         
-        m_enable_timing = (bool)(int)enable_timing_node;
         m_enable_debug_output = (bool)(int)enable_debug_output_node;
     }
     

@@ -134,7 +134,6 @@ namespace lightweight_vio
         int m_border_size = 1;
 
         // Performance Parameters
-        bool m_enable_timing = true;
         bool m_enable_debug_output = false;
 
         // System Mode Parameters

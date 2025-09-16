@@ -10,10 +10,12 @@ system_mode:
 # Viewer Configuration
 # Controls 3D visualization using Pangolin
 viewer:
-  enable: 1                      # Enable/disable 3D viewer (0=false, 1=true)
+  enable: 0                      # Enable/disable 3D viewer (0=false, 1=true)
   width: 1920                    # Viewer window width (pixels)
   height: 1080                   # Viewer window height (pixels)
-  
+
+performance:
+  enable_debug_output: 0 # Print debug messages and feature counts
 
 # Camera Parameters (EuRoC dataset specific)
 # Image dimensions and processing parameters
@@ -103,7 +105,7 @@ depth:
 optimization:
   # PnP Optimization Parameters
   pnp_max_iterations: 10               # Maximum optimization iterations for PnP
-  pnp_information_matrix_mode: "reprojection_error"  # Options: "observation_count", "reprojection_error"
+  pnp_information_matrix_mode: "none"  # Options: "observation_count", "reprojection_error"
   # Removed pnp_max_observation_weight - now using logarithmic scaling based on keyframe_window_size
 
   sliding_window_max_iterations: 10 # Maximum optimization iterations for sliding window
@@ -141,12 +143,4 @@ imu_noise:
 
 
 
-
-# Performance Parameters
-# Debug and timing control flags
-performance:
-  # Print timing information for performance analysis
-  enable_timing: 1         
-  # Print debug messages and feature counts
-  enable_debug_output: 1
 

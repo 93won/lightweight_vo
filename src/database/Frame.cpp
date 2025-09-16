@@ -1003,7 +1003,7 @@ void Frame::triangulate_stereo_points() {
             double max_error_pixels = max_error * std::min(K_left_eigen(0,0), K_left_eigen(1,1));
             
             // Use normalized coordinate reprojection threshold
-            double max_reproj_error = sqrt(5.991) / std::min(K_left_eigen(0,0), K_left_eigen(1,1));
+            double max_reproj_error = sqrt(1.0) / std::min(K_left_eigen(0,0), K_left_eigen(1,1));
             
             if (max_error > max_reproj_error) {
                 reprojection_rejected++;

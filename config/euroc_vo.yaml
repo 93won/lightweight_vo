@@ -14,7 +14,8 @@ viewer:
   width: 1920                    # Viewer window width (pixels)
   height: 1080                   # Viewer window height (pixels)
   
-
+performance:
+  enable_debug_output: 1  # Print debug messages and feature counts
 
 # Camera Parameters (EuRoC dataset specific)
 # Image dimensions and processing parameters
@@ -119,10 +120,4 @@ optimization:
   
   # Information weighting parameters - now using logarithmic scaling (saturation_point=20)
   # Removed pnp_max_observation_weight and sliding_window_max_observation_weight
-
-# Performance Parameters
-# Debug and timing control flags
-performance:
-  enable_timing: 1         # Print timing information for performance analysis
-  enable_debug_output: 1  # Print debug messages and feature counts
 
