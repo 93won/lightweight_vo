@@ -4,16 +4,10 @@ This is a lightweight stereo visual-inertial odometry (VIO) project designed for
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the 🚀MIT License🚀 - see the [LICENSE](LICENSE) file for details.
 
 ## Demo
 [![Stereo VIO Demo](https://img.youtube.com/vi/41o9R-rKQ1s/0.jpg)](https://youtu.be/41o9R-rKQ1s)
-
-## To-Do List
-
-- [x] **IMU Integration**: Incorporate IMU data to create a more robust Visual-Inertial Odometry (VIO) system, improving accuracy and handling of fast motions.
-- [ ] **Fisheye Camera Support**: Add support for fisheye camera models and distortion correction for wide-angle stereo setups.
-- [ ] **Embedded Environment Testing**: Test and optimize performance on embedded platforms like Jetson Nano, NUC, and other resource-constrained devices.
 
 ## Installation
 
