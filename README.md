@@ -2,22 +2,8 @@
 
 This is a lightweight stereo visual-inertial odometry (VIO) project designed for real-time performance. It utilizes feature tracking, IMU pre-integration, sliding window optimization with Ceres Solver, and Pangolin for visualization.
 
-## Features
-
-- Stereo vision-based visual-inertial odometry
-- IMU pre-integration for robust state estimation
-- Sliding window optimization using Ceres Solver
-- Real-time visualization with Pangolin
-- Docker support for easy deployment and testing
-
 ## Demo
 [![Stereo VIO Demo](https://img.youtube.com/vi/qdnn4ShEpTA/0.jpg)](https://youtu.be/qdnn4ShEpTA)
-
-## To-Do List
-
-- [x] **IMU Integration**: Incorporate IMU data to create a more robust Visual-Inertial Odometry (VIO) system, improving accuracy and handling of fast motions.
-- [ ] **Fisheye Camera Support**: Add support for fisheye camera models and distortion correction for wide-angle stereo setups.
-- [ ] **Embedded Environment Testing**: Test and optimize performance on embedded platforms like Jetson Nano, NUC, and other resource-constrained devices.
 
 ## Installation
 
@@ -39,62 +25,9 @@ Comprehensive guide for running VIO/VO modes with Docker or native builds. Inclu
 
 ## Performance Analysis and Evaluation
 
-The application automatically performs comprehensive analysis and outputs detailed statistics upon completion, including:
+📊 **[Performance Analysis Guide](docs/Performance_Analysis.md)** - Comprehensive performance evaluation and benchmarking
 
-- **Timing Analysis**: Processing times and frame rates
-- **Velocity Analysis**: Linear and angular velocity statistics
-- **Transform Error Analysis**: Frame-to-frame pose error metrics
-- **Trajectory Output**: TUM format files compatible with [EVO](https://github.com/MichaelGrupp/evo) evaluation tool
-
-### Example Output
-```
-[2025-09-16 14:14:28.685] [info] ════════════════════════════════════════════════════════════════════
-[2025-09-16 14:14:28.685] [info]                           STATISTICS (VIO)                          
-[2025-09-16 14:14:28.685] [info] ════════════════════════════════════════════════════════════════════
-[2025-09-16 14:14:28.685] [info] 
-[2025-09-16 14:14:28.685] [info]                           TIMING ANALYSIS                           
-[2025-09-16 14:14:28.685] [info] ════════════════════════════════════════════════════════════════════
-[2025-09-16 14:14:28.685] [info]  Total Frames Processed: 2221
-[2025-09-16 14:14:28.685] [info]  Average Processing Time: 9.29ms
-[2025-09-16 14:14:28.685] [info]  Average Frame Rate: 107.7fps
-[2025-09-16 14:14:28.685] [info] 
-[2025-09-16 14:14:28.685] [info]                           VELOCITY ANALYSIS                         
-[2025-09-16 14:14:28.685] [info] ════════════════════════════════════════════════════════════════════
-[2025-09-16 14:14:28.685] [info]                         LINEAR VELOCITY (m/s)                       
-[2025-09-16 14:14:28.685] [info]  Mean      :     0.8702m/s
-[2025-09-16 14:14:28.685] [info]  Median    :     0.8914m/s
-[2025-09-16 14:14:28.685] [info]  Minimum   :     0.0001m/s
-[2025-09-16 14:14:28.685] [info]  Maximum   :     3.0937m/s
-[2025-09-16 14:14:28.685] [info] 
-[2025-09-16 14:14:28.685] [info]                        ANGULAR VELOCITY (rad/s)                     
-[2025-09-16 14:14:28.685] [info]  Mean      :     0.1780rad/s
-[2025-09-16 14:14:28.685] [info]  Median    :     0.1217rad/s
-[2025-09-16 14:14:28.685] [info]  Minimum   :     0.0004rad/s
-[2025-09-16 14:14:28.685] [info]  Maximum   :     1.1003rad/s
-[2025-09-16 14:14:28.685] [info] 
-[2025-09-16 14:14:28.685] [info]                FRAME-TO-FRAME TRANSFORM ERROR ANALYSIS              
-[2025-09-16 14:14:28.685] [info] ════════════════════════════════════════════════════════════════════
-[2025-09-16 14:14:28.685] [info]  Total Frame Pairs Analyzed: 2220 (all_frames: 2221, gt_poses: 2221)
-[2025-09-16 14:14:28.685] [info]  Frame precision: 32 bit floats
-[2025-09-16 14:14:28.685] [info] 
-[2025-09-16 14:14:28.685] [info]                      ROTATION ERROR STATISTICS                    
-[2025-09-16 14:14:28.685] [info]  Mean      :     0.0851°
-[2025-09-16 14:14:28.685] [info]  Median    :     0.0803°
-[2025-09-16 14:14:28.685] [info]  Minimum   :     0.0007°
-[2025-09-16 14:14:28.685] [info]  Maximum   :     0.2947°
-[2025-09-16 14:14:28.685] [info]  RMSE      :     0.0997°
-[2025-09-16 14:14:28.685] [info] 
-[2025-09-16 14:14:28.685] [info]                    TRANSLATION ERROR STATISTICS                   
-[2025-09-16 14:14:28.685] [info]  Mean      :   0.004201m
-[2025-09-16 14:14:28.685] [info]  Median    :   0.003513m
-[2025-09-16 14:14:28.685] [info]  Minimum   :   0.000011m
-[2025-09-16 14:14:28.685] [info]  Maximum   :   0.053683m
-[2025-09-16 14:14:28.685] [info]  RMSE      :   0.005488m
-[2025-09-16 14:14:28.685] [info] ════════════════════════════════════════════════════════════════════
-[2025-09-16 14:14:28.685] [info] [EurocPlayer] Processing completed! Click 'Finish & Exit' to close.
-```
-
-See [Running Examples](docs/Running_Example.md) for complete output analysis details.
+Built-in timing, velocity, and error analysis with TUM format output. Includes EVO evaluation toolkit integration and benchmarking guidelines.
 
 ## Project Structure
 
@@ -119,15 +52,21 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Citation
+## References
 
-If you use this work in your research, please cite:
+This project's IMU pre-integration implementation is based on the following paper:
 
 ```bibtex
-@misc{lightweight_vo,
-  title={Lightweight Stereo Visual-Inertial Odometry},
-  author={Your Name},
-  year={2024},
-  url={https://github.com/93won/lightweight_vo}
+@article{forster2016manifold,
+  author = {Forster, Christian and Carlone, Luca and Dellaert, Frank and Scaramuzza, Davide},
+  year = {2016},
+  month = {08},
+  title = {On-Manifold Preintegration for Real-Time Visual-Inertial Odometry},
+  volume = {33},
+  journal = {IEEE Transactions on Robotics},
+  doi = {10.1109/TRO.2016.2597321}
 }
 ```
+
+
+
