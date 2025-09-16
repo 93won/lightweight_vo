@@ -19,7 +19,7 @@ This project is licensed under the 🚀MIT License🚀 - see the [LICENSE](LICEN
 
 ## Running the Application
 
-🚀 **[Running Examples](docs/Running_Example.md)** - Usage examples and performance analysis
+🚀 **[Running Examples](docs/Running_Example.md)** - Usage examples
 
 ## Performance Analysis and Evaluation
 
